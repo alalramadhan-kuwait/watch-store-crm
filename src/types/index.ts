@@ -85,6 +85,7 @@ export interface AppSettings {
   followUpActions: string[];
   channels: string[];
   managerPin: string;
+  staffPin: string;
 }
 
 export interface DayStats {

@@ -4,6 +4,7 @@ import { format } from 'date-fns';
 import { NavBar } from './components/layout/NavBar';
 import { TopBar } from './components/layout/TopBar';
 import { ManagerLogin } from './components/layout/ManagerGate';
+import { StaffGate } from './components/layout/StaffGate';
 import { QuickEntry } from './components/QuickEntry';
 import { TodayLog } from './components/TodayLog';
 import { FollowUps } from './components/FollowUps';
@@ -56,6 +57,7 @@ export default function App() {
   }, []);
 
   return (
+    <StaffGate>
     <div className="min-h-screen bg-slate-50">
       <ToastContainer />
       <TopBar />
@@ -89,5 +91,6 @@ export default function App() {
 
       <NavBar />
     </div>
+    </StaffGate>
   );
 }

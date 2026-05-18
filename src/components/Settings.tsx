@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useLiveQuery } from 'dexie-react-hooks';
-import { Plus, Trash2, LogOut, KeyRound } from 'lucide-react';
+import { Plus, Trash2, LogOut, KeyRound, ShieldCheck } from 'lucide-react';
 import { getSettings, saveSettings } from '../db';
 import { useAppStore } from '../store';
 import { ConfirmModal } from './shared/Modal';
@@ -18,6 +18,11 @@ export function Settings() {
   const [pinNew, setPinNew] = useState('');
   const [pinConfirm, setPinConfirm] = useState('');
   const [pinError, setPinError] = useState('');
+
+  const [staffCodeNew, setStaffCodeNew] = useState('');
+  const [staffCodeConfirm, setStaffCodeConfirm] = useState('');
+  const [staffCodeError, setStaffCodeError] = useState('');
+
   const [showDeleteStaff, setShowDeleteStaff] = useState<string | null>(null);
 
   if (!settings) return null;
@@ -43,6 +48,16 @@ export function Settings() {
     const current = settings[field] as string[];
     await saveSettings({ [field]: current.filter(v => v !== value) });
     showToast('Removed.', 'info');
+  }
+
+  async function handleChangeStaffCode() {
+    setStaffCodeError('');
+    if (!settings) return;
+    if (staffCodeNew.length < 4) { setStaffCodeError('Code must be at least 4 characters.'); return; }
+    if (staffCodeNew !== staffCodeConfirm) { setStaffCodeError('Codes don\'t match.'); return; }
+    await saveSettings({ staffPin: staffCodeNew });
+    setStaffCodeNew(''); setStaffCodeConfirm('');
+    showToast('Staff code updated.', 'success');
   }
 
   async function handleChangePin() {
@@ -111,6 +126,41 @@ export function Settings() {
         onRemove={v => removeItem('channels', v)}
         placeholder="New channel"
       />
+
+      {/* Change Staff Access Code */}
+      <div className="card p-5">
+        <div className="flex items-center gap-2 mb-4">
+          <ShieldCheck className="w-5 h-5 text-brand-700" />
+          <h2 className="font-bold text-slate-900">Change Staff Access Code</h2>
+        </div>
+        <p className="text-xs text-slate-500 mb-3">This code is required to open the app.</p>
+        <div className="space-y-3">
+          <div>
+            <label className="label">New Code (min 4 characters)</label>
+            <input
+              type="password"
+              value={staffCodeNew}
+              onChange={e => setStaffCodeNew(e.target.value)}
+              placeholder="New access code"
+              className="input"
+              autoComplete="off"
+            />
+          </div>
+          <div>
+            <label className="label">Confirm New Code</label>
+            <input
+              type="password"
+              value={staffCodeConfirm}
+              onChange={e => setStaffCodeConfirm(e.target.value)}
+              placeholder="Repeat code"
+              className="input"
+              autoComplete="off"
+            />
+          </div>
+          {staffCodeError && <p className="text-rose-500 text-sm">{staffCodeError}</p>}
+          <button onClick={handleChangeStaffCode} className="btn-primary w-full">Update Staff Code</button>
+        </div>
+      </div>
 
       {/* Change PIN */}
       <div className="card p-5">

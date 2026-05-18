@@ -36,7 +36,14 @@ db.on('ready', async () => {
       followUpActions: FOLLOWUP_ACTIONS_DEFAULT,
       channels: CHANNELS_DEFAULT,
       managerPin: '1234',
+      staffPin: 'TK2018',
     });
+  } else {
+    // Migrate existing records that don't have staffPin
+    const rec = (await db.settings.toArray())[0];
+    if (!rec.staffPin) {
+      await db.settings.update(rec.id!, { staffPin: 'TK2018' });
+    }
   }
 });
 
@@ -49,8 +56,9 @@ export async function getSettings(): Promise<AppSettings> {
       followUpActions: FOLLOWUP_ACTIONS_DEFAULT,
       channels: CHANNELS_DEFAULT,
       managerPin: '1234',
+      staffPin: 'TK2018',
     });
-    return { id, staffRoster: STAFF_DEFAULT, lostReasons: LOST_REASONS_DEFAULT, followUpActions: FOLLOWUP_ACTIONS_DEFAULT, channels: CHANNELS_DEFAULT, managerPin: '1234' };
+    return { id, staffRoster: STAFF_DEFAULT, lostReasons: LOST_REASONS_DEFAULT, followUpActions: FOLLOWUP_ACTIONS_DEFAULT, channels: CHANNELS_DEFAULT, managerPin: '1234', staffPin: 'TK2018' };
   }
   return s[0];
 }
