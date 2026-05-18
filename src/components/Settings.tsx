@@ -157,10 +157,10 @@ export function Settings() {
         </div>
       </div>
 
-      {/* App info */}
-      <div className="text-center text-xs text-slate-400 pb-4">
-        <p>Watch Store Daily Log · v1.0</p>
-        <p className="mt-1">Default manager PIN: <span className="font-mono">1234</span></p>
+      {/* Brand footer */}
+      <div className="flex flex-col items-center pb-4 gap-1">
+        <img src={`${import.meta.env.BASE_URL}tk-logo-text.png`} alt="TIME KEEPER" className="w-36 object-contain opacity-60" />
+        <p className="text-xs text-slate-400">Default manager PIN: <span className="font-mono font-medium">1234</span></p>
       </div>
 
       <ConfirmModal

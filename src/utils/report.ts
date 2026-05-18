@@ -30,16 +30,35 @@ export function generatePDF(date: string, cases: Case[]): string {
 
   const displayDate = format(new Date(date + 'T12:00:00'), 'd MMMM yyyy');
 
-  // Header
-  doc.setFillColor(15, 118, 110); // brand-700
-  doc.rect(0, 0, 210, 32, 'F');
+  // Header — TK brand bar (black, minimal luxury)
+  doc.setFillColor(10, 10, 10);
+  doc.rect(0, 0, 210, 28, 'F');
+
+  // TK wordmark — uppercase thin tracking
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(20);
-  doc.setFont('helvetica', 'bold');
-  doc.text('Watch Store — Daily Report', 14, 14);
-  doc.setFontSize(12);
+  doc.setFontSize(15);
   doc.setFont('helvetica', 'normal');
-  doc.text(displayDate, 14, 24);
+  doc.setCharSpace(3);
+  doc.text('TIME KEEPER', 14, 11);
+  doc.setFontSize(7);
+  doc.setCharSpace(2);
+  doc.setTextColor(180, 180, 180);
+  doc.text('EST. 2018', 14, 17);
+
+  // Right side: report label + date
+  doc.setCharSpace(1);
+  doc.setFontSize(8);
+  doc.setTextColor(200, 200, 200);
+  doc.text('DAILY REPORT', 196, 11, { align: 'right' });
+  doc.setFontSize(10);
+  doc.setTextColor(255, 255, 255);
+  doc.setFont('helvetica', 'bold');
+  doc.setCharSpace(0);
+  doc.text(displayDate, 196, 20, { align: 'right' });
+
+  // Thin accent line below header
+  doc.setFillColor(15, 118, 110);
+  doc.rect(0, 28, 210, 1.5, 'F');
 
   // KPI tiles
   doc.setTextColor(30, 41, 59);
@@ -51,7 +70,7 @@ export function generatePDF(date: string, cases: Case[]): string {
     { label: 'Conversion', value: `${convRate}%` },
   ];
   let kpiX = 14;
-  const kpiY = 40;
+  const kpiY = 38;
   const kpiW = 36;
   for (const kpi of kpis) {
     doc.setFillColor(240, 253, 250);
@@ -113,14 +132,18 @@ export function generatePDF(date: string, cases: Case[]): string {
     columnStyles: { 5: { halign: 'right' } },
   });
 
-  // Footer
+  // Footer — TK brand footer bar
   const pageH = doc.internal.pageSize.height;
-  doc.setFontSize(8);
-  doc.setTextColor(148, 163, 184);
-  doc.text(
-    `Generated ${format(new Date(), 'dd MMM yyyy HH:mm')} · Watch Store Daily Log`,
-    105, pageH - 8, { align: 'center' }
-  );
+  doc.setFillColor(10, 10, 10);
+  doc.rect(0, pageH - 12, 210, 12, 'F');
+  doc.setFontSize(7);
+  doc.setFont('helvetica', 'normal');
+  doc.setCharSpace(1.5);
+  doc.setTextColor(180, 180, 180);
+  doc.text('TIME KEEPER', 14, pageH - 5);
+  doc.setCharSpace(0);
+  doc.setTextColor(120, 120, 120);
+  doc.text(`Generated ${format(new Date(), 'dd MMM yyyy HH:mm')}`, 196, pageH - 5, { align: 'right' });
 
   return doc.output('datauristring');
 }

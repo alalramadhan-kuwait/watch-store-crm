@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Lock } from 'lucide-react';
 import { getSettings } from '../../db';
 import { useAppStore } from '../../store';
 
@@ -36,14 +35,17 @@ export function ManagerLogin() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-slate-50 px-6 pb-20">
+    <div className="min-h-screen flex flex-col items-center justify-center bg-white px-6 pb-20">
       <div className="w-full max-w-xs">
-        <div className="flex flex-col items-center mb-8">
-          <div className="w-16 h-16 bg-brand-700 rounded-3xl flex items-center justify-center mb-4 shadow-lg shadow-brand-700/25">
-            <Lock className="w-8 h-8 text-white" />
-          </div>
-          <h1 className="text-2xl font-bold text-slate-900">Manager Access</h1>
-          <p className="text-slate-500 text-sm mt-1">Enter your PIN to continue</p>
+        {/* TK Brand */}
+        <div className="flex flex-col items-center mb-10">
+          <img
+            src={`${import.meta.env.BASE_URL}tk-logo.png`}
+            alt="TIME KEEPER"
+            className="w-44 h-44 object-contain"
+          />
+          <p className="tk-sub text-[10px] text-slate-400 tracking-widest mt-1">Manager Access</p>
+          <div className="w-8 h-px bg-slate-200 mt-3" />
         </div>
 
         <form onSubmit={handleSubmit} className="card p-6">

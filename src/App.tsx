@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { NavBar } from './components/layout/NavBar';
+import { TopBar } from './components/layout/TopBar';
 import { ManagerLogin } from './components/layout/ManagerGate';
 import { QuickEntry } from './components/QuickEntry';
 import { TodayLog } from './components/TodayLog';
@@ -57,9 +58,10 @@ export default function App() {
   return (
     <div className="min-h-screen bg-slate-50">
       <ToastContainer />
+      <TopBar />
 
-      {/* Main content area with bottom padding for NavBar */}
-      <main className="min-h-screen">
+      {/* Main content area — padded for TopBar (top) and NavBar (bottom) */}
+      <main className="min-h-screen pt-14">
         <Routes>
           <Route path="/" element={<QuickEntry />} />
           <Route path="/today" element={<TodayLog />} />

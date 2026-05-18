@@ -16,6 +16,20 @@
   }
 }
 
+/* TIME KEEPER brand typography */
+.tk-wordmark {
+  font-family: 'Josefin Sans', sans-serif;
+  font-weight: 100;
+  letter-spacing: 0.35em;
+  text-transform: uppercase;
+}
+.tk-sub {
+  font-family: 'Josefin Sans', sans-serif;
+  font-weight: 200;
+  letter-spacing: 0.25em;
+  text-transform: uppercase;
+}
+
 @layer components {
   .btn-primary {
     @apply bg-brand-700 text-white font-semibold px-5 py-3 rounded-xl active:scale-95 transition-all duration-100 touch-manipulation select-none;
