@@ -1,0 +1,82 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+    -webkit-touch-callout: none;
+  }
+  body {
+    @apply bg-slate-50 text-slate-900 antialiased;
+    overscroll-behavior: none;
+  }
+  * {
+    -webkit-font-smoothing: antialiased;
+  }
+}
+
+@layer components {
+  .btn-primary {
+    @apply bg-brand-700 text-white font-semibold px-5 py-3 rounded-xl active:scale-95 transition-all duration-100 touch-manipulation select-none;
+  }
+  .btn-secondary {
+    @apply bg-white text-brand-700 border-2 border-brand-700 font-semibold px-5 py-3 rounded-xl active:scale-95 transition-all duration-100 touch-manipulation select-none;
+  }
+  .btn-ghost {
+    @apply text-slate-600 font-medium px-4 py-2 rounded-xl active:bg-slate-100 transition-all duration-100 touch-manipulation select-none;
+  }
+  .btn-danger {
+    @apply bg-rose-600 text-white font-semibold px-5 py-3 rounded-xl active:scale-95 transition-all duration-100 touch-manipulation select-none;
+  }
+  .card {
+    @apply bg-white rounded-2xl shadow-sm border border-slate-100;
+  }
+  .input {
+    @apply w-full bg-white border border-slate-200 rounded-xl px-4 py-3 text-slate-900 text-base focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent transition-all;
+  }
+  .input-error {
+    @apply border-rose-400 focus:ring-rose-400;
+  }
+  .label {
+    @apply block text-sm font-semibold text-slate-600 mb-1.5;
+  }
+  .type-btn {
+    @apply flex-1 flex flex-col items-center justify-center gap-1 py-4 rounded-2xl border-2 font-semibold text-sm transition-all duration-150 touch-manipulation select-none active:scale-95;
+  }
+  .type-btn-sale {
+    @apply border-emerald-200 text-emerald-700 bg-emerald-50;
+  }
+  .type-btn-sale-active {
+    @apply border-emerald-500 bg-emerald-500 text-white shadow-md;
+  }
+  .type-btn-followup {
+    @apply border-amber-200 text-amber-700 bg-amber-50;
+  }
+  .type-btn-followup-active {
+    @apply border-amber-500 bg-amber-500 text-white shadow-md;
+  }
+  .type-btn-lost {
+    @apply border-rose-200 text-rose-700 bg-rose-50;
+  }
+  .type-btn-lost-active {
+    @apply border-rose-500 bg-rose-500 text-white shadow-md;
+  }
+}
+
+/* Smooth scrolling content areas */
+.scroll-area {
+  -webkit-overflow-scrolling: touch;
+  overflow-y: auto;
+}
+
+/* RTL support for Arabic text input */
+[lang="ar"] {
+  direction: rtl;
+  text-align: right;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
