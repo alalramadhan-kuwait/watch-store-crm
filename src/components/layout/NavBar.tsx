@@ -1,38 +1,34 @@
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 import { PlusCircle, ClipboardList, Bell, BarChart2, Settings } from 'lucide-react';
-import { useAppStore } from '../../store';
+import { useAuth } from '../../context/AuthContext';
 
-const tabs = [
-  { to: '/',          icon: PlusCircle,    label: 'Entry'    },
-  { to: '/today',     icon: ClipboardList, label: 'Today'    },
+const baseItems = [
+  { to: '/',          icon: PlusCircle,    label: 'Entry'      },
+  { to: '/today',     icon: ClipboardList, label: 'Today'      },
   { to: '/followups', icon: Bell,          label: 'Follow-ups' },
-  { to: '/manager',   icon: BarChart2,     label: 'Manager', protected: true },
-  { to: '/settings',  icon: Settings,      label: 'Settings', protected: true },
+];
+
+const adminItems = [
+  { to: '/manager',  icon: BarChart2, label: 'Manager'  },
+  { to: '/settings', icon: Settings,  label: 'Settings' },
 ];
 
 export function NavBar() {
-  const { isManagerAuthed } = useAppStore();
-  const navigate = useNavigate();
+  const { role } = useAuth();
+  const items = role === 'admin' ? [...baseItems, ...adminItems] : baseItems;
 
   return (
-    <nav className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-100 safe-area-bottom">
+    // Hidden on desktop — sidebar takes over
+    <nav className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-100 safe-area-bottom lg:hidden">
       <div className="flex items-center justify-around px-2 py-1">
-        {tabs.map(({ to, icon: Icon, label, protected: prot }) => (
+        {items.map(({ to, icon: Icon, label }) => (
           <NavLink
             key={to}
             to={to}
             end={to === '/'}
-            onClick={(e) => {
-              if (prot && !isManagerAuthed) {
-                e.preventDefault();
-                navigate('/manager-login', { state: { returnTo: to } });
-              }
-            }}
             className={({ isActive }) =>
-              `flex flex-col items-center gap-0.5 px-3 py-2 rounded-2xl transition-all duration-150 min-w-[56px] touch-manipulation ` +
-              (isActive
-                ? 'text-brand-700 bg-brand-50'
-                : 'text-slate-400 hover:text-slate-600')
+              `flex flex-col items-center gap-0.5 px-3 py-2 rounded-2xl transition-all duration-150 min-w-[48px] touch-manipulation ` +
+              (isActive ? 'text-brand-700 bg-brand-50' : 'text-slate-400 hover:text-slate-600')
             }
           >
             <Icon className="w-5 h-5" />

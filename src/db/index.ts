@@ -1,148 +1,319 @@
-import Dexie, { type Table } from 'dexie';
+import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
-import type { Case, DayClose, AppSettings } from '../types';
+import type { Case, DayClose, AppSettings, CaseType, CaseStatus, AuditEntry } from '../types';
+import { STAFF_DEFAULT, LOST_REASONS_DEFAULT, FOLLOWUP_ACTIONS_DEFAULT, CHANNELS_DEFAULT } from '../types';
 import { formatKD } from '../utils/formatKD';
-import {
-  STAFF_DEFAULT,
-  LOST_REASONS_DEFAULT,
-  FOLLOWUP_ACTIONS_DEFAULT,
-  CHANNELS_DEFAULT,
-} from '../types';
 
-class WatchStoreDB extends Dexie {
-  cases!: Table<Case, number>;
-  dayCloses!: Table<DayClose, number>;
-  settings!: Table<AppSettings, number>;
+// ── DB row types (snake_case matching Supabase schema) ────────────────────────
 
-  constructor() {
-    super('WatchStoreCRM');
-    this.version(1).stores({
-      cases: '++id, caseId, dateLogged, staff, caseType, status, dayLocked, promisedCallback, deleted',
-      dayCloses: '++id, &date',
-      settings: '++id',
-    });
-  }
+interface DbCase {
+  id: string;
+  case_id: string;
+  date_logged: string;
+  time_logged: string;
+  staff: string;
+  customer_name: string | null;
+  contact: string | null;
+  case_type: string;
+  product: string;
+  amount_kd: number | null;
+  lost_reason: string | null;
+  follow_up_action: string | null;
+  promised_callback: string | null;
+  last_contact_date: string | null;
+  channel: string | null;
+  status: string;
+  day_locked: boolean;
+  linked_case_id: string | null;
+  audit_log: AuditEntry[];
+  deleted: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_by: string | null;
+  updated_at: string;
 }
 
-export const db = new WatchStoreDB();
+interface DbSettings {
+  id: string;
+  staff_roster: string[];
+  lost_reasons: string[];
+  follow_up_actions: string[];
+  channels: string[];
+  manager_pin: string;
+  staff_pin: string;
+}
 
-// Seed default settings on first run
-db.on('ready', async () => {
-  const count = await db.settings.count();
-  if (count === 0) {
-    await db.settings.add({
-      staffRoster: STAFF_DEFAULT,
-      lostReasons: LOST_REASONS_DEFAULT,
-      followUpActions: FOLLOWUP_ACTIONS_DEFAULT,
-      channels: CHANNELS_DEFAULT,
-      managerPin: '1234',
-      staffPin: 'TK2018',
-    });
-  } else {
-    // Migrate existing records that don't have staffPin
-    const rec = (await db.settings.toArray())[0];
-    if (!rec.staffPin) {
-      await db.settings.update(rec.id!, { staffPin: 'TK2018' });
-    }
-  }
-});
+interface DbDayClose {
+  id: string;
+  date: string;
+  closed_at: string;
+  closed_by: string;
+  report_summary: string | null;
+  auto_closed: boolean;
+}
+
+// ── Mappers ───────────────────────────────────────────────────────────────────
+
+function caseFromDb(row: DbCase): Case {
+  return {
+    id: row.id,
+    caseId: row.case_id,
+    dateLogged: row.date_logged,
+    timeLogged: row.time_logged,
+    staff: row.staff,
+    customerName: row.customer_name ?? undefined,
+    contact: row.contact ?? undefined,
+    caseType: row.case_type as CaseType,
+    product: row.product,
+    amountKD: row.amount_kd ?? undefined,
+    lostReason: row.lost_reason ?? undefined,
+    followUpAction: row.follow_up_action ?? undefined,
+    promisedCallback: row.promised_callback ?? undefined,
+    lastContactDate: row.last_contact_date ?? undefined,
+    channel: row.channel ?? undefined,
+    status: row.status as CaseStatus,
+    dayLocked: row.day_locked,
+    linkedCaseId: row.linked_case_id ?? undefined,
+    auditLog: row.audit_log ?? [],
+    deleted: row.deleted,
+  };
+}
+
+function caseToDb(c: Omit<Case, 'id'>): Omit<DbCase, 'id' | 'created_by' | 'created_at' | 'updated_by' | 'updated_at'> {
+  return {
+    case_id: c.caseId,
+    date_logged: c.dateLogged,
+    time_logged: c.timeLogged,
+    staff: c.staff,
+    customer_name: c.customerName ?? null,
+    contact: c.contact ?? null,
+    case_type: c.caseType,
+    product: c.product,
+    amount_kd: c.amountKD ?? null,
+    lost_reason: c.lostReason ?? null,
+    follow_up_action: c.followUpAction ?? null,
+    promised_callback: c.promisedCallback ?? null,
+    last_contact_date: c.lastContactDate ?? null,
+    channel: c.channel ?? null,
+    status: c.status,
+    day_locked: c.dayLocked,
+    linked_case_id: c.linkedCaseId ?? null,
+    audit_log: c.auditLog,
+    deleted: c.deleted ?? false,
+  };
+}
+
+function settingsFromDb(row: DbSettings): AppSettings {
+  return {
+    id: row.id,
+    staffRoster: row.staff_roster,
+    lostReasons: row.lost_reasons,
+    followUpActions: row.follow_up_actions,
+    channels: row.channels,
+    managerPin: row.manager_pin,
+    staffPin: row.staff_pin,
+  };
+}
+
+// ── Settings ──────────────────────────────────────────────────────────────────
 
 export async function getSettings(): Promise<AppSettings> {
-  const s = await db.settings.toArray();
-  if (s.length === 0) {
-    const id = await db.settings.add({
+  const { data } = await supabase.from('settings').select('*').single();
+  if (!data) {
+    return {
       staffRoster: STAFF_DEFAULT,
       lostReasons: LOST_REASONS_DEFAULT,
       followUpActions: FOLLOWUP_ACTIONS_DEFAULT,
       channels: CHANNELS_DEFAULT,
       managerPin: '1234',
       staffPin: 'TK2018',
-    });
-    return { id, staffRoster: STAFF_DEFAULT, lostReasons: LOST_REASONS_DEFAULT, followUpActions: FOLLOWUP_ACTIONS_DEFAULT, channels: CHANNELS_DEFAULT, managerPin: '1234', staffPin: 'TK2018' };
+    };
   }
-  return s[0];
+  return settingsFromDb(data as DbSettings);
 }
 
-export async function saveSettings(updates: Partial<AppSettings>) {
-  const s = await db.settings.toArray();
-  if (s.length > 0 && s[0].id !== undefined) {
-    await db.settings.update(s[0].id, updates);
-  }
+export async function saveSettings(updates: Partial<AppSettings>): Promise<void> {
+  const { data: current } = await supabase.from('settings').select('id').single();
+  if (!current) return;
+  const { data: { user } } = await supabase.auth.getUser();
+
+  const dbUpdates: Partial<DbSettings> & { updated_by?: string | null; updated_at?: string } = {
+    updated_by: user?.id ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  if (updates.staffRoster !== undefined) dbUpdates.staff_roster = updates.staffRoster;
+  if (updates.lostReasons !== undefined) dbUpdates.lost_reasons = updates.lostReasons;
+  if (updates.followUpActions !== undefined) dbUpdates.follow_up_actions = updates.followUpActions;
+  if (updates.channels !== undefined) dbUpdates.channels = updates.channels;
+  if (updates.managerPin !== undefined) dbUpdates.manager_pin = updates.managerPin;
+  if (updates.staffPin !== undefined) dbUpdates.staff_pin = updates.staffPin;
+
+  await supabase.from('settings').update(dbUpdates).eq('id', current.id);
 }
+
+// ── Case ID ───────────────────────────────────────────────────────────────────
 
 export async function nextCaseId(date: string): Promise<string> {
-  // date = YYYY-MM-DD
   const prefix = date.replace(/-/g, '');
-  const todayCases = await db.cases.where('dateLogged').equals(date).toArray();
-  const seq = (todayCases.length + 1).toString().padStart(3, '0');
+  const { count } = await supabase
+    .from('cases')
+    .select('*', { count: 'exact', head: true })
+    .eq('date_logged', date);
+  const seq = ((count ?? 0) + 1).toString().padStart(3, '0');
   return `${prefix}-${seq}`;
 }
 
-export async function getProductSuggestions(): Promise<string[]> {
-  const all = await db.cases.toArray();
-  const set = new Set<string>();
-  for (const c of all) if (c.product) set.add(c.product);
-  return [...set].sort();
-}
-
-export async function isDayClosed(date: string): Promise<boolean> {
-  const rec = await db.dayCloses.where('date').equals(date).first();
-  return !!rec;
-}
+// ── Cases ─────────────────────────────────────────────────────────────────────
 
 export async function getTodayCases(): Promise<Case[]> {
   const today = format(new Date(), 'yyyy-MM-dd');
-  return db.cases
-    .where('dateLogged').equals(today)
-    .filter(c => !c.deleted)
-    .sortBy('timeLogged');
+  const { data } = await supabase
+    .from('cases')
+    .select('*')
+    .eq('date_logged', today)
+    .eq('deleted', false)
+    .order('time_logged', { ascending: true });
+  return (data ?? []).map(r => caseFromDb(r as DbCase));
 }
 
 export async function getOpenFollowUps(): Promise<Case[]> {
-  return db.cases
-    .where('caseType').equals('Follow-up')
-    .filter(c => !c.deleted && (c.status === 'Open'))
-    .sortBy('promisedCallback');
+  const { data } = await supabase
+    .from('cases')
+    .select('*')
+    .eq('case_type', 'Follow-up')
+    .eq('status', 'Open')
+    .eq('deleted', false)
+    .order('promised_callback', { ascending: true });
+  return (data ?? []).map(r => caseFromDb(r as DbCase));
+}
+
+export async function getCasesForRange(from: string, to: string): Promise<Case[]> {
+  const { data } = await supabase
+    .from('cases')
+    .select('*')
+    .eq('deleted', false)
+    .gte('date_logged', from)
+    .lte('date_logged', to)
+    .order('date_logged', { ascending: true })
+    .order('time_logged', { ascending: true });
+  return (data ?? []).map(r => caseFromDb(r as DbCase));
+}
+
+export async function getProductSuggestions(): Promise<string[]> {
+  const { data } = await supabase.from('cases').select('product').eq('deleted', false);
+  const set = new Set<string>();
+  for (const row of data ?? []) if (row.product) set.add(row.product as string);
+  return [...set].sort();
+}
+
+export async function countOpenFollowUps(): Promise<number> {
+  const { count } = await supabase
+    .from('cases')
+    .select('*', { count: 'exact', head: true })
+    .eq('case_type', 'Follow-up')
+    .eq('status', 'Open')
+    .eq('deleted', false);
+  return count ?? 0;
+}
+
+export async function insertCase(c: Omit<Case, 'id'>): Promise<Case> {
+  const { data: { user } } = await supabase.auth.getUser();
+  const row = {
+    ...caseToDb(c),
+    created_by: user?.id ?? null,
+    updated_by: user?.id ?? null,
+  };
+  const { data, error } = await supabase.from('cases').insert(row).select().single();
+  if (error) throw error;
+  return caseFromDb(data as DbCase);
+}
+
+export async function updateCase(id: string, updates: Partial<Case>): Promise<void> {
+  const { data: { user } } = await supabase.auth.getUser();
+  const dbUpdates: Record<string, unknown> = { updated_by: user?.id ?? null };
+
+  if (updates.staff !== undefined) dbUpdates.staff = updates.staff;
+  if (updates.customerName !== undefined) dbUpdates.customer_name = updates.customerName;
+  if (updates.contact !== undefined) dbUpdates.contact = updates.contact;
+  if (updates.caseType !== undefined) dbUpdates.case_type = updates.caseType;
+  if (updates.product !== undefined) dbUpdates.product = updates.product;
+  if (updates.amountKD !== undefined) dbUpdates.amount_kd = updates.amountKD;
+  if (updates.lostReason !== undefined) dbUpdates.lost_reason = updates.lostReason;
+  if (updates.followUpAction !== undefined) dbUpdates.follow_up_action = updates.followUpAction;
+  if (updates.promisedCallback !== undefined) dbUpdates.promised_callback = updates.promisedCallback;
+  if (updates.lastContactDate !== undefined) dbUpdates.last_contact_date = updates.lastContactDate;
+  if (updates.channel !== undefined) dbUpdates.channel = updates.channel;
+  if (updates.status !== undefined) dbUpdates.status = updates.status;
+  if (updates.dayLocked !== undefined) dbUpdates.day_locked = updates.dayLocked;
+  if (updates.linkedCaseId !== undefined) dbUpdates.linked_case_id = updates.linkedCaseId;
+  if (updates.auditLog !== undefined) dbUpdates.audit_log = updates.auditLog;
+  if (updates.deleted !== undefined) dbUpdates.deleted = updates.deleted;
+
+  await supabase.from('cases').update(dbUpdates).eq('id', id);
+}
+
+// ── Day close ─────────────────────────────────────────────────────────────────
+
+export async function getDayClose(date: string): Promise<DayClose | null> {
+  const { data } = await supabase
+    .from('day_closes')
+    .select('*')
+    .eq('date', date)
+    .single();
+  if (!data) return null;
+  const row = data as DbDayClose;
+  return { id: row.id, date: row.date, closedAt: row.closed_at, closedBy: row.closed_by, reportSummary: row.report_summary ?? undefined, autoClosed: row.auto_closed };
+}
+
+export async function isDayClosed(date: string): Promise<boolean> {
+  const { count } = await supabase
+    .from('day_closes')
+    .select('*', { count: 'exact', head: true })
+    .eq('date', date);
+  return (count ?? 0) > 0;
 }
 
 export async function closeDay(date: string, closedBy: string): Promise<string> {
-  const cases = await db.cases.where('dateLogged').equals(date).filter(c => !c.deleted).toArray();
+  const { data: rows } = await supabase
+    .from('cases')
+    .select('*')
+    .eq('date_logged', date)
+    .eq('deleted', false);
 
-  // Lock all cases for this day (except follow-ups stay open)
-  for (const c of cases) {
-    const updates: Partial<Case> = { dayLocked: true };
-    if (c.caseType !== 'Follow-up') {
-      updates.status = c.caseType === 'Sale' ? 'Won' : 'Lost';
+  const { data: { user } } = await supabase.auth.getUser();
+
+  for (const row of rows ?? []) {
+    const upd: Record<string, unknown> = { day_locked: true, updated_by: user?.id ?? null };
+    if (row.case_type !== 'Follow-up') {
+      upd.status = row.case_type === 'Sale' ? 'Won' : 'Lost';
     }
-    await db.cases.update(c.id!, updates);
+    await supabase.from('cases').update(upd).eq('id', row.id);
   }
 
-  const now = new Date().toISOString();
-
-  // Calculate summary
+  const cases = (rows ?? []).map(r => caseFromDb(r as DbCase));
   const sales = cases.filter(c => c.caseType === 'Sale');
   const followups = cases.filter(c => c.caseType === 'Follow-up');
   const lost = cases.filter(c => c.caseType === 'Lost Sale');
-  const revenue = sales.reduce((sum, c) => sum + (c.amountKD || 0), 0);
+  const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
   const total = sales.length + lost.length;
   const convRate = total > 0 ? Math.round((sales.length / total) * 100) : 0;
 
-  const openFollowUps = await db.cases
-    .where('caseType').equals('Follow-up')
-    .filter(c => !c.deleted && c.status === 'Open')
-    .count();
+  const { count: openFU } = await supabase
+    .from('cases')
+    .select('*', { count: 'exact', head: true })
+    .eq('case_type', 'Follow-up')
+    .eq('status', 'Open')
+    .eq('deleted', false);
 
-  // Per-staff top performer
   const staffSales: Record<string, { count: number; kd: number }> = {};
   for (const c of sales) {
     if (!staffSales[c.staff]) staffSales[c.staff] = { count: 0, kd: 0 };
     staffSales[c.staff].count++;
     staffSales[c.staff].kd += c.amountKD || 0;
   }
-  let topStaff = '';
-  let topKD = 0;
-  for (const [name, data] of Object.entries(staffSales)) {
-    if (data.kd > topKD) { topKD = data.kd; topStaff = name; }
+  let topStaff = '', topKD = 0;
+  for (const [name, d] of Object.entries(staffSales)) {
+    if (d.kd > topKD) { topKD = d.kd; topStaff = name; }
   }
 
   const summary =
@@ -151,15 +322,16 @@ export async function closeDay(date: string, closedBy: string): Promise<string> 
     `Follow-ups: ${followups.length} | Lost: ${lost.length}\n` +
     `Conversion: ${convRate}%\n` +
     (topStaff ? `Top: ${topStaff} — ${formatKD(topKD)} KD (${staffSales[topStaff].count} sales)\n` : '') +
-    `Open follow-ups outstanding: ${openFollowUps}`;
+    `Open follow-ups outstanding: ${openFU ?? 0}`;
 
-  await db.dayCloses.add({ date, closedAt: now, closedBy, reportSummary: summary, autoClosed: false });
+  await supabase.from('day_closes').insert({
+    date,
+    closed_at: new Date().toISOString(),
+    closed_by: closedBy,
+    report_summary: summary,
+    auto_closed: false,
+    created_by: user?.id ?? null,
+  });
 
   return summary;
-}
-
-export async function getCasesForRange(from: string, to: string): Promise<Case[]> {
-  return db.cases
-    .filter(c => !c.deleted && c.dateLogged >= from && c.dateLogged <= to)
-    .toArray();
 }

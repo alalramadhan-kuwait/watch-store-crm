@@ -45,7 +45,7 @@ export interface AuditEntry {
 }
 
 export interface Case {
-  id?: number;
+  id?: string;           // Supabase UUID
   caseId: string;
   dateLogged: string;
   timeLogged: string;
@@ -62,15 +62,13 @@ export interface Case {
   channel?: string;
   status: CaseStatus;
   dayLocked: boolean;
-  closedAt?: string;
-  closedBy?: string;
   linkedCaseId?: string;
   auditLog: AuditEntry[];
   deleted?: boolean;
 }
 
 export interface DayClose {
-  id?: number;
+  id?: string;
   date: string;
   closedAt: string;
   closedBy: string;
@@ -79,7 +77,7 @@ export interface DayClose {
 }
 
 export interface AppSettings {
-  id?: number;
+  id?: string;
   staffRoster: string[];
   lostReasons: string[];
   followUpActions: string[];

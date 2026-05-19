@@ -7,20 +7,11 @@ interface Toast {
 }
 
 interface AppStore {
-  // Staff auth (persisted in localStorage)
-  isStaffAuthed: boolean;
-  setStaffAuthed: (v: boolean) => void;
-
-  // Manager auth (session only)
-  isManagerAuthed: boolean;
-  setManagerAuthed: (v: boolean) => void;
-
-  // Toast notifications
   toasts: Toast[];
   showToast: (message: string, type?: Toast['type']) => void;
   dismissToast: (id: number) => void;
 
-  // Last-used staff (persisted in localStorage)
+  // Last-used staff name (persisted in localStorage for quick re-selection)
   lastStaff: string;
   setLastStaff: (staff: string) => void;
 }
@@ -28,16 +19,6 @@ interface AppStore {
 let toastCounter = 0;
 
 export const useAppStore = create<AppStore>((set, get) => ({
-  isStaffAuthed: localStorage.getItem('staffAuthed') === '1',
-  setStaffAuthed: (v) => {
-    if (v) localStorage.setItem('staffAuthed', '1');
-    else localStorage.removeItem('staffAuthed');
-    set({ isStaffAuthed: v });
-  },
-
-  isManagerAuthed: false,
-  setManagerAuthed: (v) => set({ isManagerAuthed: v }),
-
   toasts: [],
   showToast: (message, type = 'success') => {
     const id = ++toastCounter;

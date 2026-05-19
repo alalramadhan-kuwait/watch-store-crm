@@ -3,94 +3,92 @@ import { Routes, Route, Navigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { NavBar } from './components/layout/NavBar';
 import { TopBar } from './components/layout/TopBar';
-import { ManagerLogin } from './components/layout/ManagerGate';
-import { StaffGate } from './components/layout/StaffGate';
+import { Sidebar } from './components/layout/Sidebar';
+import { LoginPage } from './components/auth/LoginPage';
 import { QuickEntry } from './components/QuickEntry';
 import { TodayLog } from './components/TodayLog';
 import { FollowUps } from './components/FollowUps';
 import { ManagerDashboard } from './components/ManagerDashboard';
 import { Settings } from './components/Settings';
 import { ToastContainer } from './components/shared/Toast';
-import { useAppStore } from './store';
-import { db, isDayClosed, closeDay } from './db';
+import { AuthProvider, useAuth } from './context/AuthContext';
+import { isDayClosed, closeDay, getTodayCases, updateCase } from './db';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isManagerAuthed } = useAppStore();
-  if (!isManagerAuthed) {
-    return <Navigate to="/manager-login" replace />;
-  }
+  const { role } = useAuth();
+  if (role !== 'admin') return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
-export default function App() {
-  // Auto-close safety net: check at startup and schedule midnight check
+function AppShell() {
+  const { user, loading } = useAuth();
+
+  // Auto-close safety net: check yesterday on startup
   useEffect(() => {
+    if (!user) return;
     async function checkAutoClose() {
       const yesterday = format(new Date(Date.now() - 86400000), 'yyyy-MM-dd');
-      const yesterdayClosed = await isDayClosed(yesterday);
-      if (!yesterdayClosed) {
-        const count = await db.cases.where('dateLogged').equals(yesterday).count();
-        if (count > 0) {
-          await closeDay(yesterday, 'auto-close');
-        }
+      const closed = await isDayClosed(yesterday);
+      if (!closed) {
+        const cases = await getTodayCases();
+        if (cases.length > 0) await closeDay(yesterday, 'auto-close');
       }
     }
-
     checkAutoClose();
 
-    // Schedule next check at next midnight
     const now = new Date();
     const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 30);
-    const msUntilMidnight = midnight.getTime() - now.getTime();
-    const timer = setTimeout(() => {
+    const timer = setTimeout(async () => {
       const today = format(new Date(), 'yyyy-MM-dd');
-      isDayClosed(today).then(closed => {
-        if (!closed) {
-          db.cases.where('dateLogged').equals(today).count().then(count => {
-            if (count > 0) closeDay(today, 'auto-close');
-          });
-        }
-      });
-    }, msUntilMidnight);
+      const closed = await isDayClosed(today);
+      if (!closed) {
+        const cases = await getTodayCases();
+        if (cases.length > 0) await closeDay(today, 'auto-close');
+      }
+    }, midnight.getTime() - now.getTime());
 
     return () => clearTimeout(timer);
-  }, []);
+  }, [user]);
+
+  if (loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-white">
+        <div className="flex flex-col items-center gap-4">
+          <img src={`${import.meta.env.BASE_URL}tk-logo.png`} alt="TIME KEEPER" className="w-20 h-20 object-contain opacity-60" />
+          <div className="w-6 h-6 border-2 border-brand-700 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </div>
+    );
+  }
+
+  if (!user) return <LoginPage />;
 
   return (
-    <StaffGate>
     <div className="min-h-screen bg-slate-50">
       <ToastContainer />
       <TopBar />
+      <Sidebar />
 
-      {/* Main content area — padded for TopBar (top) and NavBar (bottom) */}
-      <main className="min-h-screen pt-14">
+      <main className="min-h-screen pt-14 lg:ml-60">
         <Routes>
           <Route path="/" element={<QuickEntry />} />
           <Route path="/today" element={<TodayLog />} />
           <Route path="/followups" element={<FollowUps />} />
-          <Route path="/manager-login" element={<ManagerLogin />} />
-          <Route
-            path="/manager"
-            element={
-              <ProtectedRoute>
-                <ManagerDashboard />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/settings"
-            element={
-              <ProtectedRoute>
-                <Settings />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/manager" element={<ProtectedRoute><ManagerDashboard /></ProtectedRoute>} />
+          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
 
       <NavBar />
     </div>
-    </StaffGate>
+  );
+}
+
+export default function App() {
+  return (
+    <AuthProvider>
+      <AppShell />
+    </AuthProvider>
   );
 }

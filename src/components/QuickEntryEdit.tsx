@@ -1,19 +1,18 @@
 import { useState, useEffect } from 'react';
 import { format, addDays } from 'date-fns';
-import { useLiveQuery } from 'dexie-react-hooks';
-import { db, getSettings, getProductSuggestions } from '../db';
-import type { Case, CaseType } from '../types';
+import { getSettings, getProductSuggestions, updateCase } from '../db';
+import type { Case, CaseType, AppSettings } from '../types';
 
 export function QuickEntryEdit({ case_, onDone, onCancel }: {
   case_: Case;
   onDone: () => void;
   onCancel: () => void;
 }) {
-  const settings = useLiveQuery(() => getSettings());
+  const [settings, setSettings] = useState<AppSettings | null>(null);
   const [products, setProducts] = useState<string[]>([]);
 
   const [staff, setStaff] = useState(case_.staff);
-  const [caseType] = useState<CaseType>(case_.caseType); // type can't change post-creation
+  const [caseType] = useState<CaseType>(case_.caseType);
   const [customerName, setCustomerName] = useState(case_.customerName || '');
   const [contact, setContact] = useState(case_.contact || '');
   const [product, setProduct] = useState(case_.product);
@@ -26,7 +25,10 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
   const [channel, setChannel] = useState(case_.channel || '');
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => { getProductSuggestions().then(setProducts); }, []);
+  useEffect(() => {
+    getSettings().then(setSettings);
+    getProductSuggestions().then(setProducts);
+  }, []);
 
   async function handleSave() {
     if (!case_.id) return;
@@ -37,7 +39,7 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
       if (product !== case_.product) changes.product = { from: case_.product, to: product };
       if (amountKD !== (case_.amountKD?.toString() || '')) changes.amountKD = { from: case_.amountKD, to: Number(amountKD) };
 
-      await db.cases.update(case_.id, {
+      await updateCase(case_.id, {
         staff,
         customerName: customerName || undefined,
         contact: contact || undefined,
@@ -47,10 +49,7 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
         followUpAction: followUpAction || undefined,
         promisedCallback: caseType === 'Follow-up' ? promisedCallback : undefined,
         channel: channel || undefined,
-        auditLog: [
-          ...case_.auditLog,
-          { timestamp: new Date().toISOString(), action: 'edited', by: staff, changes },
-        ],
+        auditLog: [...case_.auditLog, { timestamp: new Date().toISOString(), action: 'edited', by: staff, changes }],
       });
       onDone();
     } finally {
@@ -76,9 +75,7 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
       <div>
         <label className="label">Product / Request</label>
         <input list="edit-products" value={product} onChange={e => setProduct(e.target.value)} className="input" />
-        <datalist id="edit-products">
-          {products.map(p => <option key={p} value={p} />)}
-        </datalist>
+        <datalist id="edit-products">{products.map(p => <option key={p} value={p} />)}</datalist>
       </div>
 
       {(caseType === 'Sale' || caseType === 'Follow-up') && (
@@ -134,9 +131,7 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
 
       <div className="flex gap-3 pt-2">
         <button onClick={onCancel} className="btn-ghost flex-1">Cancel</button>
-        <button onClick={handleSave} disabled={saving} className="btn-primary flex-1">
-          {saving ? 'Saving…' : 'Save Changes'}
-        </button>
+        <button onClick={handleSave} disabled={saving} className="btn-primary flex-1">{saving ? 'Saving…' : 'Save Changes'}</button>
       </div>
     </div>
   );
