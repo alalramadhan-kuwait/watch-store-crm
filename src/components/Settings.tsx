@@ -77,24 +77,29 @@ export function Settings() {
   }
 
   return (
-    <div className="px-4 pt-6 pb-32 max-w-lg mx-auto space-y-6">
-      <h1 className="text-2xl font-bold text-slate-900">Settings</h1>
+    <div className="px-4 pt-6 pb-32 max-w-lg mx-auto lg:max-w-5xl lg:px-8">
+      <h1 className="text-2xl font-bold text-slate-900 mb-6 lg:mb-8">Settings</h1>
 
-      <ListEditor title="Staff Roster" items={settings.staffRoster} newValue={newStaff}
-        onNewValueChange={setNewStaff} onAdd={() => addItem('staffRoster', newStaff, setNewStaff)}
-        onRemove={v => setShowDeleteStaff(v)} placeholder="Staff name" />
+      {/* Two-column grid on desktop */}
+      <div className="lg:grid lg:grid-cols-2 lg:gap-6 space-y-6 lg:space-y-0">
+        <ListEditor title="Staff Roster" items={settings.staffRoster} newValue={newStaff}
+          onNewValueChange={setNewStaff} onAdd={() => addItem('staffRoster', newStaff, setNewStaff)}
+          onRemove={v => setShowDeleteStaff(v)} placeholder="Staff name" />
 
-      <ListEditor title="Lost Sale Reasons" items={settings.lostReasons} newValue={newLostReason}
-        onNewValueChange={setNewLostReason} onAdd={() => addItem('lostReasons', newLostReason, setNewLostReason)}
-        onRemove={v => removeItem('lostReasons', v)} placeholder="New reason" />
+        <ListEditor title="Lost Sale Reasons" items={settings.lostReasons} newValue={newLostReason}
+          onNewValueChange={setNewLostReason} onAdd={() => addItem('lostReasons', newLostReason, setNewLostReason)}
+          onRemove={v => removeItem('lostReasons', v)} placeholder="New reason" />
 
-      <ListEditor title="Follow-up Actions" items={settings.followUpActions} newValue={newAction}
-        onNewValueChange={setNewAction} onAdd={() => addItem('followUpActions', newAction, setNewAction)}
-        onRemove={v => removeItem('followUpActions', v)} placeholder="New action" />
+        <ListEditor title="Follow-up Actions" items={settings.followUpActions} newValue={newAction}
+          onNewValueChange={setNewAction} onAdd={() => addItem('followUpActions', newAction, setNewAction)}
+          onRemove={v => removeItem('followUpActions', v)} placeholder="New action" />
 
-      <ListEditor title="Contact Channels" items={settings.channels} newValue={newChannel}
-        onNewValueChange={setNewChannel} onAdd={() => addItem('channels', newChannel, setNewChannel)}
-        onRemove={v => removeItem('channels', v)} placeholder="New channel" />
+        <ListEditor title="Contact Channels" items={settings.channels} newValue={newChannel}
+          onNewValueChange={setNewChannel} onAdd={() => addItem('channels', newChannel, setNewChannel)}
+          onRemove={v => removeItem('channels', v)} placeholder="New channel" />
+      </div>
+
+      <div className="lg:grid lg:grid-cols-2 lg:gap-6 space-y-6 lg:space-y-0 mt-6">
 
       {/* Change Staff Access Code */}
       <div className="card p-5">
@@ -146,8 +151,10 @@ export function Settings() {
         </div>
       </div>
 
+      </div>
+
       {/* Local data export */}
-      <div className="card p-5">
+      <div className="card p-5 mt-6">
         <div className="flex items-center gap-2 mb-2">
           <Download className="w-5 h-5 text-slate-500" />
           <h2 className="font-bold text-slate-900">Export Local Data</h2>
@@ -157,7 +164,7 @@ export function Settings() {
       </div>
 
       {/* Brand footer */}
-      <div className="flex flex-col items-center pb-4 gap-1">
+      <div className="flex flex-col items-center pb-4 gap-1 mt-6">
         <img src={`${import.meta.env.BASE_URL}tk-logo-text.png`} alt="TIME KEEPER" className="w-36 object-contain opacity-60" />
         <p className="text-xs text-slate-400">Default manager PIN: <span className="font-mono font-medium">1234</span></p>
       </div>

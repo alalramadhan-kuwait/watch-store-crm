@@ -134,36 +134,35 @@ export function FollowUps() {
   }
 
   return (
-    <div className="px-4 pt-6 pb-32 max-w-lg mx-auto lg:max-w-3xl">
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold text-slate-900">Follow-ups</h1>
-        <p className="text-slate-500 text-sm mt-0.5">Open cases across all dates</p>
-      </div>
-
-      {/* Summary pills */}
-      <div className="flex gap-2 mb-4 flex-wrap">
-        {overdue > 0 && (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-rose-100 text-rose-700 rounded-full text-xs font-semibold">
-            <AlertCircle className="w-3 h-3" /> {overdue} Overdue
+    <div className="px-4 pt-6 pb-32 max-w-lg mx-auto lg:max-w-5xl lg:px-8">
+      {/* Header row with filter on desktop */}
+      <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3 mb-5">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900">Follow-ups</h1>
+          <p className="text-slate-500 text-sm mt-0.5">Open cases across all dates</p>
+        </div>
+        <div className="flex items-center gap-3 flex-wrap">
+          {overdue > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-rose-100 text-rose-700 rounded-full text-xs font-semibold">
+              <AlertCircle className="w-3 h-3" /> {overdue} Overdue
+            </span>
+          )}
+          {dueToday > 0 && (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-semibold">
+              <Clock className="w-3 h-3" /> {dueToday} Due Today
+            </span>
+          )}
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-semibold">
+            {filtered.length} Total Open
           </span>
-        )}
-        {dueToday > 0 && (
-          <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 text-amber-700 rounded-full text-xs font-semibold">
-            <Clock className="w-3 h-3" /> {dueToday} Due Today
-          </span>
-        )}
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 bg-slate-100 text-slate-600 rounded-full text-xs font-semibold">
-          {filtered.length} Total Open
-        </span>
-      </div>
-
-      {/* Staff filter */}
-      <div className="flex items-center gap-2 mb-4">
-        <Filter className="w-4 h-4 text-slate-400 shrink-0" />
-        <select value={staffFilter} onChange={e => setStaffFilter(e.target.value)} className="input py-2 text-sm">
-          <option value="">All staff</option>
-          {settings?.staffRoster.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
+          <div className="flex items-center gap-2">
+            <Filter className="w-4 h-4 text-slate-400 shrink-0" />
+            <select value={staffFilter} onChange={e => setStaffFilter(e.target.value)} className="input py-2 text-sm">
+              <option value="">All staff</option>
+              {settings?.staffRoster.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        </div>
       </div>
 
       {/* List */}
@@ -174,9 +173,28 @@ export function FollowUps() {
           <p className="text-sm">All caught up!</p>
         </div>
       ) : (
-        <div className="space-y-3">
-          {filtered.map(c => <FollowUpRow key={c.id} case_={c} onAction={openAction} />)}
-        </div>
+        <>
+          {/* Desktop table */}
+          <div className="hidden lg:block card overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  {['Status', 'Customer', 'Product', 'Staff', 'Action', 'Callback', 'Channel', ''].map(h => (
+                    <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map(c => <FollowUpTableRow key={c.id} case_={c} onAction={openAction} />)}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Mobile cards */}
+          <div className="lg:hidden space-y-3">
+            {filtered.map(c => <FollowUpRow key={c.id} case_={c} onAction={openAction} />)}
+          </div>
+        </>
       )}
 
       <Modal
@@ -227,6 +245,70 @@ export function FollowUps() {
         </div>
       </Modal>
     </div>
+  );
+}
+
+function FollowUpTableRow({ case_: c, onAction }: { case_: Case; onAction: (c: Case, type: 'contacted' | 'won' | 'lost' | 'no_response') => void }) {
+  const urgency = followUpUrgency(c);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const urgencyLabel = {
+    overdue: { text: 'Overdue', class: 'text-rose-700 bg-rose-100' },
+    today: { text: 'Due Today', class: 'text-amber-700 bg-amber-100' },
+    upcoming: { text: c.promisedCallback ? format(new Date(c.promisedCallback + 'T12:00:00'), 'd MMM') : 'No date', class: 'text-slate-500 bg-slate-100' },
+    stale: { text: 'Stale >7d', class: 'text-rose-700 bg-rose-100' },
+  };
+  const label = urgencyLabel[urgency];
+  return (
+    <tr className="border-b border-slate-50 hover:bg-slate-25 group">
+      <td className="py-3 px-4">
+        <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${label.class}`}>{label.text}</span>
+      </td>
+      <td className="py-3 px-4">
+        <p className="font-medium text-slate-800 text-sm">{c.customerName || <span className="text-slate-400">—</span>}</p>
+        {c.contact && <p className="text-xs text-slate-400">{c.contact}</p>}
+      </td>
+      <td className="py-3 px-4 max-w-[180px]">
+        <p className="font-semibold text-slate-900 text-sm truncate">{c.product}</p>
+        <p className="text-xs text-slate-400 font-mono">{c.caseId}</p>
+      </td>
+      <td className="py-3 px-4 text-sm font-medium text-brand-700">{c.staff}</td>
+      <td className="py-3 px-4 text-sm text-slate-600">{c.followUpAction || '—'}</td>
+      <td className="py-3 px-4 text-sm text-slate-600">{c.promisedCallback ? format(new Date(c.promisedCallback + 'T12:00:00'), 'd MMM yyyy') : '—'}</td>
+      <td className="py-3 px-4 text-sm text-slate-500">
+        {c.channel ? (
+          <span className="flex items-center gap-1">
+            {c.channel === 'WhatsApp' ? <MessageCircle className="w-3.5 h-3.5" /> : <Phone className="w-3.5 h-3.5" />}
+            {c.channel}
+          </span>
+        ) : '—'}
+      </td>
+      <td className="py-3 px-4 w-28">
+        <div className="relative">
+          <button onClick={() => setMenuOpen(v => !v)}
+            className="flex items-center gap-1 text-xs font-semibold text-brand-700 bg-brand-50 px-3 py-1.5 rounded-lg hover:bg-brand-100 transition-colors">
+            Actions <ChevronDown className="w-3 h-3" />
+          </button>
+          {menuOpen && (
+            <>
+              <div className="fixed inset-0 z-10" onClick={() => setMenuOpen(false)} />
+              <div className="absolute right-0 top-full mt-1 z-20 bg-white rounded-2xl shadow-xl border border-slate-100 py-2 min-w-[180px]">
+                {([
+                  { icon: <Phone className="w-4 h-4" />, label: 'Mark Contacted', color: 'text-slate-700', type: 'contacted' as const },
+                  { icon: <CheckCircle className="w-4 h-4" />, label: 'Closed — Won', color: 'text-emerald-700', type: 'won' as const },
+                  { icon: <XCircle className="w-4 h-4" />, label: 'Closed — Lost', color: 'text-rose-600', type: 'lost' as const },
+                  { icon: <UserX className="w-4 h-4" />, label: 'No Response', color: 'text-slate-500', type: 'no_response' as const },
+                ]).map(item => (
+                  <button key={item.type} onClick={() => { setMenuOpen(false); onAction(c, item.type); }}
+                    className={`w-full flex items-center gap-3 px-4 py-3 text-sm font-medium ${item.color} hover:bg-slate-50 transition-colors`}>
+                    {item.icon} {item.label}
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
+      </td>
+    </tr>
   );
 }
 
