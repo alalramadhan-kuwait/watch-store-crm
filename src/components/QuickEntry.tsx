@@ -1,8 +1,9 @@
 import { useState, useEffect, useRef } from 'react';
 import { format, addDays } from 'date-fns';
-import { ShoppingBag, Clock, TrendingDown, Users, ChevronDown, CheckCircle, Plus } from 'lucide-react';
+import { ShoppingBag, Clock, TrendingDown, Users, ChevronDown, CheckCircle, Plus, Store } from 'lucide-react';
 import { getSettings, getBrands, insertCase, nextCaseId } from '../db';
 import { useAppStore } from '../store';
+import { useAuth } from '../context/AuthContext';
 import type { CaseType, AppSettings, Brand, ProductType } from '../types';
 import { PRODUCT_TYPES, LOST_REASONS_QUICK, FOLLOWUP_ACTIONS_QUICK, BROWSING_TAGS } from '../types';
 
@@ -91,7 +92,9 @@ function BrandSelector({ brands, value, onChange, error }: {
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
-  const { lastStaff, setLastStaff, showToast, bumpRefreshLog, activeOutlet } = useAppStore();
+  const { lastStaff, setLastStaff, showToast, bumpRefreshLog, activeOutlet, setActiveOutlet } = useAppStore();
+  const { role } = useAuth();
+  const [showOutletPicker, setShowOutletPicker] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [brands, setBrands] = useState<Brand[]>([]);
 
@@ -223,7 +226,40 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
       {/* Header */}
       <div className="mb-5">
         <h1 className={`font-bold text-slate-900 ${panelMode ? 'text-xl' : 'text-2xl'}`}>Quick Entry</h1>
-        <p className="text-slate-500 text-sm mt-0.5">{format(new Date(), 'EEEE, d MMMM yyyy')}</p>
+        <div className="flex items-center gap-3 mt-0.5">
+          <p className="text-slate-500 text-sm">{format(new Date(), 'EEEE, d MMMM yyyy')}</p>
+          {role === 'staff' && activeOutlet && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setShowOutletPicker(p => !p)}
+                className="flex items-center gap-1.5 px-2.5 py-1 bg-brand-50 border border-brand-200 rounded-full text-xs font-semibold text-brand-700 hover:bg-brand-100 transition-colors"
+              >
+                <Store className="w-3 h-3" />
+                {activeOutlet}
+                <ChevronDown className="w-3 h-3" />
+              </button>
+              {showOutletPicker && settings && (
+                <div className="absolute left-0 top-full mt-1 bg-white border border-slate-200 rounded-xl shadow-lg z-50 min-w-[140px] overflow-hidden">
+                  {settings.outlets.map(o => (
+                    <button
+                      key={o}
+                      type="button"
+                      onClick={() => { setActiveOutlet(o); setShowOutletPicker(false); }}
+                      className={`w-full text-left px-4 py-2.5 text-sm font-medium transition-colors ${
+                        o === activeOutlet
+                          ? 'bg-brand-50 text-brand-700'
+                          : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      {o === activeOutlet && <span className="mr-1.5">✓</span>}{o}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-5">
