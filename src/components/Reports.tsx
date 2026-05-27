@@ -4,7 +4,7 @@ import {
   FileText, Share2, Download, Calendar, ChevronDown, ChevronUp,
   Clock, User, Loader2, ShieldAlert, Trash2, Edit2,
 } from 'lucide-react';
-import { getAllDayCloses, getCasesByDate, updateCase, rebuildDaySummary, getSettings } from '../db';
+import { getAllDayCloses, getCasesByDate, updateCase, rebuildDaySummary, getSettings, deleteFullDayReport } from '../db';
 import { generatePDF, downloadReport, shareReport } from '../utils/report';
 import { formatKD } from '../utils/formatKD';
 import { useAppStore } from '../store';
@@ -24,6 +24,8 @@ export function Reports() {
   const [outlets, setOutlets] = useState<string[]>(['Avenues', 'TimeGallery']);
   const [generating, setGenerating] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [deletingReport, setDeletingReport] = useState<DayClose | null>(null);
+  const [deletingAll, setDeletingAll] = useState(false);
 
   function reload() {
     getAllDayCloses().then(r => { setReports(r); setLoading(false); });
@@ -51,6 +53,22 @@ export function Reports() {
       showToast('Failed to generate PDF.', 'error');
     } finally {
       setGenerating(null);
+    }
+  }
+
+  async function handleDeleteReport() {
+    if (!deletingReport) return;
+    setDeletingAll(true);
+    try {
+      await deleteFullDayReport(deletingReport.date);
+      showToast('Report deleted.', 'info');
+      setDeletingReport(null);
+      setExpanded(null);
+      reload();
+    } catch {
+      showToast('Failed to delete report.', 'error');
+    } finally {
+      setDeletingAll(false);
     }
   }
 
@@ -120,6 +138,16 @@ export function Reports() {
         </div>
       )}
 
+      <ConfirmModal
+        open={!!deletingReport}
+        onClose={() => setDeletingReport(null)}
+        onConfirm={handleDeleteReport}
+        title="Delete Entire Day Report"
+        message={`Permanently delete the report for ${deletingReport ? format(new Date(deletingReport.date + 'T12:00:00'), 'd MMMM yyyy') : ''}? All entries for that day will be removed and the report will disappear from history. This cannot be undone.`}
+        confirmLabel={deletingAll ? 'Deleting…' : 'Delete Report'}
+        danger
+      />
+
       {!loading && filtered.length > 0 && (
         <div className="space-y-3">
           {filtered.map(report => (
@@ -131,6 +159,7 @@ export function Reports() {
               onToggle={() => setExpanded(expanded === report.date ? null : report.date)}
               onDownload={() => handleDownload(report.date)}
               onShare={() => handleShare(report.date)}
+              onDeleteReport={() => setDeletingReport(report)}
               onSummaryChanged={reload}
               outletFilter={outletFilter}
             />
@@ -144,7 +173,7 @@ export function Reports() {
 // ── ReportCard ────────────────────────────────────────────────────────────────
 
 function ReportCard({
-  report, generating, expanded, onToggle, onDownload, onShare, onSummaryChanged, outletFilter,
+  report, generating, expanded, onToggle, onDownload, onShare, onDeleteReport, onSummaryChanged, outletFilter,
 }: {
   report: DayClose;
   generating: boolean;
@@ -152,6 +181,7 @@ function ReportCard({
   onToggle: () => void;
   onDownload: () => void;
   onShare: () => void;
+  onDeleteReport: () => void;
   onSummaryChanged: () => void;
   outletFilter: string;
 }) {
@@ -219,6 +249,11 @@ function ReportCard({
             className="flex-1 flex items-center justify-center gap-1.5 border-2 border-brand-700 text-brand-700 text-xs font-semibold py-2.5 rounded-xl active:scale-[0.98] transition-all disabled:opacity-50">
             {generating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
             {generating ? 'Generating…' : 'Download PDF'}
+          </button>
+          <button onClick={onDeleteReport} disabled={generating}
+            className="flex items-center justify-center p-2.5 border-2 border-rose-200 text-rose-400 rounded-xl active:scale-[0.98] transition-all hover:border-rose-400 hover:text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+            title="Delete entire report">
+            <Trash2 className="w-3.5 h-3.5" />
           </button>
         </div>
       </div>

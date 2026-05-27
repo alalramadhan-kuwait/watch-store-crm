@@ -448,3 +448,14 @@ export async function rebuildDaySummary(date: string): Promise<string> {
   await supabase.from('day_closes').update({ report_summary: summary }).eq('date', date);
   return summary;
 }
+
+export async function deleteFullDayReport(date: string): Promise<void> {
+  // Soft-delete all cases for the date
+  const { data: rows } = await supabase.from('cases').select('id').eq('date_logged', date).eq('deleted', false);
+  if (rows && rows.length > 0) {
+    const ids = rows.map((r: { id: string }) => r.id);
+    await supabase.from('cases').update({ deleted: true }).in('id', ids);
+  }
+  // Remove the day_closes record so it disappears from Reports History
+  await supabase.from('day_closes').delete().eq('date', date);
+}
