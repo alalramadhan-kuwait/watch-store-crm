@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
 import {
   FileText, Share2, Download, Calendar, ChevronDown, ChevronUp,
-  Clock, User, Loader2, ShieldAlert, Trash2, Edit2,
+  Clock, User, Loader2, ShieldAlert, Trash2, Edit2, Store,
 } from 'lucide-react';
 import { getAllDayCloses, getCasesByDate, updateCase, rebuildDaySummary, getSettings, deleteFullDayReport } from '../db';
 import { generatePDF, downloadReport, shareReport } from '../utils/report';
@@ -39,8 +39,9 @@ export function Reports() {
   const filtered = useMemo(() => reports.filter(r => {
     if (fromDate && r.date < fromDate) return false;
     if (toDate && r.date > toDate) return false;
+    if (outletFilter && r.outlet !== outletFilter) return false;
     return true;
-  }), [reports, fromDate, toDate]);
+  }), [reports, fromDate, toDate, outletFilter]);
 
   async function handleDownload(date: string) {
     if (generating) return;
@@ -60,7 +61,7 @@ export function Reports() {
     if (!deletingReport) return;
     setDeletingAll(true);
     try {
-      await deleteFullDayReport(deletingReport.date);
+      await deleteFullDayReport(deletingReport.date, deletingReport.outlet);
       showToast('Report deleted.', 'info');
       setDeletingReport(null);
       setExpanded(null);
@@ -216,6 +217,10 @@ function ReportCard({
               <span className="font-semibold text-slate-900 text-sm">{displayDate}</span>
               {isToday && <span className="text-[10px] font-semibold px-1.5 py-0.5 bg-brand-50 text-brand-700 rounded-md">Today</span>}
               {report.autoClosed && <span className="text-[10px] font-semibold px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded-md">Auto-closed</span>}
+              <span className="flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 bg-slate-100 text-slate-600 rounded-md">
+                <Store className="w-2.5 h-2.5" />
+                {report.outlet || 'All Outlets'}
+              </span>
             </div>
             <div className="flex items-center gap-3 mt-1 text-xs text-slate-400">
               <span className="flex items-center gap-1"><User className="w-3 h-3" /> {report.closedBy}</span>
@@ -262,6 +267,7 @@ function ReportCard({
       {expanded && (
         <ExpandedDayView
           date={report.date}
+          outlet={report.outlet}
           reportSummary={report.reportSummary}
           onSummaryChanged={onSummaryChanged}
           outletFilter={outletFilter}
@@ -274,9 +280,10 @@ function ReportCard({
 // ── ExpandedDayView ───────────────────────────────────────────────────────────
 
 function ExpandedDayView({
-  date, reportSummary, onSummaryChanged, outletFilter,
+  date, outlet, reportSummary, onSummaryChanged, outletFilter,
 }: {
   date: string;
+  outlet: string;
   reportSummary?: string;
   onSummaryChanged: () => void;
   outletFilter: string;
@@ -317,7 +324,7 @@ function ExpandedDayView({
     setDeleteCase(null);
     showToast('Entry removed.', 'info');
     await load();
-    await rebuildDaySummary(date);
+    await rebuildDaySummary(date, outlet);
     onSummaryChanged();
   }
 
@@ -408,7 +415,7 @@ function ExpandedDayView({
               setEditCase(null);
               showToast('Updated.', 'success');
               await load();
-              await rebuildDaySummary(date);
+              await rebuildDaySummary(date, outlet);
               onSummaryChanged();
             }}
             onCancel={() => setEditCase(null)}

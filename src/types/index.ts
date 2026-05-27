@@ -86,6 +86,7 @@ export interface Case {
 export interface DayClose {
   id?: string;
   date: string;
+  outlet: string;       // '' = all outlets combined; 'Avenues' / 'TimeGallery' = outlet-specific
   closedAt: string;
   closedBy: string;
   reportSummary?: string;

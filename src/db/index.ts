@@ -50,6 +50,7 @@ interface DbSettings {
 interface DbDayClose {
   id: string;
   date: string;
+  outlet: string;
   closed_at: string;
   closed_by: string;
   report_summary: string | null;
@@ -322,10 +323,11 @@ export async function getAllDayCloses(): Promise<DayClose[]> {
   const { data } = await supabase
     .from('day_closes')
     .select('*')
-    .order('date', { ascending: false });
+    .order('date', { ascending: false })
+    .order('outlet', { ascending: true });
   return (data ?? []).map(row => {
     const r = row as DbDayClose;
-    return { id: r.id, date: r.date, closedAt: r.closed_at, closedBy: r.closed_by, reportSummary: r.report_summary ?? undefined, autoClosed: r.auto_closed };
+    return { id: r.id, date: r.date, outlet: r.outlet ?? '', closedAt: r.closed_at, closedBy: r.closed_by, reportSummary: r.report_summary ?? undefined, autoClosed: r.auto_closed };
   });
 }
 
@@ -339,20 +341,24 @@ export async function getCasesByDate(date: string): Promise<Case[]> {
   return (data ?? []).map(r => caseFromDb(r as DbCase));
 }
 
-export async function getDayClose(date: string): Promise<DayClose | null> {
-  const { data } = await supabase.from('day_closes').select('*').eq('date', date).single();
-  if (!data) return null;
-  const row = data as DbDayClose;
-  return { id: row.id, date: row.date, closedAt: row.closed_at, closedBy: row.closed_by, reportSummary: row.report_summary ?? undefined, autoClosed: row.auto_closed };
+export async function getDayClose(date: string, outlet = ''): Promise<DayClose | null> {
+  // Match exact outlet OR a combined ('') close that covers all outlets
+  const { data } = await supabase.from('day_closes').select('*').eq('date', date).in('outlet', outlet ? [outlet, ''] : ['']).order('outlet', { ascending: false }).limit(1);
+  if (!data || data.length === 0) return null;
+  const row = data[0] as DbDayClose;
+  return { id: row.id, date: row.date, outlet: row.outlet ?? '', closedAt: row.closed_at, closedBy: row.closed_by, reportSummary: row.report_summary ?? undefined, autoClosed: row.auto_closed };
 }
 
-export async function isDayClosed(date: string): Promise<boolean> {
-  const { count } = await supabase.from('day_closes').select('*', { count: 'exact', head: true }).eq('date', date);
-  return (count ?? 0) > 0;
+export async function isDayClosed(date: string, outlet = ''): Promise<boolean> {
+  const close = await getDayClose(date, outlet);
+  return close !== null;
 }
 
-export async function closeDay(date: string, closedBy: string): Promise<string> {
-  const { data: rows } = await supabase.from('cases').select('*').eq('date_logged', date).eq('deleted', false);
+export async function closeDay(date: string, closedBy: string, outlet = ''): Promise<string> {
+  // Fetch cases — filter by outlet if specified
+  let query = supabase.from('cases').select('*').eq('date_logged', date).eq('deleted', false);
+  if (outlet) query = query.eq('outlet', outlet);
+  const { data: rows } = await query;
   const { data: { user } } = await supabase.auth.getUser();
 
   for (const row of rows ?? []) {
@@ -389,8 +395,9 @@ export async function closeDay(date: string, closedBy: string): Promise<string> 
     if (d.kd > topKD) { topKD = d.kd; topStaff = name; }
   }
 
+  const outletLabel = outlet ? ` — ${outlet}` : ' — All Outlets';
   const summary =
-    `📊 Daily Report — ${format(new Date(date + 'T12:00:00'), 'd MMM yyyy')}\n` +
+    `📊 Daily Report — ${format(new Date(date + 'T12:00:00'), 'd MMM yyyy')}${outletLabel}\n` +
     `Total Visitors: ${totalVisitors} | Interactions: ${interactions} | Browsing: ${noInteraction.length}\n` +
     `Total Sales: ${formatKD(revenue)} KD (${sales.length} sale${sales.length !== 1 ? 's' : ''})\n` +
     `Follow-ups: ${followups.length} | Lost: ${lost.length}\n` +
@@ -399,7 +406,7 @@ export async function closeDay(date: string, closedBy: string): Promise<string> 
     `Open follow-ups outstanding: ${openFU ?? 0}`;
 
   await supabase.from('day_closes').insert({
-    date, closed_at: new Date().toISOString(), closed_by: closedBy,
+    date, outlet, closed_at: new Date().toISOString(), closed_by: closedBy,
     report_summary: summary, auto_closed: false, created_by: user?.id ?? null,
   });
 
@@ -407,8 +414,10 @@ export async function closeDay(date: string, closedBy: string): Promise<string> 
 }
 
 // Rebuild and persist the stored summary for a closed day (e.g. after manager edits/deletes).
-export async function rebuildDaySummary(date: string): Promise<string> {
-  const { data: rows } = await supabase.from('cases').select('*').eq('date_logged', date).eq('deleted', false);
+export async function rebuildDaySummary(date: string, outlet = ''): Promise<string> {
+  let q = supabase.from('cases').select('*').eq('date_logged', date).eq('deleted', false);
+  if (outlet) q = q.eq('outlet', outlet);
+  const { data: rows } = await q;
   const cases = (rows ?? []).map(r => caseFromDb(r as DbCase));
 
   const sales = cases.filter(c => c.caseType === 'Sale');
@@ -436,8 +445,9 @@ export async function rebuildDaySummary(date: string): Promise<string> {
     if (d.kd > topKD) { topKD = d.kd; topStaff = name; }
   }
 
+  const outletSuffix = outlet ? ` — ${outlet}` : ' — All Outlets';
   const summary =
-    `📊 Daily Report — ${format(new Date(date + 'T12:00:00'), 'd MMM yyyy')}\n` +
+    `📊 Daily Report — ${format(new Date(date + 'T12:00:00'), 'd MMM yyyy')}${outletSuffix}\n` +
     `Total Visitors: ${totalVisitors} | Interactions: ${interactions} | Browsing: ${noInteraction.length}\n` +
     `Total Sales: ${formatKD(revenue)} KD (${sales.length} sale${sales.length !== 1 ? 's' : ''})\n` +
     `Follow-ups: ${followups.length} | Lost: ${lost.length}\n` +
@@ -445,17 +455,23 @@ export async function rebuildDaySummary(date: string): Promise<string> {
     (topStaff ? `Top: ${topStaff} — ${formatKD(topKD)} KD (${staffSales[topStaff].count} sales)\n` : '') +
     `Open follow-ups outstanding: ${openFU ?? 0}`;
 
-  await supabase.from('day_closes').update({ report_summary: summary }).eq('date', date);
+  let updateQ = supabase.from('day_closes').update({ report_summary: summary }).eq('date', date);
+  if (outlet) updateQ = updateQ.eq('outlet', outlet);
+  await updateQ;
   return summary;
 }
 
-export async function deleteFullDayReport(date: string): Promise<void> {
-  // Soft-delete all cases for the date
-  const { data: rows } = await supabase.from('cases').select('id').eq('date_logged', date).eq('deleted', false);
+export async function deleteFullDayReport(date: string, outlet = ''): Promise<void> {
+  // Soft-delete cases for the date (filtered by outlet if specified)
+  let q = supabase.from('cases').select('id').eq('date_logged', date).eq('deleted', false);
+  if (outlet) q = q.eq('outlet', outlet);
+  const { data: rows } = await q;
   if (rows && rows.length > 0) {
     const ids = rows.map((r: { id: string }) => r.id);
     await supabase.from('cases').update({ deleted: true }).in('id', ids);
   }
-  // Remove the day_closes record so it disappears from Reports History
-  await supabase.from('day_closes').delete().eq('date', date);
+  // Remove the specific day_closes record
+  let delQ = supabase.from('day_closes').delete().eq('date', date);
+  if (outlet !== undefined) delQ = delQ.eq('outlet', outlet);
+  await delQ;
 }

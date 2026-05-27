@@ -15,7 +15,7 @@ import { QuickEntryEdit } from './QuickEntryEdit';
 const today = format(new Date(), 'yyyy-MM-dd');
 
 export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
-  const { showToast, refreshLog } = useAppStore();
+  const { showToast, refreshLog, activeOutlet } = useAppStore();
   const { role, profile } = useAuth();
   const [cases, setCases] = useState<Case[]>([]);
   const [dayClose, setDayClose] = useState<DayClose | null>(null);
@@ -31,7 +31,8 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   const [sharingPdf, setSharingPdf] = useState(false);
 
   const load = useCallback(async () => {
-    const [c, dc, s] = await Promise.all([getTodayCases(), getDayClose(today), getSettings()]);
+    const outlet = role === 'staff' ? (activeOutlet ?? '') : ''; // eslint-disable-line react-hooks/exhaustive-deps
+    const [c, dc, s] = await Promise.all([getTodayCases(), getDayClose(today, outlet), getSettings()]);
     setCases(c);
     setDayClose(dc);
     setSettings(s);
@@ -53,7 +54,6 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
 
   const isClosed = !!dayClose;
 
-  const { activeOutlet } = useAppStore();
   const [outletFilter, setOutletFilter] = useState<string>('');
 
   // Staff see only their outlet; manager can filter or see all
@@ -150,7 +150,8 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
     setClosingDay(true);
     try {
       const closer = closerName || settings?.staffRoster[0] || 'Manager';
-      await closeDay(today, closer);
+      const outlet = role === 'staff' ? (activeOutlet ?? '') : '';
+      await closeDay(today, closer, outlet);
       showToast('Day closed. Report ready to share.', 'success');
       setCloseDayOpen(false);
       setCloseDaySummary(null);
