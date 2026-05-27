@@ -232,7 +232,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
             <table className="w-full text-sm min-w-[900px]">
               <thead>
                 <tr className="border-b border-slate-100">
-                  {['Time', 'Type', 'Staff', 'Outlet', 'Brand', 'Prod. Type', 'Customer', 'Phone', 'KD', 'Reason / Action', 'FU Date', 'Status', ''].map(h => (
+                  {['Time', 'Type', 'Staff', 'Outlet', 'Brand', 'Prod. Type', 'Customer', 'Phone', 'KD', 'Reason / Action', 'FU Date', 'Status', 'Notes', ''].map(h => (
                     <th key={h} className="text-left py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -279,6 +279,11 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
                       </td>
                       <td className="py-2.5 px-3">
                         <StatusBadge status={c.status} />
+                      </td>
+                      <td className="py-2.5 px-3 text-xs text-slate-500 max-w-[120px]">
+                        {c.notes
+                          ? <span className="truncate block" title={c.notes}>{c.notes}</span>
+                          : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="py-2.5 px-3 w-14">
                         {canEdit ? (

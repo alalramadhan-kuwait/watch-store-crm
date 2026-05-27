@@ -132,6 +132,7 @@ export function FollowUps() {
           dateLogged: todayStr,
           timeLogged: format(now, 'HH:mm'),
           staff: actionCase.staff,
+          outlet: actionCase.outlet,
           customerName: actionCase.customerName,
           contact: actionCase.contact,
           caseType: 'Sale',

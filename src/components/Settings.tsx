@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
-import { Plus, Trash2, KeyRound, Download, Tag, Eye, EyeOff, Edit2, Store } from 'lucide-react';
+import { Plus, Trash2, Tag, Eye, EyeOff, Edit2, Store } from 'lucide-react';
 import { getSettings, saveSettings, getBrands, addBrand, toggleBrand, renameBrand, deleteBrand } from '../db';
-import { exportLocalData } from '../db/local-export';
 import { useAppStore } from '../store';
 import { ConfirmModal } from './shared/Modal';
 import type { AppSettings, Brand } from '../types';
@@ -21,10 +20,6 @@ export function Settings() {
   const [newChannel, setNewChannel] = useState('');
   const [newOutlet, setNewOutlet] = useState('');
 
-  const [pinCurrent, setPinCurrent] = useState('');
-  const [pinNew, setPinNew] = useState('');
-  const [pinConfirm, setPinConfirm] = useState('');
-  const [pinError, setPinError] = useState('');
   const [showDeleteStaff, setShowDeleteStaff] = useState<string | null>(null);
 
   useEffect(() => {
@@ -104,17 +99,6 @@ export function Settings() {
     await saveSettings({ [field]: updated });
     setSettings(s => s ? { ...s, [field]: updated } : s);
     showToast('Removed.', 'info');
-  }
-
-  async function handleChangePin() {
-    setPinError('');
-    if (!settings) return;
-    if (pinCurrent !== settings.managerPin) { setPinError('Current PIN is incorrect.'); return; }
-    if (pinNew.length < 4) { setPinError('New PIN must be at least 4 digits.'); return; }
-    if (pinNew !== pinConfirm) { setPinError("PINs don't match."); return; }
-    await saveSettings({ managerPin: pinNew });
-    setPinCurrent(''); setPinNew(''); setPinConfirm('');
-    showToast('PIN updated.', 'success');
   }
 
   return (
@@ -228,51 +212,9 @@ export function Settings() {
           onRemove={v => removeItem('channels', v)} placeholder="New channel" />
       </div>
 
-      <div className="lg:grid lg:grid-cols-2 lg:gap-6 space-y-6 lg:space-y-0 mt-6">
-
-      {/* Change Manager PIN */}
-      <div className="card p-5">
-        <div className="flex items-center gap-2 mb-4">
-          <KeyRound className="w-5 h-5 text-brand-700" />
-          <h2 className="font-bold text-slate-900">Change Manager PIN</h2>
-        </div>
-        <div className="space-y-3">
-          <div>
-            <label className="label">Current PIN</label>
-            <input type="password" value={pinCurrent} onChange={e => setPinCurrent(e.target.value)}
-              placeholder="••••" className="input" inputMode="numeric" />
-          </div>
-          <div>
-            <label className="label">New PIN (min 4 digits)</label>
-            <input type="password" value={pinNew} onChange={e => setPinNew(e.target.value)}
-              placeholder="••••" className="input" inputMode="numeric" />
-          </div>
-          <div>
-            <label className="label">Confirm New PIN</label>
-            <input type="password" value={pinConfirm} onChange={e => setPinConfirm(e.target.value)}
-              placeholder="••••" className="input" inputMode="numeric" />
-          </div>
-          {pinError && <p className="text-rose-500 text-sm">{pinError}</p>}
-          <button onClick={handleChangePin} className="btn-primary w-full">Update PIN</button>
-        </div>
-      </div>
-
-      </div>
-
-      {/* Local data export */}
-      <div className="card p-5 mt-6">
-        <div className="flex items-center gap-2 mb-2">
-          <Download className="w-5 h-5 text-slate-500" />
-          <h2 className="font-bold text-slate-900">Export Local Data</h2>
-        </div>
-        <p className="text-xs text-slate-500 mb-3">Download any data still stored locally in this browser before it is cleared.</p>
-        <button onClick={exportLocalData} className="btn-secondary w-full">Download Local Backup (JSON)</button>
-      </div>
-
       {/* Brand footer */}
       <div className="flex flex-col items-center pb-4 gap-1 mt-6">
         <img src={`${import.meta.env.BASE_URL}tk-logo-text.png`} alt="TIME KEEPER" className="w-36 object-contain opacity-60" />
-        <p className="text-xs text-slate-400">Default manager PIN: <span className="font-mono font-medium">1234</span></p>
       </div>
 
       <ConfirmModal open={!!showDeleteStaff} onClose={() => setShowDeleteStaff(null)}
