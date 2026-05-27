@@ -1,18 +1,21 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { format } from 'date-fns';
 import { NavBar } from './components/layout/NavBar';
 import { TopBar } from './components/layout/TopBar';
 import { Sidebar } from './components/layout/Sidebar';
 import { LoginPage } from './components/auth/LoginPage';
-import { QuickEntry } from './components/QuickEntry';
+import { EntryWithLog } from './components/EntryWithLog';
 import { TodayLog } from './components/TodayLog';
 import { FollowUps } from './components/FollowUps';
 import { ManagerDashboard } from './components/ManagerDashboard';
+import { Reports } from './components/Reports';
 import { Settings } from './components/Settings';
+import { OutletSelector } from './components/OutletSelector';
 import { ToastContainer } from './components/shared/Toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { isDayClosed, closeDay, getTodayCases, updateCase } from './db';
+import { useAppStore } from './store';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { role } = useAuth();
@@ -21,7 +24,12 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppShell() {
-  const { user, loading } = useAuth();
+  const { user, loading, role } = useAuth();
+  const { sidebarCollapsed, activeOutlet, setActiveOutlet } = useAppStore();
+  // Staff must pick an outlet once per session before accessing the app
+  const [outletChosen, setOutletChosen] = useState(() => {
+    return role === 'admin' || !!sessionStorage.getItem('activeOutlet');
+  });
 
   // Auto-close safety net: check yesterday on startup
   useEffect(() => {
@@ -63,18 +71,28 @@ function AppShell() {
 
   if (!user) return <LoginPage />;
 
+  // Staff must choose outlet before entering — admin skips this
+  if (role === 'staff' && !outletChosen) {
+    return (
+      <OutletSelector
+        onSelected={() => setOutletChosen(true)}
+      />
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50">
       <ToastContainer />
       <TopBar />
       <Sidebar />
 
-      <main className="min-h-screen pt-14 lg:ml-60">
+      <main className={`min-h-screen pt-14 transition-all duration-200 ${sidebarCollapsed ? 'lg:ml-14' : 'lg:ml-60'}`}>
         <Routes>
-          <Route path="/" element={<QuickEntry />} />
+          <Route path="/" element={<EntryWithLog />} />
           <Route path="/today" element={<TodayLog />} />
           <Route path="/followups" element={<FollowUps />} />
           <Route path="/manager" element={<ProtectedRoute><ManagerDashboard /></ProtectedRoute>} />
+          <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

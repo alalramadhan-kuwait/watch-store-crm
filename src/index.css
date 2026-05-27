@@ -76,6 +76,18 @@
   .type-btn-lost-active {
     @apply border-rose-500 bg-rose-500 text-white shadow-md;
   }
+  .type-btn-neutral {
+    @apply border-slate-200 text-slate-600 bg-slate-50;
+  }
+  .type-btn-neutral-active {
+    @apply border-slate-500 bg-slate-600 text-white shadow-md;
+  }
+  .quick-btn {
+    @apply px-3 py-2 rounded-xl border-2 border-slate-200 text-sm font-medium text-slate-600 bg-white transition-all duration-100 touch-manipulation active:scale-95 select-none;
+  }
+  .quick-btn-active {
+    @apply border-brand-500 bg-brand-50 text-brand-700;
+  }
 }
 
 /* Smooth scrolling content areas */

@@ -1,10 +1,10 @@
 import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
-import type { Case, DayClose, AppSettings, CaseType, CaseStatus, AuditEntry } from '../types';
+import type { Case, DayClose, AppSettings, CaseType, CaseStatus, AuditEntry, Brand, ProductType } from '../types';
 import { STAFF_DEFAULT, LOST_REASONS_DEFAULT, FOLLOWUP_ACTIONS_DEFAULT, CHANNELS_DEFAULT } from '../types';
 import { formatKD } from '../utils/formatKD';
 
-// ── DB row types (snake_case matching Supabase schema) ────────────────────────
+// ── DB row types ──────────────────────────────────────────────────────────────
 
 interface DbCase {
   id: string;
@@ -12,9 +12,12 @@ interface DbCase {
   date_logged: string;
   time_logged: string;
   staff: string;
+  outlet: string | null;
   customer_name: string | null;
   contact: string | null;
   case_type: string;
+  brand: string | null;
+  product_type: string | null;
   product: string;
   amount_kd: number | null;
   lost_reason: string | null;
@@ -22,6 +25,7 @@ interface DbCase {
   promised_callback: string | null;
   last_contact_date: string | null;
   channel: string | null;
+  browsing_tags: string[] | null;
   status: string;
   day_locked: boolean;
   linked_case_id: string | null;
@@ -39,8 +43,8 @@ interface DbSettings {
   lost_reasons: string[];
   follow_up_actions: string[];
   channels: string[];
+  outlets: string[];
   manager_pin: string;
-  staff_pin: string;
 }
 
 interface DbDayClose {
@@ -52,6 +56,13 @@ interface DbDayClose {
   auto_closed: boolean;
 }
 
+interface DbBrand {
+  id: string;
+  name: string;
+  is_active: boolean;
+  sort_order: number;
+}
+
 // ── Mappers ───────────────────────────────────────────────────────────────────
 
 function caseFromDb(row: DbCase): Case {
@@ -61,9 +72,12 @@ function caseFromDb(row: DbCase): Case {
     dateLogged: row.date_logged,
     timeLogged: row.time_logged,
     staff: row.staff,
+    outlet: row.outlet ?? undefined,
     customerName: row.customer_name ?? undefined,
     contact: row.contact ?? undefined,
     caseType: row.case_type as CaseType,
+    brand: row.brand ?? undefined,
+    productType: row.product_type as ProductType ?? undefined,
     product: row.product,
     amountKD: row.amount_kd ?? undefined,
     lostReason: row.lost_reason ?? undefined,
@@ -71,6 +85,7 @@ function caseFromDb(row: DbCase): Case {
     promisedCallback: row.promised_callback ?? undefined,
     lastContactDate: row.last_contact_date ?? undefined,
     channel: row.channel ?? undefined,
+    browsingTags: row.browsing_tags ?? undefined,
     status: row.status as CaseStatus,
     dayLocked: row.day_locked,
     linkedCaseId: row.linked_case_id ?? undefined,
@@ -85,9 +100,12 @@ function caseToDb(c: Omit<Case, 'id'>): Omit<DbCase, 'id' | 'created_by' | 'crea
     date_logged: c.dateLogged,
     time_logged: c.timeLogged,
     staff: c.staff,
+    outlet: c.outlet ?? null,
     customer_name: c.customerName ?? null,
     contact: c.contact ?? null,
     case_type: c.caseType,
+    brand: c.brand ?? null,
+    product_type: c.productType ?? null,
     product: c.product,
     amount_kd: c.amountKD ?? null,
     lost_reason: c.lostReason ?? null,
@@ -95,6 +113,7 @@ function caseToDb(c: Omit<Case, 'id'>): Omit<DbCase, 'id' | 'created_by' | 'crea
     promised_callback: c.promisedCallback ?? null,
     last_contact_date: c.lastContactDate ?? null,
     channel: c.channel ?? null,
+    browsing_tags: c.browsingTags ?? null,
     status: c.status,
     day_locked: c.dayLocked,
     linked_case_id: c.linkedCaseId ?? null,
@@ -110,9 +129,48 @@ function settingsFromDb(row: DbSettings): AppSettings {
     lostReasons: row.lost_reasons,
     followUpActions: row.follow_up_actions,
     channels: row.channels,
+    outlets: row.outlets ?? ['Avenues', 'TimeGallery'],
     managerPin: row.manager_pin,
-    staffPin: row.staff_pin,
   };
+}
+
+// ── Brands ────────────────────────────────────────────────────────────────────
+
+export async function getBrands(): Promise<Brand[]> {
+  const [{ data: brandsData }, { data: usageData }] = await Promise.all([
+    supabase.from('brands').select('*').order('sort_order', { ascending: true }),
+    supabase.from('cases').select('brand').not('brand', 'is', null).eq('deleted', false),
+  ]);
+
+  const counts: Record<string, number> = {};
+  for (const row of usageData ?? []) {
+    if (row.brand) counts[row.brand] = (counts[row.brand] || 0) + 1;
+  }
+
+  return ((brandsData ?? []) as DbBrand[])
+    .map(b => ({ ...b, usageCount: counts[b.name] || 0 }))
+    .sort((a, b) => (b.usageCount! - a.usageCount!) || (a.sort_order - b.sort_order));
+}
+
+export async function getAllBrands(): Promise<Brand[]> {
+  const { data } = await supabase.from('brands').select('*').order('sort_order', { ascending: true });
+  return (data ?? []) as Brand[];
+}
+
+export async function addBrand(name: string): Promise<void> {
+  await supabase.from('brands').insert({ name });
+}
+
+export async function toggleBrand(id: string, is_active: boolean): Promise<void> {
+  await supabase.from('brands').update({ is_active, updated_at: new Date().toISOString() }).eq('id', id);
+}
+
+export async function renameBrand(id: string, name: string): Promise<void> {
+  await supabase.from('brands').update({ name, updated_at: new Date().toISOString() }).eq('id', id);
+}
+
+export async function deleteBrand(id: string): Promise<void> {
+  await supabase.from('brands').delete().eq('id', id);
 }
 
 // ── Settings ──────────────────────────────────────────────────────────────────
@@ -125,8 +183,8 @@ export async function getSettings(): Promise<AppSettings> {
       lostReasons: LOST_REASONS_DEFAULT,
       followUpActions: FOLLOWUP_ACTIONS_DEFAULT,
       channels: CHANNELS_DEFAULT,
+      outlets: ['Avenues', 'TimeGallery'],
       managerPin: '1234',
-      staffPin: 'TK2018',
     };
   }
   return settingsFromDb(data as DbSettings);
@@ -145,8 +203,8 @@ export async function saveSettings(updates: Partial<AppSettings>): Promise<void>
   if (updates.lostReasons !== undefined) dbUpdates.lost_reasons = updates.lostReasons;
   if (updates.followUpActions !== undefined) dbUpdates.follow_up_actions = updates.followUpActions;
   if (updates.channels !== undefined) dbUpdates.channels = updates.channels;
+  if (updates.outlets !== undefined) (dbUpdates as Record<string, unknown>).outlets = updates.outlets;
   if (updates.managerPin !== undefined) dbUpdates.manager_pin = updates.managerPin;
-  if (updates.staffPin !== undefined) dbUpdates.staff_pin = updates.staffPin;
 
   await supabase.from('settings').update(dbUpdates).eq('id', current.id);
 }
@@ -199,13 +257,6 @@ export async function getCasesForRange(from: string, to: string): Promise<Case[]
   return (data ?? []).map(r => caseFromDb(r as DbCase));
 }
 
-export async function getProductSuggestions(): Promise<string[]> {
-  const { data } = await supabase.from('cases').select('product').eq('deleted', false);
-  const set = new Set<string>();
-  for (const row of data ?? []) if (row.product) set.add(row.product as string);
-  return [...set].sort();
-}
-
 export async function countOpenFollowUps(): Promise<number> {
   const { count } = await supabase
     .from('cases')
@@ -229,13 +280,26 @@ export async function insertCase(c: Omit<Case, 'id'>): Promise<Case> {
 }
 
 export async function updateCase(id: string, updates: Partial<Case>): Promise<void> {
+  // If this update includes a soft-delete (deleted=true), use the SECURITY DEFINER
+  // RPC so it can bypass the SELECT policy that blocks setting deleted=true directly.
+  if (updates.deleted === true) {
+    await supabase.rpc('admin_soft_delete_case', {
+      p_case_id: id,
+      p_audit_log: updates.auditLog ?? [],
+    });
+    return;
+  }
+
   const { data: { user } } = await supabase.auth.getUser();
   const dbUpdates: Record<string, unknown> = { updated_by: user?.id ?? null };
 
   if (updates.staff !== undefined) dbUpdates.staff = updates.staff;
+  if (updates.outlet !== undefined) dbUpdates.outlet = updates.outlet;
   if (updates.customerName !== undefined) dbUpdates.customer_name = updates.customerName;
   if (updates.contact !== undefined) dbUpdates.contact = updates.contact;
   if (updates.caseType !== undefined) dbUpdates.case_type = updates.caseType;
+  if (updates.brand !== undefined) dbUpdates.brand = updates.brand;
+  if (updates.productType !== undefined) dbUpdates.product_type = updates.productType;
   if (updates.product !== undefined) dbUpdates.product = updates.product;
   if (updates.amountKD !== undefined) dbUpdates.amount_kd = updates.amountKD;
   if (updates.lostReason !== undefined) dbUpdates.lost_reason = updates.lostReason;
@@ -243,50 +307,59 @@ export async function updateCase(id: string, updates: Partial<Case>): Promise<vo
   if (updates.promisedCallback !== undefined) dbUpdates.promised_callback = updates.promisedCallback;
   if (updates.lastContactDate !== undefined) dbUpdates.last_contact_date = updates.lastContactDate;
   if (updates.channel !== undefined) dbUpdates.channel = updates.channel;
+  if (updates.browsingTags !== undefined) dbUpdates.browsing_tags = updates.browsingTags;
   if (updates.status !== undefined) dbUpdates.status = updates.status;
   if (updates.dayLocked !== undefined) dbUpdates.day_locked = updates.dayLocked;
   if (updates.linkedCaseId !== undefined) dbUpdates.linked_case_id = updates.linkedCaseId;
   if (updates.auditLog !== undefined) dbUpdates.audit_log = updates.auditLog;
-  if (updates.deleted !== undefined) dbUpdates.deleted = updates.deleted;
 
   await supabase.from('cases').update(dbUpdates).eq('id', id);
 }
 
 // ── Day close ─────────────────────────────────────────────────────────────────
 
-export async function getDayClose(date: string): Promise<DayClose | null> {
+export async function getAllDayCloses(): Promise<DayClose[]> {
   const { data } = await supabase
     .from('day_closes')
     .select('*')
-    .eq('date', date)
-    .single();
+    .order('date', { ascending: false });
+  return (data ?? []).map(row => {
+    const r = row as DbDayClose;
+    return { id: r.id, date: r.date, closedAt: r.closed_at, closedBy: r.closed_by, reportSummary: r.report_summary ?? undefined, autoClosed: r.auto_closed };
+  });
+}
+
+export async function getCasesByDate(date: string): Promise<Case[]> {
+  const { data } = await supabase
+    .from('cases')
+    .select('*')
+    .eq('date_logged', date)
+    .eq('deleted', false)
+    .order('time_logged', { ascending: true });
+  return (data ?? []).map(r => caseFromDb(r as DbCase));
+}
+
+export async function getDayClose(date: string): Promise<DayClose | null> {
+  const { data } = await supabase.from('day_closes').select('*').eq('date', date).single();
   if (!data) return null;
   const row = data as DbDayClose;
   return { id: row.id, date: row.date, closedAt: row.closed_at, closedBy: row.closed_by, reportSummary: row.report_summary ?? undefined, autoClosed: row.auto_closed };
 }
 
 export async function isDayClosed(date: string): Promise<boolean> {
-  const { count } = await supabase
-    .from('day_closes')
-    .select('*', { count: 'exact', head: true })
-    .eq('date', date);
+  const { count } = await supabase.from('day_closes').select('*', { count: 'exact', head: true }).eq('date', date);
   return (count ?? 0) > 0;
 }
 
 export async function closeDay(date: string, closedBy: string): Promise<string> {
-  const { data: rows } = await supabase
-    .from('cases')
-    .select('*')
-    .eq('date_logged', date)
-    .eq('deleted', false);
-
+  const { data: rows } = await supabase.from('cases').select('*').eq('date_logged', date).eq('deleted', false);
   const { data: { user } } = await supabase.auth.getUser();
 
   for (const row of rows ?? []) {
     const upd: Record<string, unknown> = { day_locked: true, updated_by: user?.id ?? null };
-    if (row.case_type !== 'Follow-up') {
-      upd.status = row.case_type === 'Sale' ? 'Won' : 'Lost';
-    }
+    if (row.case_type === 'Sale') upd.status = 'Won';
+    else if (row.case_type === 'Lost Sale') upd.status = 'Lost';
+    else if (row.case_type === 'No Interaction') upd.status = 'Closed';
     await supabase.from('cases').update(upd).eq('id', row.id);
   }
 
@@ -294,16 +367,16 @@ export async function closeDay(date: string, closedBy: string): Promise<string> 
   const sales = cases.filter(c => c.caseType === 'Sale');
   const followups = cases.filter(c => c.caseType === 'Follow-up');
   const lost = cases.filter(c => c.caseType === 'Lost Sale');
+  const noInteraction = cases.filter(c => c.caseType === 'No Interaction');
   const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
-  const total = sales.length + lost.length;
-  const convRate = total > 0 ? Math.round((sales.length / total) * 100) : 0;
+  const interactions = sales.length + followups.length + lost.length;
+  const convRate = interactions > 0 ? Math.round((sales.length / interactions) * 100) : 0;
+  const totalVisitors = cases.length;
+  const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
 
   const { count: openFU } = await supabase
-    .from('cases')
-    .select('*', { count: 'exact', head: true })
-    .eq('case_type', 'Follow-up')
-    .eq('status', 'Open')
-    .eq('deleted', false);
+    .from('cases').select('*', { count: 'exact', head: true })
+    .eq('case_type', 'Follow-up').eq('status', 'Open').eq('deleted', false);
 
   const staffSales: Record<string, { count: number; kd: number }> = {};
   for (const c of sales) {
@@ -318,20 +391,60 @@ export async function closeDay(date: string, closedBy: string): Promise<string> 
 
   const summary =
     `📊 Daily Report — ${format(new Date(date + 'T12:00:00'), 'd MMM yyyy')}\n` +
+    `Total Visitors: ${totalVisitors} | Interactions: ${interactions} | Browsing: ${noInteraction.length}\n` +
     `Total Sales: ${formatKD(revenue)} KD (${sales.length} sale${sales.length !== 1 ? 's' : ''})\n` +
     `Follow-ups: ${followups.length} | Lost: ${lost.length}\n` +
-    `Conversion: ${convRate}%\n` +
+    `Conv. (interactions): ${convRate}% | Conv. (visitors): ${visitorConv}%\n` +
     (topStaff ? `Top: ${topStaff} — ${formatKD(topKD)} KD (${staffSales[topStaff].count} sales)\n` : '') +
     `Open follow-ups outstanding: ${openFU ?? 0}`;
 
   await supabase.from('day_closes').insert({
-    date,
-    closed_at: new Date().toISOString(),
-    closed_by: closedBy,
-    report_summary: summary,
-    auto_closed: false,
-    created_by: user?.id ?? null,
+    date, closed_at: new Date().toISOString(), closed_by: closedBy,
+    report_summary: summary, auto_closed: false, created_by: user?.id ?? null,
   });
 
+  return summary;
+}
+
+// Rebuild and persist the stored summary for a closed day (e.g. after manager edits/deletes).
+export async function rebuildDaySummary(date: string): Promise<string> {
+  const { data: rows } = await supabase.from('cases').select('*').eq('date_logged', date).eq('deleted', false);
+  const cases = (rows ?? []).map(r => caseFromDb(r as DbCase));
+
+  const sales = cases.filter(c => c.caseType === 'Sale');
+  const followups = cases.filter(c => c.caseType === 'Follow-up');
+  const lost = cases.filter(c => c.caseType === 'Lost Sale');
+  const noInteraction = cases.filter(c => c.caseType === 'No Interaction');
+  const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
+  const interactions = sales.length + followups.length + lost.length;
+  const convRate = interactions > 0 ? Math.round((sales.length / interactions) * 100) : 0;
+  const totalVisitors = cases.length;
+  const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
+
+  const { count: openFU } = await supabase
+    .from('cases').select('*', { count: 'exact', head: true })
+    .eq('case_type', 'Follow-up').eq('status', 'Open').eq('deleted', false);
+
+  const staffSales: Record<string, { count: number; kd: number }> = {};
+  for (const c of sales) {
+    if (!staffSales[c.staff]) staffSales[c.staff] = { count: 0, kd: 0 };
+    staffSales[c.staff].count++;
+    staffSales[c.staff].kd += c.amountKD || 0;
+  }
+  let topStaff = '', topKD = 0;
+  for (const [name, d] of Object.entries(staffSales)) {
+    if (d.kd > topKD) { topKD = d.kd; topStaff = name; }
+  }
+
+  const summary =
+    `📊 Daily Report — ${format(new Date(date + 'T12:00:00'), 'd MMM yyyy')}\n` +
+    `Total Visitors: ${totalVisitors} | Interactions: ${interactions} | Browsing: ${noInteraction.length}\n` +
+    `Total Sales: ${formatKD(revenue)} KD (${sales.length} sale${sales.length !== 1 ? 's' : ''})\n` +
+    `Follow-ups: ${followups.length} | Lost: ${lost.length}\n` +
+    `Conv. (interactions): ${convRate}% | Conv. (visitors): ${visitorConv}%\n` +
+    (topStaff ? `Top: ${topStaff} — ${formatKD(topKD)} KD (${staffSales[topStaff].count} sales)\n` : '') +
+    `Open follow-ups outstanding: ${openFU ?? 0}`;
+
+  await supabase.from('day_closes').update({ report_summary: summary }).eq('date', date);
   return summary;
 }

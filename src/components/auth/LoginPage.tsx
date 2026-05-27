@@ -12,9 +12,10 @@ export function LoginPage() {
     e.preventDefault();
     setLoading(true);
     setError('');
-    const { error } = await signIn(email, password);
+    const fullEmail = email.includes('@') ? email : `${email}@time-keeper.com`;
+    const { error } = await signIn(fullEmail, password);
     if (error) {
-      setError('Incorrect email or password.');
+      setError('Incorrect username or password.');
       setLoading(false);
     }
   }
@@ -59,15 +60,15 @@ export function LoginPage() {
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="label">Email</label>
+              <label className="label">Username</label>
               <input
-                type="email"
+                type="text"
                 value={email}
                 onChange={e => setEmail(e.target.value)}
-                placeholder="your@email.com"
+                placeholder="staff or manager"
                 className="input"
                 autoFocus
-                autoComplete="email"
+                autoComplete="username"
               />
             </div>
             <div>

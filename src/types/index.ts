@@ -1,40 +1,51 @@
-export type CaseType = 'Sale' | 'Follow-up' | 'Lost Sale';
+export type CaseType = 'Sale' | 'Follow-up' | 'Lost Sale' | 'No Interaction';
 
-export type CaseStatus = 'Open' | 'Won' | 'Lost' | 'No Response';
+export type CaseStatus = 'Open' | 'Won' | 'Lost' | 'No Response' | 'Closed';
+
+export type ProductType = 'Watch' | 'Strap' | 'Box / Winder' | 'Accessories' | 'Service' | 'Other';
 
 export type Channel = 'Call' | 'WhatsApp' | 'SMS' | 'Email';
 
+export const PRODUCT_TYPES: ProductType[] = [
+  'Watch', 'Strap', 'Box / Winder', 'Accessories', 'Service', 'Other',
+];
+
+export const LOST_REASONS_QUICK = [
+  'Price', 'Not Available', 'Wants Discount', 'Just Checking',
+  'Wrong Size / Color', 'Waiting / Later', 'Bought Elsewhere', 'Other',
+];
+
+export const FOLLOWUP_ACTIONS_QUICK = [
+  'Call', 'WhatsApp', 'Send Photos', 'Check Availability', 'Reserve Item', 'Other',
+];
+
+export const BROWSING_TAGS = [
+  'Looked at watches', 'Looked at straps / accessories',
+  'Asked nothing', 'Left quickly', 'Stayed 5+ minutes',
+];
+
 export const STAFF_DEFAULT = [
-  'Ahmad Yousri',
-  'Ahmad Khalaf',
-  'Raneen',
-  'Hussein Deeb',
-  'Fadi',
+  'Ahmad Yousri', 'Ahmad Khalaf', 'Raneen', 'Hussein Deeb', 'Fadi',
 ];
 
 export const LOST_REASONS_DEFAULT = [
-  'Out of stock',
-  'Size not available',
-  'Color not available',
-  'Price issue',
-  'Customer changed mind',
-  'Product not suitable',
-  'Not available in branch',
-  'Need approval/discount',
-  'Other',
+  'Price', 'Not Available', 'Wants Discount', 'Just Checking',
+  'Wrong Size / Color', 'Waiting / Later', 'Bought Elsewhere', 'Other',
 ];
 
 export const FOLLOWUP_ACTIONS_DEFAULT = [
-  'Call customer',
-  'WhatsApp customer',
-  'Send pictures',
-  'Check stock',
-  'Transfer from branch',
-  'Reorder item',
-  'Inform when available',
+  'Call', 'WhatsApp', 'Send Photos', 'Check Availability', 'Reserve Item', 'Other',
 ];
 
 export const CHANNELS_DEFAULT: Channel[] = ['Call', 'WhatsApp', 'SMS', 'Email'];
+
+export interface Brand {
+  id: string;
+  name: string;
+  is_active: boolean;
+  sort_order: number;
+  usageCount?: number;
+}
 
 export interface AuditEntry {
   timestamp: string;
@@ -45,14 +56,17 @@ export interface AuditEntry {
 }
 
 export interface Case {
-  id?: string;           // Supabase UUID
+  id?: string;
   caseId: string;
   dateLogged: string;
   timeLogged: string;
   staff: string;
+  outlet?: string;
   customerName?: string;
   contact?: string;
   caseType: CaseType;
+  brand?: string;
+  productType?: ProductType;
   product: string;
   amountKD?: number;
   lostReason?: string;
@@ -60,6 +74,8 @@ export interface Case {
   promisedCallback?: string;
   lastContactDate?: string;
   channel?: string;
+  browsingTags?: string[];
+  notes?: string;
   status: CaseStatus;
   dayLocked: boolean;
   linkedCaseId?: string;
@@ -82,8 +98,8 @@ export interface AppSettings {
   lostReasons: string[];
   followUpActions: string[];
   channels: string[];
+  outlets: string[];
   managerPin: string;
-  staffPin: string;
 }
 
 export interface DayStats {
@@ -91,7 +107,9 @@ export interface DayStats {
   salesKD: number;
   followupCount: number;
   lostCount: number;
+  noInteractionCount: number;
   conversionRate: number;
+  interactionRate: number;
 }
 
 export type FollowUpOutcome = 'contacted' | 'won' | 'lost' | 'no_response';

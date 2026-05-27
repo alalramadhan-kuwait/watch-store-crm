@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { format, subDays } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { TrendingUp, Users, AlertCircle, DollarSign, Calendar } from 'lucide-react';
+import { TrendingUp, Users, AlertCircle, DollarSign, Calendar, FileText } from 'lucide-react';
+import { NavLink } from 'react-router-dom';
 import { getTodayCases, getDayClose, getCasesForRange, getSettings, countOpenFollowUps } from '../db';
 import { supabase } from '../lib/supabase';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
@@ -18,6 +19,12 @@ export function ManagerDashboard() {
           <h1 className="text-2xl font-bold text-slate-900">Manager Dashboard</h1>
           <p className="text-slate-500 text-sm mt-0.5">{format(new Date(), 'EEEE, d MMMM yyyy')}</p>
         </div>
+        <NavLink
+          to="/reports"
+          className="flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-xl text-xs font-semibold transition-colors"
+        >
+          <FileText className="w-3.5 h-3.5" /> Reports
+        </NavLink>
       </div>
 
       <div className="flex bg-slate-100 rounded-2xl p-1 mb-6 gap-1 max-w-xs">
@@ -63,8 +70,10 @@ function DailyView() {
   const followups = cases.filter(c => c.caseType === 'Follow-up');
   const lost = cases.filter(c => c.caseType === 'Lost Sale');
   const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
-  const total = sales.length + lost.length;
-  const convRate = total > 0 ? Math.round((sales.length / total) * 100) : 0;
+  const totalVisitors = cases.length;
+  const interactions = sales.length + followups.length + lost.length;
+  const convRate = interactions > 0 ? Math.round((sales.length / interactions) * 100) : 0;
+  const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
   const filteredCases = [...cases].filter(c => !staffFilter || c.staff === staffFilter).reverse();
 
   return (
@@ -73,11 +82,12 @@ function DailyView() {
         <DayStatusBadge closed={!!dayClose} closedAt={dayClose ? format(new Date(dayClose.closedAt), 'HH:mm') : undefined} />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <KpiTile icon={<DollarSign className="w-5 h-5" />} label="Revenue Today" value={`${formatKDCompact(revenue)} KD`} color="brand" />
-        <KpiTile icon={<TrendingUp className="w-5 h-5" />} label="Conversion Rate" value={`${convRate}%`} color="emerald" />
-        <KpiTile icon={<Users className="w-5 h-5" />} label="Sales / FU / Lost" value={`${sales.length} / ${followups.length} / ${lost.length}`} color="amber" />
+        <KpiTile icon={<TrendingUp className="w-5 h-5" />} label="Visitor Conv." value={`${visitorConv}%`} color="emerald" />
+        <KpiTile icon={<Users className="w-5 h-5" />} label="Total Visitors" value={String(totalVisitors)} color="amber" />
         <KpiTile icon={<AlertCircle className="w-5 h-5" />} label="Open Follow-ups" value={String(openFU)} color="rose" />
+        <KpiTile icon={<TrendingUp className="w-5 h-5" />} label="Close Rate" value={`${convRate}%`} color="brand" />
       </div>
 
       <div>
@@ -92,7 +102,7 @@ function DailyView() {
         <table className="w-full text-sm">
           <thead>
             <tr className="border-b border-slate-100">
-              {['Time', 'Staff', 'Type', 'Product', 'Customer', 'KD'].map(h => (
+              {['Time', 'Staff', 'Type', 'Brand / Product', 'Customer', 'KD'].map(h => (
                 <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wide">{h}</th>
               ))}
             </tr>
@@ -103,7 +113,16 @@ function DailyView() {
                 <td className="py-3 px-4 text-slate-400 font-mono text-xs">{c.timeLogged}</td>
                 <td className="py-3 px-4 font-medium text-slate-700">{c.staff}</td>
                 <td className="py-3 px-4"><CaseTypeBadge type={c.caseType} /></td>
-                <td className="py-3 px-4 text-slate-800 max-w-[200px] truncate">{c.product}</td>
+                <td className="py-3 px-4 text-slate-800 max-w-[200px]">
+                  {c.caseType === 'No Interaction' ? (
+                    <span className="text-slate-300">—</span>
+                  ) : (
+                    <>
+                      <span className="font-medium truncate block">{c.brand || c.product}</span>
+                      {c.productType && <span className="text-xs text-slate-400">{c.productType}</span>}
+                    </>
+                  )}
+                </td>
                 <td className="py-3 px-4 text-slate-500">{c.customerName || '—'}</td>
                 <td className="py-3 px-4 font-semibold text-emerald-700">{c.amountKD ? formatKD(c.amountKD) : '—'}</td>
               </tr>
@@ -153,8 +172,11 @@ function WeeklyView() {
     const followups = cases.filter(c => c.caseType === 'Follow-up');
     const lost = cases.filter(c => c.caseType === 'Lost Sale');
     const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
-    const total = sales.length + lost.length;
-    const convRate = total > 0 ? Math.round((sales.length / total) * 100) : 0;
+    const totalVisitors = cases.length;
+    const interactions = sales.length + followups.length + lost.length;
+    const convRate = interactions > 0 ? Math.round((sales.length / interactions) * 100) : 0;
+    const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
+    const interactionRate = totalVisitors > 0 ? Math.round((interactions / totalVisitors) * 100) : 0;
 
     const staffMap: Record<string, { cases: number; sales: number; kd: number; followupsOwed: number }> = {};
     for (const c of cases) {
@@ -171,15 +193,39 @@ function WeeklyView() {
     for (const c of lost) { const r = c.lostReason || 'Other'; lostReasonMap[r] = (lostReasonMap[r] || 0) + 1; }
     const lostReasons = Object.entries(lostReasonMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
 
-    const lostProducts: Record<string, number> = {};
-    const followUpProducts: Record<string, number> = {};
-    for (const c of lost) lostProducts[c.product] = (lostProducts[c.product] || 0) + 1;
-    for (const c of followups) followUpProducts[c.product] = (followUpProducts[c.product] || 0) + 1;
+    // Brand-level analytics
+    const brandSalesMap: Record<string, { count: number; kd: number }> = {};
+    for (const c of sales) {
+      const key = c.brand || c.product || 'Unknown';
+      if (!brandSalesMap[key]) brandSalesMap[key] = { count: 0, kd: 0 };
+      brandSalesMap[key].count++;
+      brandSalesMap[key].kd += c.amountKD || 0;
+    }
+    const brandSales = Object.entries(brandSalesMap)
+      .map(([brand, d]) => ({ brand, ...d }))
+      .sort((a, b) => b.kd - a.kd)
+      .slice(0, 8);
+
+    const brandLostMap: Record<string, number> = {};
+    for (const c of lost) {
+      const key = c.brand || c.product || 'Unknown';
+      brandLostMap[key] = (brandLostMap[key] || 0) + 1;
+    }
+    const brandLost = Object.entries(brandLostMap)
+      .map(([brand, count]) => ({ brand, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 8);
+
+    const lostBrands: Record<string, number> = {};
+    const followUpBrands: Record<string, number> = {};
+    for (const c of lost) { const k = c.brand || c.product; if (k) lostBrands[k] = (lostBrands[k] || 0) + 1; }
+    for (const c of followups) { const k = c.brand || c.product; if (k) followUpBrands[k] = (followUpBrands[k] || 0) + 1; }
 
     return {
-      sales, followups, lost, revenue, convRate, leaderboard, lostReasons,
-      topLostProducts: Object.entries(lostProducts).sort((a, b) => b[1] - a[1]).slice(0, 5),
-      topFollowUpProducts: Object.entries(followUpProducts).sort((a, b) => b[1] - a[1]).slice(0, 5),
+      sales, followups, lost, revenue, convRate, visitorConv, interactionRate, totalVisitors,
+      leaderboard, lostReasons, brandSales, brandLost,
+      topLostProducts: Object.entries(lostBrands).sort((a, b) => b[1] - a[1]).slice(0, 5),
+      topFollowUpProducts: Object.entries(followUpBrands).sort((a, b) => b[1] - a[1]).slice(0, 5),
       openFollowUps: followups.filter(c => c.status === 'Open').length,
     };
   }, [cases]);
@@ -209,10 +255,11 @@ function WeeklyView() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
         <KpiTile icon={<DollarSign className="w-5 h-5" />} label="Total Revenue" value={`${formatKDCompact(stats.revenue)} KD`} color="brand" />
-        <KpiTile icon={<TrendingUp className="w-5 h-5" />} label="Conversion" value={`${stats.convRate}%`} color="emerald" />
-        <KpiTile icon={<Users className="w-5 h-5" />} label="Sales / FU / Lost" value={`${stats.sales.length} / ${stats.followups.length} / ${stats.lost.length}`} color="amber" />
+        <KpiTile icon={<TrendingUp className="w-5 h-5" />} label="Visitor Conv." value={`${stats.visitorConv}%`} color="emerald" />
+        <KpiTile icon={<Users className="w-5 h-5" />} label="Total Visitors" value={String(stats.totalVisitors)} color="amber" />
+        <KpiTile icon={<TrendingUp className="w-5 h-5" />} label="Interaction Rate" value={`${stats.interactionRate}%`} color="brand" />
         <KpiTile icon={<AlertCircle className="w-5 h-5" />} label="Open Follow-ups" value={String(stats.openFollowUps)} color="rose" />
       </div>
 
@@ -264,9 +311,44 @@ function WeeklyView() {
         )}
       </div>
 
+      {/* Brand analytics */}
+      <div className="lg:grid lg:grid-cols-2 lg:gap-6 space-y-6 lg:space-y-0">
+        {stats.brandSales.length > 0 && (
+          <div className="card p-4">
+            <h3 className="font-bold text-slate-900 mb-3">Sales by Brand</h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={stats.brandSales} layout="vertical" margin={{ left: 8, right: 16 }}>
+                <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                <YAxis type="category" dataKey="brand" tick={{ fontSize: 11 }} width={110} />
+                <Tooltip formatter={(v, name) => [name === 'kd' ? `${v} KD` : `${v}`, name === 'kd' ? 'Revenue' : 'Sales']} />
+                <Bar dataKey="kd" name="kd" radius={[0, 4, 4, 0]}>
+                  {stats.brandSales.map((_, i) => <Cell key={i} fill={i === 0 ? '#1e40af' : '#93c5fd'} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+
+        {stats.brandLost.length > 0 && (
+          <div className="card p-4">
+            <h3 className="font-bold text-slate-900 mb-3">Lost Sales by Brand</h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={stats.brandLost} layout="vertical" margin={{ left: 8, right: 16 }}>
+                <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
+                <YAxis type="category" dataKey="brand" tick={{ fontSize: 11 }} width={110} />
+                <Tooltip formatter={(v) => [`${v} cases`, 'Lost']} />
+                <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                  {stats.brandLost.map((_, i) => <Cell key={i} fill={i === 0 ? '#e11d48' : '#fda4af'} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <ProductSignalCard title="🔴 Re-order Signals" subtitle="Most-lost products" items={stats.topLostProducts} color="rose" />
-        <ProductSignalCard title="🟡 Demand Signals" subtitle="Most-followed-up products" items={stats.topFollowUpProducts} color="amber" />
+        <ProductSignalCard title="Re-order Signals" subtitle="Most-lost brands" items={stats.topLostProducts} color="rose" />
+        <ProductSignalCard title="Demand Signals" subtitle="Most-followed-up brands" items={stats.topFollowUpProducts} color="amber" />
       </div>
     </div>
   );

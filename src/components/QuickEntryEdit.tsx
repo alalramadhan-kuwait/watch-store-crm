@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { format, addDays } from 'date-fns';
-import { getSettings, getProductSuggestions, updateCase } from '../db';
+import { getSettings, updateCase } from '../db';
 import type { Case, CaseType, AppSettings } from '../types';
 
 export function QuickEntryEdit({ case_, onDone, onCancel }: {
@@ -9,7 +9,6 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
   onCancel: () => void;
 }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const [products, setProducts] = useState<string[]>([]);
 
   const [staff, setStaff] = useState(case_.staff);
   const [caseType] = useState<CaseType>(case_.caseType);
@@ -27,7 +26,6 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
 
   useEffect(() => {
     getSettings().then(setSettings);
-    getProductSuggestions().then(setProducts);
   }, []);
 
   async function handleSave() {
@@ -74,8 +72,7 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
 
       <div>
         <label className="label">Product / Request</label>
-        <input list="edit-products" value={product} onChange={e => setProduct(e.target.value)} className="input" />
-        <datalist id="edit-products">{products.map(p => <option key={p} value={p} />)}</datalist>
+        <input value={product} onChange={e => setProduct(e.target.value)} className="input" />
       </div>
 
       {(caseType === 'Sale' || caseType === 'Follow-up') && (

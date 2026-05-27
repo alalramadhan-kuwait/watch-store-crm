@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { PlusCircle, ClipboardList, Bell, BarChart2, Settings } from 'lucide-react';
+import { PlusCircle, ClipboardList, Bell, BarChart2, FileText, Settings } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 
 const baseItems = [
@@ -9,8 +9,9 @@ const baseItems = [
 ];
 
 const adminItems = [
-  { to: '/manager',  icon: BarChart2, label: 'Manager'  },
-  { to: '/settings', icon: Settings,  label: 'Settings' },
+  { to: '/manager',  icon: BarChart2, label: 'Dashboard' },
+  { to: '/reports',  icon: FileText,  label: 'Reports'   },
+  { to: '/settings', icon: Settings,  label: 'Settings'  },
 ];
 
 export function NavBar() {
