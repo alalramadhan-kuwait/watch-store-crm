@@ -4,6 +4,34 @@ import { format } from 'date-fns';
 import type { Case } from '../types';
 import { formatKD } from './formatKD';
 
+// ── Hourly traffic builder (Google Maps-style popular times) ─────────────────
+export function buildHourlyTraffic(cases: Case[]): { hour: number; label: string; count: number }[] {
+  const hourCounts: Record<number, number> = {};
+
+  for (const c of cases) {
+    const parts = (c.timeLogged || '').split(':');
+    const hour = parseInt(parts[0], 10);
+    if (isNaN(hour) || hour < 0 || hour > 23) continue;
+    // No Interaction uses real visitor_count; every other case counts as 1 interaction
+    const add = c.caseType === 'No Interaction' ? (c.visitorCount ?? 1) : 1;
+    hourCounts[hour] = (hourCounts[hour] || 0) + add;
+  }
+
+  if (Object.keys(hourCounts).length === 0) return [];
+
+  const hours = Object.keys(hourCounts).map(Number);
+  const minH = Math.min(...hours);
+  const maxH = Math.max(...hours);
+
+  const result: { hour: number; label: string; count: number }[] = [];
+  for (let h = minH; h <= maxH; h++) {
+    const suffix = h < 12 ? 'am' : 'pm';
+    const display = h === 0 ? '12am' : h === 12 ? '12pm' : h > 12 ? `${h - 12}${suffix}` : `${h}${suffix}`;
+    result.push({ hour: h, label: display, count: hourCounts[h] || 0 });
+  }
+  return result;
+}
+
 export function buildDailyStats(cases: Case[]) {
   const sales = cases.filter(c => c.caseType === 'Sale');
   const followups = cases.filter(c => c.caseType === 'Follow-up');
@@ -38,13 +66,14 @@ export function buildDailyStats(cases: Case[]) {
   return { sales, followups, lost, browsing, revenue, convRate, staffMap, brandSalesMap, brandLostMap };
 }
 
-export function pdfFileName(date: string) {
-  return `TIME_KEEPER_Daily_Report_${date}.pdf`;
+export function pdfFileName(date: string, outlet?: string) {
+  const outletPart = outlet ? `_${outlet.replace(/\s+/g, '_')}` : '';
+  return `TIME_KEEPER_Daily_Report_${date}${outletPart}.pdf`;
 }
 
-export function generatePDF(date: string, cases: Case[]): string {
+export function generatePDF(date: string, cases: Case[], outlet?: string): string {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const { sales, followups, lost, browsing, revenue, convRate, staffMap, brandSalesMap, brandLostMap } =
+  const { sales, followups, lost, browsing, revenue, convRate, staffMap, brandSalesMap } =
     buildDailyStats(cases);
   const displayDate = format(new Date(date + 'T12:00:00'), 'd MMMM yyyy');
 
@@ -68,17 +97,25 @@ export function generatePDF(date: string, cases: Case[]): string {
   doc.setTextColor(255, 255, 255);
   doc.setFont('helvetica', 'bold');
   doc.setCharSpace(0);
-  doc.text(displayDate, 196, 20, { align: 'right' });
+  doc.text(displayDate, 196, outlet ? 17 : 20, { align: 'right' });
+  if (outlet) {
+    doc.setFontSize(8);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(180, 220, 215);
+    doc.text(outlet.toUpperCase(), 196, 24, { align: 'right' });
+  }
   doc.setFillColor(15, 118, 110);
   doc.rect(0, 28, 210, 1.5, 'F');
 
   // ── KPI tiles (2 rows × 3) ───────────────────────────────────────────────
+  const totalVisitorKd = cases.reduce((s, c) =>
+    s + (c.caseType === 'No Interaction' ? (c.visitorCount ?? 1) : 1), 0);
   const kpis = [
     { label: 'Revenue (KD)', value: formatKD(revenue) },
     { label: 'Sales', value: String(sales.length) },
     { label: 'Follow-ups', value: String(followups.length) },
     { label: 'Lost Sales', value: String(lost.length) },
-    { label: 'Browsing', value: String(browsing.length) },
+    { label: 'Total Visitors', value: String(totalVisitorKd) },
     { label: 'Conversion', value: `${convRate}%` },
   ];
   const kpiW = 58, kpiH = 18, kpiGap = 3, kpiX0 = 14, kpiY0 = 36;
@@ -98,6 +135,106 @@ export function generatePDF(date: string, cases: Case[]): string {
   });
 
   let curY = kpiY0 + 2 * (kpiH + kpiGap) + 8;
+
+  // ── Store Traffic chart (Google Maps-style popular times) ────────────────
+  const traffic = buildHourlyTraffic(cases);
+  if (traffic.length > 0) {
+    const totalVisitors = cases.reduce((s, c) =>
+      s + (c.caseType === 'No Interaction' ? (c.visitorCount ?? 1) : 1), 0);
+    const peakEntry = traffic.reduce((mx, t) => t.count > mx.count ? t : mx, traffic[0]);
+
+    // Section heading
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text('Store Traffic', 14, curY);
+
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text(`${totalVisitors} total visitors / interactions  ·  Peak: ${peakEntry.label} (${peakEntry.count})`, 14, curY + 5);
+
+    const chartX = 14;
+    const chartY = curY + 9;
+    const chartW = 182;
+    const chartH = 36;           // total chart box height
+    const labelRowH = 8;         // bottom label area
+    const barAreaH = chartH - labelRowH - 4; // usable bar height
+    const maxCount = Math.max(...traffic.map(t => t.count), 1);
+    const n = traffic.length;
+
+    // Calculate bar width and gaps so all bars fit
+    const totalGapFrac = 0.35;   // 35% of slot is gap
+    const slotW = chartW / n;
+    const barW = slotW * (1 - totalGapFrac);
+    const halfGap = (slotW * totalGapFrac) / 2;
+
+    // Chart background
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(chartX, chartY, chartW, chartH, 2, 2, 'F');
+
+    // Subtle horizontal guide lines (25%, 50%, 75%)
+    doc.setDrawColor(220, 228, 236);
+    doc.setLineWidth(0.2);
+    [0.25, 0.5, 0.75].forEach(frac => {
+      const lineY = chartY + 2 + barAreaH * (1 - frac);
+      doc.line(chartX + 2, lineY, chartX + chartW - 2, lineY);
+    });
+
+    traffic.forEach((t, i) => {
+      const slotX = chartX + i * slotW;
+      const barX = slotX + halfGap;
+      const barH = t.count > 0 ? Math.max((t.count / maxCount) * barAreaH, 1.5) : 0;
+      const barY = chartY + 2 + barAreaH - barH;
+      const isPeak = t.count === peakEntry.count && t.count > 0;
+      const isEmpty = t.count === 0;
+
+      // Bar fill — Google Maps uses orange/amber; we match brand teal with a peak highlight
+      if (isEmpty) {
+        doc.setFillColor(226, 232, 240);
+      } else if (isPeak) {
+        doc.setFillColor(15, 118, 110);   // dark teal — busiest
+      } else {
+        // Gradient-like: darker as count approaches peak
+        const intensity = t.count / maxCount;
+        const r = Math.round(20 + (1 - intensity) * 100);
+        const g = Math.round(184 - (1 - intensity) * 60);
+        const b = Math.round(166 - (1 - intensity) * 50);
+        doc.setFillColor(r, g, b);
+      }
+
+      if (barH > 0) {
+        doc.roundedRect(barX, barY, barW, barH, 0.8, 0.8, 'F');
+      } else {
+        // Draw a tiny empty placeholder
+        doc.setFillColor(235, 240, 245);
+        doc.roundedRect(barX, chartY + 2 + barAreaH - 1.5, barW, 1.5, 0.3, 0.3, 'F');
+      }
+
+      // Count label above bar (only if bar is tall enough)
+      if (t.count > 0) {
+        doc.setFontSize(isPeak ? 6.5 : 5.5);
+        doc.setFont('helvetica', isPeak ? 'bold' : 'normal');
+        doc.setTextColor(isPeak ? 15 : 30, isPeak ? 118 : 100, isPeak ? 110 : 130);
+        const labelY = barY - 1.5;
+        doc.text(String(t.count), barX + barW / 2, labelY, { align: 'center' });
+      }
+
+      // Hour label at bottom
+      doc.setFontSize(5.5);
+      doc.setFont('helvetica', isPeak ? 'bold' : 'normal');
+      doc.setTextColor(isPeak ? 15 : 100, isPeak ? 118 : 116, isPeak ? 110 : 139);
+      doc.text(t.label, barX + barW / 2, chartY + chartH - 2, { align: 'center' });
+    });
+
+    // "Popular times" watermark label top-right inside chart
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(180, 190, 205);
+    doc.text('Popular times', chartX + chartW - 3, chartY + 5.5, { align: 'right' });
+
+    curY = chartY + chartH + 8;
+  }
 
   // ── Staff Performance ────────────────────────────────────────────────────
   doc.setFontSize(11);
@@ -119,26 +256,22 @@ export function generatePDF(date: string, cases: Case[]): string {
   });
   curY = (doc as any).lastAutoTable.finalY + 8;
 
-  // ── Brand Analytics ──────────────────────────────────────────────────────
-  const hasBrandData = Object.keys(brandSalesMap).length > 0 || Object.keys(brandLostMap).length > 0;
+  // ── Brand Analytics (sales only — lost sales excluded) ───────────────────
+  const hasBrandData = Object.keys(brandSalesMap).length > 0;
   if (hasBrandData) {
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(30, 41, 59);
     doc.text('Brand Analytics', 14, curY);
 
-    const allBrands = new Set([...Object.keys(brandSalesMap), ...Object.keys(brandLostMap)]);
-    const brandRows = [...allBrands]
-      .map(brand => {
-        const s = brandSalesMap[brand] || { count: 0, kd: 0 };
-        return { brand, sales: s.count, kd: s.kd, lost: brandLostMap[brand] || 0 };
-      })
+    const brandRows = Object.entries(brandSalesMap)
+      .map(([brand, s]) => ({ brand, sales: s.count, kd: s.kd }))
       .sort((a, b) => b.kd - a.kd || b.sales - a.sales)
-      .map(({ brand, sales, kd, lost }) => [brand, String(sales), `${formatKD(kd)} KD`, String(lost)]);
+      .map(({ brand, sales, kd }) => [brand, String(sales), `${formatKD(kd)} KD`]);
 
     autoTable(doc, {
       startY: curY + 3,
-      head: [['Brand', 'Sales', 'Revenue (KD)', 'Lost']],
+      head: [['Brand', 'Sales', 'Revenue (KD)']],
       body: brandRows,
       theme: 'striped',
       headStyles: { fillColor: [15, 118, 110] },
@@ -154,22 +287,28 @@ export function generatePDF(date: string, cases: Case[]): string {
   doc.setTextColor(30, 41, 59);
   doc.text('All Cases', 14, curY);
 
-  const caseRows = cases.map(c => [
-    c.timeLogged,
-    c.staff,
-    c.caseType,
-    (c.customerName || '—').substring(0, 20),
-    (c.brand || c.product || '—').substring(0, 25),
-    c.amountKD ? formatKD(c.amountKD) : '—',
-  ]);
+  const caseRows = cases.map(c => {
+    const brandProduct = c.caseType === 'Lost Sale' && c.product && c.product !== c.brand
+      ? `${c.brand || ''} — ${c.product}`.substring(0, 28)
+      : (c.brand || c.product || '—').substring(0, 28);
+    return [
+      c.timeLogged,
+      c.staff,
+      c.caseType,
+      (c.customerName || '—').substring(0, 18),
+      brandProduct,
+      c.amountKD ? formatKD(c.amountKD) : '—',
+      (c.notes || '—').substring(0, 35),
+    ];
+  });
   autoTable(doc, {
     startY: curY + 3,
-    head: [['Time', 'Staff', 'Type', 'Customer', 'Brand / Product', 'KD']],
+    head: [['Time', 'Staff', 'Type', 'Customer', 'Brand / Product', 'KD', 'Notes / Requirement']],
     body: caseRows,
     theme: 'striped',
     headStyles: { fillColor: [15, 118, 110] },
     margin: { left: 14, right: 14 },
-    styles: { fontSize: 8 },
+    styles: { fontSize: 7.5 },
     columnStyles: { 5: { halign: 'right' } },
   });
 
@@ -189,17 +328,17 @@ export function generatePDF(date: string, cases: Case[]): string {
   return doc.output('datauristring');
 }
 
-export function downloadReport(date: string, pdfUri: string) {
+export function downloadReport(date: string, pdfUri: string, outlet?: string) {
   const link = document.createElement('a');
   link.href = pdfUri;
-  link.download = pdfFileName(date);
+  link.download = pdfFileName(date, outlet);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
 }
 
-export async function shareReport(date: string, pdfUri: string): Promise<'shared' | 'downloaded'> {
-  const fileName = pdfFileName(date);
+export async function shareReport(date: string, pdfUri: string, outlet?: string): Promise<'shared' | 'downloaded'> {
+  const fileName = pdfFileName(date, outlet);
 
   if (navigator.share) {
     try {

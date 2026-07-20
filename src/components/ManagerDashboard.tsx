@@ -1,12 +1,13 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { format, subDays } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { TrendingUp, Users, AlertCircle, DollarSign, Calendar, FileText } from 'lucide-react';
+import { TrendingUp, Users, AlertCircle, DollarSign, Calendar, FileText, X } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
-import { getTodayCases, getDayClose, getCasesForRange, getSettings, countOpenFollowUps } from '../db';
+import { getTodayCases, getDayClose, getCasesForRange, getSettings, countOpenFollowUps, getEffectiveItems } from '../db';
 import { supabase } from '../lib/supabase';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
 import { CaseTypeBadge, DayStatusBadge } from './shared/Badge';
+import { Modal } from './shared/Modal';
 import type { Case, AppSettings, DayClose } from '../types';
 
 export function ManagerDashboard() {
@@ -32,7 +33,7 @@ export function ManagerDashboard() {
           <button key={t} onClick={() => setView(t)}
             className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 capitalize ${
               view === t ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500'}`}>
-            {t === 'daily' ? 'Today' : 'Weekly'} View
+            {t === 'daily' ? 'Today' : 'History'} View
           </button>
         ))}
       </div>
@@ -70,7 +71,7 @@ function DailyView() {
   const followups = cases.filter(c => c.caseType === 'Follow-up');
   const lost = cases.filter(c => c.caseType === 'Lost Sale');
   const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
-  const totalVisitors = cases.length;
+  const totalVisitors = cases.reduce((s, c) => s + (c.visitorCount ?? 1), 0);
   const interactions = sales.length + followups.length + lost.length;
   const convRate = interactions > 0 ? Math.round((sales.length / interactions) * 100) : 0;
   const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
@@ -113,13 +114,19 @@ function DailyView() {
                 <td className="py-3 px-4 text-slate-400 font-mono text-xs">{c.timeLogged}</td>
                 <td className="py-3 px-4 font-medium text-slate-700">{c.staff}</td>
                 <td className="py-3 px-4"><CaseTypeBadge type={c.caseType} /></td>
-                <td className="py-3 px-4 text-slate-800 max-w-[200px]">
+                <td className="py-3 px-4 text-slate-800 max-w-[220px]">
                   {c.caseType === 'No Interaction' ? (
                     <span className="text-slate-300">—</span>
                   ) : (
                     <>
                       <span className="font-medium truncate block">{c.brand || c.product}</span>
                       {c.productType && <span className="text-xs text-slate-400">{c.productType}</span>}
+                      {c.caseType === 'Follow-up' && c.notes && (
+                        <span className="text-xs text-slate-400 italic truncate block" title={c.notes}>{c.notes}</span>
+                      )}
+                      {c.caseType === 'Lost Sale' && c.product && c.product !== c.brand && (
+                        <span className="text-xs text-slate-400 truncate block" title={c.product}>{c.product}</span>
+                      )}
                     </>
                   )}
                 </td>
@@ -155,10 +162,17 @@ function DailyView() {
   );
 }
 
+interface DrillDown { title: string; cases: Case[]; }
+
 function WeeklyView() {
   const [rangeEnd] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [rangeStart, setRangeStart] = useState(format(subDays(new Date(), 6), 'yyyy-MM-dd'));
   const [cases, setCases] = useState<Case[]>([]);
+  const [drillDown, setDrillDown] = useState<DrillDown | null>(null);
+
+  function drillInto(title: string, filteredCases: Case[]) {
+    setDrillDown({ title, cases: filteredCases });
+  }
 
   const load = useCallback(async () => {
     const data = await getCasesForRange(rangeStart, rangeEnd);
@@ -172,7 +186,7 @@ function WeeklyView() {
     const followups = cases.filter(c => c.caseType === 'Follow-up');
     const lost = cases.filter(c => c.caseType === 'Lost Sale');
     const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
-    const totalVisitors = cases.length;
+    const totalVisitors = cases.reduce((s, c) => s + (c.visitorCount ?? 1), 0);
     const interactions = sales.length + followups.length + lost.length;
     const convRate = interactions > 0 ? Math.round((sales.length / interactions) * 100) : 0;
     const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
@@ -193,13 +207,24 @@ function WeeklyView() {
     for (const c of lost) { const r = c.lostReason || 'Other'; lostReasonMap[r] = (lostReasonMap[r] || 0) + 1; }
     const lostReasons = Object.entries(lostReasonMap).map(([name, count]) => ({ name, count })).sort((a, b) => b.count - a.count);
 
-    // Brand-level analytics
+    // Brand-level analytics — uses getEffectiveItems for multi-item sale support
     const brandSalesMap: Record<string, { count: number; kd: number }> = {};
     for (const c of sales) {
-      const key = c.brand || c.product || 'Unknown';
-      if (!brandSalesMap[key]) brandSalesMap[key] = { count: 0, kd: 0 };
-      brandSalesMap[key].count++;
-      brandSalesMap[key].kd += c.amountKD || 0;
+      const items = getEffectiveItems(c);
+      for (const item of items) {
+        const key = item.brand || 'Unknown';
+        if (!brandSalesMap[key]) brandSalesMap[key] = { count: 0, kd: 0 };
+        brandSalesMap[key].count++;
+        brandSalesMap[key].kd += item.amountKD || 0;
+      }
+      // Count the transaction as 1 sale per transaction (already counted above via items count)
+      // but for cases with no items, fall back
+      if (items.length === 0) {
+        const key = c.brand || c.product || 'Unknown';
+        if (!brandSalesMap[key]) brandSalesMap[key] = { count: 0, kd: 0 };
+        brandSalesMap[key].count++;
+        brandSalesMap[key].kd += c.amountKD || 0;
+      }
     }
     const brandSales = Object.entries(brandSalesMap)
       .map(([brand, d]) => ({ brand, ...d }))
@@ -266,13 +291,18 @@ function WeeklyView() {
       {/* Desktop: two-column layout */}
       <div className="lg:grid lg:grid-cols-2 lg:gap-6 space-y-6 lg:space-y-0">
         <div className="card p-4">
-          <h3 className="font-bold text-slate-900 mb-3">Staff Leaderboard</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-bold text-slate-900">Staff Leaderboard</h3>
+            <span className="text-[10px] text-slate-400">Click to see cases ↗</span>
+          </div>
           {stats.leaderboard.length === 0 ? (
             <p className="text-slate-400 text-sm">No data for this range.</p>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-1">
               {stats.leaderboard.map((s, i) => (
-                <div key={s.name} className="flex items-center gap-3">
+                <div key={s.name}
+                  onClick={() => drillInto(`${s.name} — All Cases`, cases.filter(c => c.staff === s.name))}
+                  className="flex items-center gap-3 rounded-xl px-2 py-2 -mx-2 cursor-pointer hover:bg-slate-50 transition-colors">
                   <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${i === 0 ? 'bg-amber-400 text-amber-900' : 'bg-slate-100 text-slate-500'}`}>{i + 1}</span>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
@@ -296,13 +326,20 @@ function WeeklyView() {
 
         {stats.lostReasons.length > 0 && (
           <div className="card p-4">
-            <h3 className="font-bold text-slate-900 mb-3">Lost Sale Reasons</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-slate-900">Lost Sale Reasons</h3>
+              <span className="text-[10px] text-slate-400">Click bars ↗</span>
+            </div>
             <ResponsiveContainer width="100%" height={200}>
               <BarChart data={stats.lostReasons} layout="vertical" margin={{ left: 8, right: 16 }}>
                 <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
                 <YAxis type="category" dataKey="name" tick={{ fontSize: 11 }} width={130} />
                 <Tooltip formatter={(v) => [`${v} cases`, 'Count']} />
-                <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                <Bar dataKey="count" radius={[0, 4, 4, 0]} cursor="pointer"
+                  onClick={(data) => drillInto(
+                    `Lost Reason: ${data.name}`,
+                    stats.lost.filter(c => (c.lostReason || 'Other') === data.name)
+                  )}>
                   {stats.lostReasons.map((_, i) => <Cell key={i} fill={i === 0 ? '#e11d48' : '#fda4af'} />)}
                 </Bar>
               </BarChart>
@@ -315,13 +352,24 @@ function WeeklyView() {
       <div className="lg:grid lg:grid-cols-2 lg:gap-6 space-y-6 lg:space-y-0">
         {stats.brandSales.length > 0 && (
           <div className="card p-4">
-            <h3 className="font-bold text-slate-900 mb-3">Sales by Brand</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-slate-900">Sales by Brand</h3>
+              <span className="text-[10px] text-slate-400">Click bars ↗</span>
+            </div>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={stats.brandSales} layout="vertical" margin={{ left: 8, right: 16 }}>
                 <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
                 <YAxis type="category" dataKey="brand" tick={{ fontSize: 11 }} width={110} />
                 <Tooltip formatter={(v, name) => [name === 'kd' ? `${v} KD` : `${v}`, name === 'kd' ? 'Revenue' : 'Sales']} />
-                <Bar dataKey="kd" name="kd" radius={[0, 4, 4, 0]}>
+                <Bar dataKey="kd" name="kd" radius={[0, 4, 4, 0]} cursor="pointer"
+                  onClick={(data) => drillInto(
+                    `Sales — ${data.brand}`,
+                    stats.sales.filter(c => {
+                      const items = getEffectiveItems(c);
+                      return items.some(i => (i.brand || 'Unknown') === data.brand) ||
+                        (items.length === 0 && (c.brand || c.product || 'Unknown') === data.brand);
+                    })
+                  )}>
                   {stats.brandSales.map((_, i) => <Cell key={i} fill={i === 0 ? '#1e40af' : '#93c5fd'} />)}
                 </Bar>
               </BarChart>
@@ -331,13 +379,20 @@ function WeeklyView() {
 
         {stats.brandLost.length > 0 && (
           <div className="card p-4">
-            <h3 className="font-bold text-slate-900 mb-3">Lost Sales by Brand</h3>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="font-bold text-slate-900">Lost Sales by Brand</h3>
+              <span className="text-[10px] text-slate-400">Click bars ↗</span>
+            </div>
             <ResponsiveContainer width="100%" height={220}>
               <BarChart data={stats.brandLost} layout="vertical" margin={{ left: 8, right: 16 }}>
                 <XAxis type="number" tick={{ fontSize: 11 }} allowDecimals={false} />
                 <YAxis type="category" dataKey="brand" tick={{ fontSize: 11 }} width={110} />
                 <Tooltip formatter={(v) => [`${v} cases`, 'Lost']} />
-                <Bar dataKey="count" radius={[0, 4, 4, 0]}>
+                <Bar dataKey="count" radius={[0, 4, 4, 0]} cursor="pointer"
+                  onClick={(data) => drillInto(
+                    `Lost Sales — ${data.brand}`,
+                    stats.lost.filter(c => (c.brand || c.product || 'Unknown') === data.brand)
+                  )}>
                   {stats.brandLost.map((_, i) => <Cell key={i} fill={i === 0 ? '#e11d48' : '#fda4af'} />)}
                 </Bar>
               </BarChart>
@@ -347,9 +402,19 @@ function WeeklyView() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-        <ProductSignalCard title="Re-order Signals" subtitle="Most-lost brands" items={stats.topLostProducts} color="rose" />
-        <ProductSignalCard title="Demand Signals" subtitle="Most-followed-up brands" items={stats.topFollowUpProducts} color="amber" />
+        <ProductSignalCard title="Re-order Signals" subtitle="Most-lost brands"
+          items={stats.topLostProducts} color="rose"
+          cases={stats.lost}
+          onItemClick={drillInto} />
+        <ProductSignalCard title="Demand Signals" subtitle="Most-followed-up brands"
+          items={stats.topFollowUpProducts} color="amber"
+          cases={stats.followups}
+          onItemClick={drillInto} />
       </div>
+
+      {drillDown && (
+        <DrillDownModal drillDown={drillDown} onClose={() => setDrillDown(null)} />
+      )}
     </div>
   );
 }
@@ -364,17 +429,35 @@ function KpiTile({ icon, label, value, color }: { icon: React.ReactNode; label: 
   );
 }
 
-function ProductSignalCard({ title, subtitle, items, color }: { title: string; subtitle: string; items: [string, number][]; color: 'rose' | 'amber' }) {
+function ProductSignalCard({ title, subtitle, items, color, cases, onItemClick }: {
+  title: string;
+  subtitle: string;
+  items: [string, number][];
+  color: 'rose' | 'amber';
+  cases: Case[];
+  onItemClick: (title: string, cases: Case[]) => void;
+}) {
   const barColor = color === 'rose' ? 'bg-rose-400' : 'bg-amber-400';
   const max = items[0]?.[1] || 1;
   return (
     <div className="card p-4">
-      <p className="font-bold text-slate-900 text-sm">{title}</p>
+      <div className="flex items-center justify-between mb-1">
+        <p className="font-bold text-slate-900 text-sm">{title}</p>
+        <span className="text-[10px] text-slate-400">Click to see cases ↗</span>
+      </div>
       <p className="text-xs text-slate-400 mb-3">{subtitle}</p>
       {items.length === 0 ? <p className="text-slate-400 text-xs">No data</p> : (
-        <div className="space-y-2">
+        <div className="space-y-1.5">
           {items.map(([product, count]) => (
-            <div key={product}>
+            <button
+              key={product}
+              type="button"
+              onClick={() => {
+                const matching = cases.filter(c => (c.brand || c.product) === product);
+                onItemClick(`${title} — ${product}`, matching);
+              }}
+              className="w-full text-left rounded-xl px-2 py-1.5 -mx-2 hover:bg-slate-50 transition-colors"
+            >
               <div className="flex justify-between text-xs mb-0.5">
                 <span className="font-medium text-slate-700 truncate">{product}</span>
                 <span className="text-slate-500 shrink-0 ml-2">{count}</span>
@@ -382,10 +465,99 @@ function ProductSignalCard({ title, subtitle, items, color }: { title: string; s
               <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
                 <div className={`h-full ${barColor} rounded-full`} style={{ width: `${(count / max) * 100}%` }} />
               </div>
-            </div>
+            </button>
           ))}
         </div>
       )}
     </div>
+  );
+}
+
+// ── Drill-down modal ──────────────────────────────────────────────────────────
+
+function DrillDownModal({ drillDown, onClose }: { drillDown: DrillDown; onClose: () => void }) {
+  const sorted = [...drillDown.cases].sort((a, b) =>
+    b.dateLogged.localeCompare(a.dateLogged) || b.timeLogged.localeCompare(a.timeLogged)
+  );
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title=""
+      size="lg"
+      footer={<button onClick={onClose} className="btn-ghost ml-auto">Close</button>}
+    >
+      <div className="space-y-4">
+        {/* Header */}
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="font-bold text-slate-900 text-lg leading-snug">{drillDown.title}</h2>
+            <p className="text-sm text-slate-400 mt-0.5">{drillDown.cases.length} case{drillDown.cases.length !== 1 ? 's' : ''}</p>
+          </div>
+        </div>
+
+        {/* Case list */}
+        {sorted.length === 0 ? (
+          <p className="text-slate-400 text-sm text-center py-8">No cases found.</p>
+        ) : (
+          <div className="space-y-2.5 max-h-[480px] overflow-y-auto pr-1">
+            {sorted.map(c => (
+              <div key={c.id} className="bg-slate-50 rounded-2xl p-3.5">
+                {/* Top row */}
+                <div className="flex items-start gap-3">
+                  <div className="shrink-0 text-center w-12">
+                    <p className="text-[10px] font-medium text-slate-400 leading-none">
+                      {format(new Date(c.dateLogged + 'T12:00:00'), 'MMM')}
+                    </p>
+                    <p className="text-base font-bold text-slate-700 leading-none mt-0.5">
+                      {format(new Date(c.dateLogged + 'T12:00:00'), 'd')}
+                    </p>
+                    <p className="text-[10px] text-slate-300 leading-none mt-0.5">
+                      {format(new Date(c.dateLogged + 'T12:00:00'), 'yyyy')}
+                    </p>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                      <CaseTypeBadge type={c.caseType} />
+                      {c.brand && <span className="text-xs font-semibold text-slate-700">{c.brand}</span>}
+                      {c.productType && <span className="text-xs text-slate-400">{c.productType}</span>}
+                      <span className="text-xs text-slate-400 ml-auto shrink-0">{c.staff}</span>
+                    </div>
+                    {c.product && c.product !== c.brand && (
+                      <p className="text-xs text-slate-500 mb-1">{c.product}</p>
+                    )}
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs">
+                      {c.lostReason && (
+                        <span className="text-rose-600 font-medium">Reason: {c.lostReason}</span>
+                      )}
+                      {c.followUpAction && (
+                        <span className="text-amber-700 font-medium">Action: {c.followUpAction}</span>
+                      )}
+                      {c.promisedCallback && (
+                        <span className="text-slate-400">
+                          Callback: {format(new Date(c.promisedCallback + 'T12:00:00'), 'd MMM yyyy')}
+                        </span>
+                      )}
+                      {c.amountKD != null && c.amountKD > 0 && (
+                        <span className="font-bold text-emerald-700 ml-auto">{formatKD(c.amountKD)} KD</span>
+                      )}
+                    </div>
+                    {c.notes && (
+                      <p className="text-xs text-slate-600 italic mt-1.5 leading-snug">"{c.notes}"</p>
+                    )}
+                    {(c.customerName || c.contact) && (
+                      <p className="text-xs text-slate-400 mt-1">
+                        {[c.customerName, c.contact].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }

@@ -1,12 +1,13 @@
 {
   "name": "watch-store-crm",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.2.5",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
+    "predeploy": "npm version patch --no-git-tag-version",
     "deploy": "npm run build && gh-pages -d dist"
   },
   "dependencies": {

@@ -1,7 +1,8 @@
 import { NavLink } from 'react-router-dom';
-import { PlusCircle, ClipboardList, Bell, BarChart2, FileText, Settings, LogOut } from 'lucide-react';
+import { PlusCircle, ClipboardList, Bell, BarChart2, FileText, Settings, LogOut, Users } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppStore } from '../../store';
+import pkg from '../../../package.json';
 
 export function Sidebar() {
   const { profile, role, signOut } = useAuth();
@@ -12,6 +13,7 @@ export function Sidebar() {
     { to: '/today',     icon: ClipboardList, label: "Today's Log" },
     { to: '/followups', icon: Bell,          label: 'Follow-ups'  },
     ...(role === 'admin' ? [
+      { to: '/crm',      icon: Users,     label: 'CRM'       },
       { to: '/manager',  icon: BarChart2,  label: 'Dashboard' },
       { to: '/reports',  icon: FileText,   label: 'Reports'   },
       { to: '/settings', icon: Settings,   label: 'Settings'  },
@@ -51,7 +53,7 @@ export function Sidebar() {
         ))}
       </div>
 
-      {/* Sign out */}
+      {/* Sign out + version */}
       <div className="p-2 border-t border-slate-100 shrink-0">
         <button
           onClick={signOut}
@@ -61,6 +63,9 @@ export function Sidebar() {
           <LogOut className="w-4 h-4 shrink-0" />
           {!sidebarCollapsed && 'Sign Out'}
         </button>
+        {!sidebarCollapsed && (
+          <p className="text-center text-[10px] text-slate-300 font-medium mt-1 pb-1">v{pkg.version}</p>
+        )}
       </div>
     </nav>
   );

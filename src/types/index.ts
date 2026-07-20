@@ -19,9 +19,20 @@ export const FOLLOWUP_ACTIONS_QUICK = [
   'Call', 'WhatsApp', 'Send Photos', 'Check Availability', 'Reserve Item', 'Other',
 ];
 
+/** @deprecated — kept for backward-compat display of old entries */
 export const BROWSING_TAGS = [
   'Looked at watches', 'Looked at straps / accessories',
   'Asked nothing', 'Left quickly', 'Stayed 5+ minutes',
+];
+
+/** What section the visitor was looking at (multi-select) */
+export const BROWSING_SECTIONS = [
+  'Watches', 'Straps', 'Accessories', 'Window Display',
+];
+
+/** Visitor behaviour (single-select) */
+export const BROWSING_BEHAVIOURS = [
+  'Quick glance', 'Browsed 5+ min', 'Picked up items', 'Staff approached — declined',
 ];
 
 export const STAFF_DEFAULT = [
@@ -55,6 +66,16 @@ export interface AuditEntry {
   note?: string;
 }
 
+export interface SaleItem {
+  id?: string;
+  brand?: string;
+  productType?: ProductType;
+  product?: string;
+  quantity: number;
+  amountKD: number;    // line total (not unit price)
+  sortOrder: number;
+}
+
 export interface Case {
   id?: string;
   caseId: string;
@@ -76,11 +97,13 @@ export interface Case {
   channel?: string;
   browsingTags?: string[];
   notes?: string;
+  visitorCount?: number;   // for No Interaction entries (default 1)
   status: CaseStatus;
   dayLocked: boolean;
   linkedCaseId?: string;
   auditLog: AuditEntry[];
   deleted?: boolean;
+  saleItems?: SaleItem[];
 }
 
 export interface DayClose {

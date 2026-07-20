@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { format } from 'date-fns';
-import type { Case, DayClose, AppSettings, CaseType, CaseStatus, AuditEntry, Brand, ProductType } from '../types';
+import type { Case, DayClose, AppSettings, CaseType, CaseStatus, AuditEntry, Brand, ProductType, SaleItem } from '../types';
 import { STAFF_DEFAULT, LOST_REASONS_DEFAULT, FOLLOWUP_ACTIONS_DEFAULT, CHANNELS_DEFAULT } from '../types';
 import { formatKD } from '../utils/formatKD';
 
@@ -26,6 +26,8 @@ interface DbCase {
   last_contact_date: string | null;
   channel: string | null;
   browsing_tags: string[] | null;
+  notes: string | null;
+  visitor_count: number;
   status: string;
   day_locked: boolean;
   linked_case_id: string | null;
@@ -64,9 +66,32 @@ interface DbBrand {
   sort_order: number;
 }
 
+interface DbSaleItem {
+  id: string;
+  case_id: string;
+  brand: string | null;
+  product_type: string | null;
+  product: string | null;
+  quantity: number;
+  amount_kd: number;
+  sort_order: number;
+}
+
 // ── Mappers ───────────────────────────────────────────────────────────────────
 
-function caseFromDb(row: DbCase): Case {
+function saleItemFromDb(row: DbSaleItem): SaleItem {
+  return {
+    id: row.id,
+    brand: row.brand ?? undefined,
+    productType: row.product_type as ProductType ?? undefined,
+    product: row.product ?? undefined,
+    quantity: row.quantity,
+    amountKD: row.amount_kd,
+    sortOrder: row.sort_order,
+  };
+}
+
+function caseFromDb(row: DbCase & { sale_items?: DbSaleItem[] }): Case {
   return {
     id: row.id,
     caseId: row.case_id,
@@ -87,12 +112,33 @@ function caseFromDb(row: DbCase): Case {
     lastContactDate: row.last_contact_date ?? undefined,
     channel: row.channel ?? undefined,
     browsingTags: row.browsing_tags ?? undefined,
+    notes: row.notes ?? undefined,
+    visitorCount: row.visitor_count ?? 1,
     status: row.status as CaseStatus,
     dayLocked: row.day_locked,
     linkedCaseId: row.linked_case_id ?? undefined,
     auditLog: row.audit_log ?? [],
     deleted: row.deleted,
+    saleItems: row.sale_items ? row.sale_items.map(saleItemFromDb).sort((a, b) => a.sortOrder - b.sortOrder) : undefined,
   };
+}
+
+/**
+ * Returns the effective sale items for a case.
+ * - If the case has sale_items loaded, returns those.
+ * - Otherwise constructs a single item from the legacy case fields (backward compat).
+ */
+export function getEffectiveItems(c: Case): SaleItem[] {
+  if (c.saleItems && c.saleItems.length > 0) return c.saleItems;
+  if (c.caseType !== 'Sale') return [];
+  return [{
+    brand: c.brand,
+    productType: c.productType,
+    product: c.product || undefined,
+    quantity: 1,
+    amountKD: c.amountKD ?? 0,
+    sortOrder: 0,
+  }];
 }
 
 function caseToDb(c: Omit<Case, 'id'>): Omit<DbCase, 'id' | 'created_by' | 'created_at' | 'updated_by' | 'updated_at'> {
@@ -115,6 +161,8 @@ function caseToDb(c: Omit<Case, 'id'>): Omit<DbCase, 'id' | 'created_by' | 'crea
     last_contact_date: c.lastContactDate ?? null,
     channel: c.channel ?? null,
     browsing_tags: c.browsingTags ?? null,
+    notes: c.notes ?? null,
+    visitor_count: c.visitorCount ?? 1,
     status: c.status,
     day_locked: c.dayLocked,
     linked_case_id: c.linkedCaseId ?? null,
@@ -213,13 +261,11 @@ export async function saveSettings(updates: Partial<AppSettings>): Promise<void>
 // ── Case ID ───────────────────────────────────────────────────────────────────
 
 export async function nextCaseId(date: string): Promise<string> {
-  const prefix = date.replace(/-/g, '');
-  const { count } = await supabase
-    .from('cases')
-    .select('*', { count: 'exact', head: true })
-    .eq('date_logged', date);
-  const seq = ((count ?? 0) + 1).toString().padStart(3, '0');
-  return `${prefix}-${seq}`;
+  // DB function uses an advisory lock so concurrent calls for the same date
+  // are serialised — eliminates the duplicate-key race condition entirely.
+  const { data, error } = await supabase.rpc('next_case_id', { p_date: date });
+  if (error) throw error;
+  return data as string;
 }
 
 // ── Cases ─────────────────────────────────────────────────────────────────────
@@ -228,34 +274,34 @@ export async function getTodayCases(): Promise<Case[]> {
   const today = format(new Date(), 'yyyy-MM-dd');
   const { data } = await supabase
     .from('cases')
-    .select('*')
+    .select('*, sale_items(*)')
     .eq('date_logged', today)
     .eq('deleted', false)
     .order('time_logged', { ascending: true });
-  return (data ?? []).map(r => caseFromDb(r as DbCase));
+  return (data ?? []).map(r => caseFromDb(r as DbCase & { sale_items?: DbSaleItem[] }));
 }
 
 export async function getOpenFollowUps(): Promise<Case[]> {
   const { data } = await supabase
     .from('cases')
-    .select('*')
+    .select('*, sale_items(*)')
     .eq('case_type', 'Follow-up')
     .eq('status', 'Open')
     .eq('deleted', false)
     .order('promised_callback', { ascending: true });
-  return (data ?? []).map(r => caseFromDb(r as DbCase));
+  return (data ?? []).map(r => caseFromDb(r as DbCase & { sale_items?: DbSaleItem[] }));
 }
 
 export async function getCasesForRange(from: string, to: string): Promise<Case[]> {
   const { data } = await supabase
     .from('cases')
-    .select('*')
+    .select('*, sale_items(*)')
     .eq('deleted', false)
     .gte('date_logged', from)
     .lte('date_logged', to)
     .order('date_logged', { ascending: true })
     .order('time_logged', { ascending: true });
-  return (data ?? []).map(r => caseFromDb(r as DbCase));
+  return (data ?? []).map(r => caseFromDb(r as DbCase & { sale_items?: DbSaleItem[] }));
 }
 
 export async function countOpenFollowUps(): Promise<number> {
@@ -278,6 +324,29 @@ export async function insertCase(c: Omit<Case, 'id'>): Promise<Case> {
   const { data, error } = await supabase.from('cases').insert(row).select().single();
   if (error) throw error;
   return caseFromDb(data as DbCase);
+}
+
+export async function insertSaleItems(caseId: string, items: Omit<SaleItem, 'id'>[]): Promise<void> {
+  if (items.length === 0) return;
+  const rows = items.map((item, i) => ({
+    case_id: caseId,
+    brand: item.brand ?? null,
+    product_type: item.productType ?? null,
+    product: item.product ?? null,
+    quantity: item.quantity,
+    amount_kd: item.amountKD,
+    sort_order: item.sortOrder ?? i,
+  }));
+  const { error } = await supabase.from('sale_items').insert(rows);
+  if (error) throw error;
+}
+
+export async function updateSaleItems(caseId: string, items: Omit<SaleItem, 'id'>[]): Promise<void> {
+  // Delete existing items for this case and re-insert
+  await supabase.from('sale_items').delete().eq('case_id', caseId);
+  if (items.length > 0) {
+    await insertSaleItems(caseId, items);
+  }
 }
 
 export async function updateCase(id: string, updates: Partial<Case>): Promise<void> {
@@ -309,6 +378,8 @@ export async function updateCase(id: string, updates: Partial<Case>): Promise<vo
   if (updates.lastContactDate !== undefined) dbUpdates.last_contact_date = updates.lastContactDate;
   if (updates.channel !== undefined) dbUpdates.channel = updates.channel;
   if (updates.browsingTags !== undefined) dbUpdates.browsing_tags = updates.browsingTags;
+  if (updates.notes !== undefined) dbUpdates.notes = updates.notes;
+  if (updates.visitorCount !== undefined) dbUpdates.visitor_count = updates.visitorCount;
   if (updates.status !== undefined) dbUpdates.status = updates.status;
   if (updates.dayLocked !== undefined) dbUpdates.day_locked = updates.dayLocked;
   if (updates.linkedCaseId !== undefined) dbUpdates.linked_case_id = updates.linkedCaseId;
@@ -334,11 +405,11 @@ export async function getAllDayCloses(): Promise<DayClose[]> {
 export async function getCasesByDate(date: string): Promise<Case[]> {
   const { data } = await supabase
     .from('cases')
-    .select('*')
+    .select('*, sale_items(*)')
     .eq('date_logged', date)
     .eq('deleted', false)
     .order('time_logged', { ascending: true });
-  return (data ?? []).map(r => caseFromDb(r as DbCase));
+  return (data ?? []).map(r => caseFromDb(r as DbCase & { sale_items?: DbSaleItem[] }));
 }
 
 export async function getDayClose(date: string, outlet = ''): Promise<DayClose | null> {
@@ -377,7 +448,8 @@ export async function closeDay(date: string, closedBy: string, outlet = ''): Pro
   const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
   const interactions = sales.length + followups.length + lost.length;
   const convRate = interactions > 0 ? Math.round((sales.length / interactions) * 100) : 0;
-  const totalVisitors = cases.length;
+  // Real footfall = sum of visitorCount (No Interaction may log groups)
+  const totalVisitors = cases.reduce((s, c) => s + (c.visitorCount ?? 1), 0);
   const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
 
   const { count: openFU } = await supabase
@@ -427,7 +499,7 @@ export async function rebuildDaySummary(date: string, outlet = ''): Promise<stri
   const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
   const interactions = sales.length + followups.length + lost.length;
   const convRate = interactions > 0 ? Math.round((sales.length / interactions) * 100) : 0;
-  const totalVisitors = cases.length;
+  const totalVisitors = cases.reduce((s, c) => s + (c.visitorCount ?? 1), 0);
   const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
 
   const { count: openFU } = await supabase
@@ -461,6 +533,101 @@ export async function rebuildDaySummary(date: string, outlet = ''): Promise<stri
   return summary;
 }
 
+// ── CRM customers table ───────────────────────────────────────────────────────
+
+interface DbCustomer {
+  id: string;
+  contact: string;
+  display_name: string | null;
+  email: string | null;
+  birthday: string | null;
+  instagram: string | null;
+  snapchat: string | null;
+  twitter: string | null;
+  personal_notes: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface CustomerRecord {
+  id?: string;
+  contact: string;
+  displayName?: string;
+  email?: string;
+  birthday?: string;       // 'YYYY-MM-DD'
+  instagram?: string;
+  snapchat?: string;
+  twitter?: string;
+  personalNotes?: string;
+}
+
+function customerFromDb(row: DbCustomer): CustomerRecord {
+  return {
+    id: row.id,
+    contact: row.contact,
+    displayName: row.display_name ?? undefined,
+    email: row.email ?? undefined,
+    birthday: row.birthday ?? undefined,
+    instagram: row.instagram ?? undefined,
+    snapchat: row.snapchat ?? undefined,
+    twitter: row.twitter ?? undefined,
+    personalNotes: row.personal_notes ?? undefined,
+  };
+}
+
+/** Fetch all customer records, keyed by contact (phone) */
+export async function getCustomerRecords(): Promise<Map<string, CustomerRecord>> {
+  const { data } = await supabase.from('customers').select('*');
+  const map = new Map<string, CustomerRecord>();
+  for (const row of (data ?? []) as DbCustomer[]) {
+    map.set(row.contact, customerFromDb(row));
+  }
+  return map;
+}
+
+/** Create or update a customer profile (upsert by contact) */
+export async function upsertCustomer(record: CustomerRecord): Promise<void> {
+  const row: Record<string, unknown> = {
+    contact: record.contact,
+    display_name: record.displayName ?? null,
+    email: record.email ?? null,
+    birthday: record.birthday ?? null,
+    instagram: record.instagram ?? null,
+    snapchat: record.snapchat ?? null,
+    twitter: record.twitter ?? null,
+    personal_notes: record.personalNotes ?? null,
+    updated_at: new Date().toISOString(),
+  };
+  const { error } = await supabase.from('customers').upsert(row, { onConflict: 'contact' });
+  if (error) throw error;
+}
+
+// ── CRM cases query ───────────────────────────────────────────────────────────
+
+/** Fetch all non-deleted cases that have a customerName or contact (for CRM view) */
+export async function getAllCustomerCases(): Promise<Case[]> {
+  const { data } = await supabase
+    .from('cases')
+    .select('*, sale_items(*)')
+    .eq('deleted', false)
+    .or('customer_name.not.is.null,contact.not.is.null')
+    .order('date_logged', { ascending: false })
+    .order('time_logged', { ascending: false });
+  return (data ?? []).map(r => caseFromDb(r as DbCase & { sale_items?: DbSaleItem[] }));
+}
+
+/** Update customerName and/or contact on a list of case IDs at once (used by CRM edit + merge) */
+export async function bulkUpdateCustomerInfo(
+  caseIds: string[],
+  patch: { customerName?: string; contact?: string },
+): Promise<void> {
+  if (caseIds.length === 0) return;
+  const dbPatch: Record<string, string | null> = {};
+  if (patch.customerName !== undefined) dbPatch.customer_name = patch.customerName || null;
+  if (patch.contact !== undefined) dbPatch.contact = patch.contact || null;
+  await supabase.from('cases').update(dbPatch).in('id', caseIds);
+}
+
 export async function deleteFullDayReport(date: string, outlet = ''): Promise<void> {
   // Soft-delete cases for the date (filtered by outlet if specified)
   let q = supabase.from('cases').select('id').eq('date_logged', date).eq('deleted', false);
@@ -473,5 +640,6 @@ export async function deleteFullDayReport(date: string, outlet = ''): Promise<vo
   // Remove the specific day_closes record
   let delQ = supabase.from('day_closes').delete().eq('date', date);
   if (outlet !== undefined) delQ = delQ.eq('outlet', outlet);
-  await delQ;
+  const { error: delErr } = await delQ;
+  if (delErr) throw delErr;
 }

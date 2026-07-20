@@ -1,6 +1,7 @@
 import { LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppStore } from '../../store';
+import pkg from '../../../package.json';
 
 export function TopBar() {
   const { profile, role, signOut } = useAuth();
@@ -32,7 +33,10 @@ export function TopBar() {
         {/* Brand — centered on mobile, left-aligned content area on desktop */}
         <div className="flex-1 flex flex-col items-center justify-center py-2.5 lg:items-start lg:pl-4">
           <span className="tk-wordmark text-[13px] text-slate-900 leading-none">Time Keeper</span>
-          <span className="tk-sub text-[8px] text-slate-400 mt-1 leading-none">Est. 2018</span>
+          <div className="flex items-center gap-2 mt-1">
+            <span className="tk-sub text-[8px] text-slate-400 leading-none">Est. 2018</span>
+            <span className="text-[8px] font-semibold text-slate-300 leading-none">v{pkg.version}</span>
+          </div>
         </div>
 
         {/* Mobile: sign out icon */}

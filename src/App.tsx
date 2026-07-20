@@ -11,6 +11,7 @@ import { FollowUps } from './components/FollowUps';
 import { ManagerDashboard } from './components/ManagerDashboard';
 import { Reports } from './components/Reports';
 import { Settings } from './components/Settings';
+import { CRM } from './components/CRM';
 import { OutletSelector } from './components/OutletSelector';
 import { ToastContainer } from './components/shared/Toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -91,6 +92,7 @@ function AppShell() {
           <Route path="/" element={<EntryWithLog />} />
           <Route path="/today" element={<TodayLog />} />
           <Route path="/followups" element={<FollowUps />} />
+          <Route path="/crm" element={<ProtectedRoute><CRM /></ProtectedRoute>} />
           <Route path="/manager" element={<ProtectedRoute><ManagerDashboard /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />

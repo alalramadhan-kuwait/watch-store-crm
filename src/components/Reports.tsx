@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { format } from 'date-fns';
 import {
   FileText, Share2, Download, Calendar, ChevronDown, ChevronUp,
-  Clock, User, Loader2, ShieldAlert, Trash2, Edit2, Store,
+  Clock, User, Loader2, ShieldAlert, Trash2, Store, Layers,
 } from 'lucide-react';
 import { getAllDayCloses, getCasesByDate, updateCase, rebuildDaySummary, getSettings, deleteFullDayReport } from '../db';
 import { generatePDF, downloadReport, shareReport } from '../utils/report';
@@ -27,8 +27,10 @@ export function Reports() {
   const [deletingReport, setDeletingReport] = useState<DayClose | null>(null);
   const [deletingAll, setDeletingAll] = useState(false);
 
-  function reload() {
-    getAllDayCloses().then(r => { setReports(r); setLoading(false); });
+  async function reload() {
+    const r = await getAllDayCloses();
+    setReports(r);
+    setLoading(false);
   }
 
   useEffect(() => {
@@ -43,13 +45,14 @@ export function Reports() {
     return true;
   }), [reports, fromDate, toDate, outletFilter]);
 
-  async function handleDownload(date: string) {
+  async function handleDownload(date: string, outlet: string) {
     if (generating) return;
     setGenerating(date);
     try {
-      const cases = await getCasesByDate(date);
-      const pdfUri = generatePDF(date, cases);
-      downloadReport(date, pdfUri);
+      const allCases = await getCasesByDate(date);
+      const filteredForPDF = outlet ? allCases.filter(c => !c.outlet || c.outlet === outlet) : allCases;
+      const pdfUri = generatePDF(date, filteredForPDF, outlet || undefined);
+      downloadReport(date, pdfUri, outlet || undefined);
     } catch {
       showToast('Failed to generate PDF.', 'error');
     } finally {
@@ -62,10 +65,10 @@ export function Reports() {
     setDeletingAll(true);
     try {
       await deleteFullDayReport(deletingReport.date, deletingReport.outlet);
-      showToast('Report deleted.', 'info');
       setDeletingReport(null);
       setExpanded(null);
-      reload();
+      await reload();
+      showToast('Report deleted.', 'info');
     } catch {
       showToast('Failed to delete report.', 'error');
     } finally {
@@ -73,13 +76,14 @@ export function Reports() {
     }
   }
 
-  async function handleShare(date: string) {
+  async function handleShare(date: string, outlet: string) {
     if (generating) return;
     setGenerating(date);
     try {
-      const cases = await getCasesByDate(date);
-      const pdfUri = generatePDF(date, cases);
-      const result = await shareReport(date, pdfUri);
+      const allCases = await getCasesByDate(date);
+      const filteredForPDF = outlet ? allCases.filter(c => !c.outlet || c.outlet === outlet) : allCases;
+      const pdfUri = generatePDF(date, filteredForPDF, outlet || undefined);
+      const result = await shareReport(date, pdfUri, outlet || undefined);
       showToast(result === 'shared' ? 'Report shared!' : 'PDF downloaded.', 'success');
     } catch {
       showToast('Failed to generate PDF.', 'error');
@@ -158,8 +162,8 @@ export function Reports() {
               generating={generating === report.date}
               expanded={expanded === report.date}
               onToggle={() => setExpanded(expanded === report.date ? null : report.date)}
-              onDownload={() => handleDownload(report.date)}
-              onShare={() => handleShare(report.date)}
+              onDownload={() => handleDownload(report.date, report.outlet)}
+              onShare={() => handleShare(report.date, report.outlet)}
               onDeleteReport={() => setDeletingReport(report)}
               onSummaryChanged={reload}
               outletFilter={outletFilter}
@@ -353,7 +357,7 @@ function ExpandedDayView({
           <table className="w-full text-xs min-w-[620px]">
             <thead>
               <tr className="border-b border-slate-200">
-                {['Time', 'Type', 'Staff', 'Brand', 'KD', 'Status', isAdmin ? '' : null]
+                {['Time', 'Type', 'Staff', 'Brand / Product', 'KD', 'Notes / Requirement', 'Status', isAdmin ? '' : null]
                   .filter(Boolean)
                   .map(h => (
                     <th key={h} className="text-left py-2 px-3 text-[10px] font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">
@@ -368,11 +372,28 @@ function ExpandedDayView({
                   <td className="py-2 px-3 text-slate-400 font-mono whitespace-nowrap">{c.timeLogged}</td>
                   <td className="py-2 px-3"><CaseTypeBadge type={c.caseType} /></td>
                   <td className="py-2 px-3 text-slate-700 font-medium whitespace-nowrap">{c.staff}</td>
-                  <td className="py-2 px-3 text-slate-600 max-w-[100px]">
-                    <span className="truncate block">{c.brand || '—'}</span>
+                  <td className="py-2 px-3 text-slate-600 max-w-[120px]">
+                    {c.caseType === 'Sale' && c.saleItems && c.saleItems.length > 1 ? (
+                      <span className="flex items-center gap-1 text-brand-700 font-medium">
+                        <Layers className="w-3 h-3 shrink-0" />
+                        {c.saleItems.length} items
+                      </span>
+                    ) : (
+                      <>
+                        <span className="truncate block">{c.brand || '—'}</span>
+                        {c.caseType === 'Lost Sale' && c.product && c.product !== c.brand && (
+                          <span className="text-slate-400 text-[10px] truncate block" title={c.product}>{c.product}</span>
+                        )}
+                      </>
+                    )}
                   </td>
                   <td className="py-2 px-3 text-right font-semibold text-emerald-700 whitespace-nowrap">
                     {c.amountKD ? formatKD(c.amountKD) : <span className="text-slate-300 font-normal">—</span>}
+                  </td>
+                  <td className="py-2 px-3 text-slate-500 max-w-[160px]">
+                    {c.notes
+                      ? <span className="truncate block" title={c.notes}>{c.notes}</span>
+                      : <span className="text-slate-300">—</span>}
                   </td>
                   <td className="py-2 px-3 text-slate-500 whitespace-nowrap">{c.status}</td>
                   {isAdmin && (

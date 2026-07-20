@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
-import { Edit2, Trash2, Lock, Share2, FileText, ShieldAlert } from 'lucide-react';
+import { Edit2, Trash2, Lock, Share2, FileText, ShieldAlert, ChevronDown, ChevronUp, Layers } from 'lucide-react';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
 import { getTodayCases, getDayClose, closeDay, getSettings, updateCase, rebuildDaySummary, getCasesByDate } from '../db';
 import { generatePDF, shareReport, downloadReport, buildDailyStats } from '../utils/report';
@@ -23,6 +23,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
 
   const [editCase, setEditCase] = useState<Case | null>(null);
   const [deleteCase, setDeleteCase] = useState<Case | null>(null);
+  const [detailCase, setDetailCase] = useState<Case | null>(null);
   const [closeDayOpen, setCloseDayOpen] = useState(false);
   const [closeDaySummary, setCloseDaySummary] = useState<string | null>(null);
   const [closingDay, setClosingDay] = useState(false);
@@ -68,24 +69,31 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   const lost = filteredCases.filter(c => c.caseType === 'Lost Sale');
   const noInteraction = filteredCases.filter(c => c.caseType === 'No Interaction');
   const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
+  // Real browsing headcount (visitor_count sums groups logged in one entry)
+  const browsingHeadcount = noInteraction.reduce((s, c) => s + (c.visitorCount ?? 1), 0);
   const total = sales.length + lost.length;
   const convRate = total > 0 ? Math.round((sales.length / total) * 100) : 0;
 
+  // Outlet for PDF: staff always use their outlet; manager uses filter if set
+  const pdfOutlet = role === 'staff' ? (activeOutlet ?? '') : outletFilter;
+  // Cases for PDF: match what is shown on screen (already outlet-filtered)
+  const pdfCases = filteredCases;
+
   // Signature that changes when any case is added, removed, or its amount/status/type changes
-  const casesSig = cases.map(c => `${c.id}:${c.amountKD}:${c.status}:${c.caseType}`).join('|');
+  const casesSig = pdfCases.map(c => `${c.id}:${c.amountKD}:${c.status}:${c.caseType}`).join('|');
 
   // Generate (or regenerate) the PDF whenever the day is closed AND case data changes
   useEffect(() => {
-    if (isClosed && cases.length > 0) {
-      setPdfUri(generatePDF(today, cases));
+    if (isClosed && pdfCases.length > 0) {
+      setPdfUri(generatePDF(today, pdfCases, pdfOutlet || undefined));
     }
-  }, [isClosed, casesSig]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isClosed, casesSig, pdfOutlet]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function handleSharePdf() {
     if (!pdfUri) return;
     setSharingPdf(true);
     try {
-      const result = await shareReport(today, pdfUri);
+      const result = await shareReport(today, pdfUri, pdfOutlet || undefined);
       showToast(result === 'shared' ? 'Report shared!' : 'PDF downloaded.', 'success');
     } finally {
       setSharingPdf(false);
@@ -94,7 +102,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
 
   function handleDownloadPdf() {
     if (!pdfUri) return;
-    downloadReport(today, pdfUri);
+    downloadReport(today, pdfUri, pdfOutlet || undefined);
   }
 
   async function handleDelete() {
@@ -117,10 +125,11 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
     await load(); // immediately update KPIs and list
     // If the day is already closed, rebuild the stored summary to exclude deleted entries
     if (isClosed) {
-      await rebuildDaySummary(today);
-      // regenerate PDF from fresh data
+      await rebuildDaySummary(today, dayClose?.outlet ?? '');
+      // regenerate PDF from fresh filtered data
       const fresh = await getCasesByDate(today);
-      if (fresh.length > 0) setPdfUri(generatePDF(today, fresh));
+      const freshFiltered = pdfOutlet ? fresh.filter(c => !c.outlet || c.outlet === pdfOutlet) : fresh;
+      if (freshFiltered.length > 0) setPdfUri(generatePDF(today, freshFiltered, pdfOutlet || undefined));
     }
   }
 
@@ -161,6 +170,15 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   }
 
   const sortedCases = [...filteredCases].reverse();
+  const canEditHelper = (_c: Case) => !isClosed || role === 'admin';
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
+  function toggleExpand(id: string) {
+    setExpandedRows(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }
 
   const outerClass = panelMode
     ? 'px-5 pt-5 pb-8'
@@ -208,7 +226,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
           { label: 'KD', value: formatKDCompact(revenue), color: 'text-emerald-700 bg-emerald-50' },
           { label: 'Follow-ups', value: String(followups.length), color: 'text-amber-700 bg-amber-50' },
           { label: 'Lost', value: String(lost.length), color: 'text-rose-700 bg-rose-50' },
-          { label: 'Browsing', value: String(noInteraction.length), color: 'text-slate-600 bg-slate-100 hidden lg:block' },
+          { label: 'Browsing', value: String(browsingHeadcount), color: 'text-slate-600 bg-slate-100 hidden lg:block' },
           { label: 'Conv.', value: `${convRate}%`, color: 'text-brand-700 bg-brand-50 hidden lg:block' },
         ].map(({ label, value, color }) => (
           <div key={label} className={`${color} rounded-2xl p-3 text-center overflow-hidden`}>
@@ -228,78 +246,102 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
       ) : (
         <>
           {/* Desktop table */}
-          <div className="hidden lg:block card overflow-x-auto mb-6">
-            <table className="w-full text-sm min-w-[900px]">
+          <div className="hidden lg:block card mb-6">
+            <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100">
-                  {['Time', 'Type', 'Staff', 'Outlet', 'Brand', 'Prod. Type', 'Customer', 'Phone', 'KD', 'Reason / Action', 'FU Date', 'Status', 'Notes', ''].map(h => (
-                    <th key={h} className="text-left py-3 px-3 text-xs font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  {['Time', 'Type', 'Staff', 'Brand / Product', 'Customer', 'KD', 'Action / Reason', 'Status', ''].map(h => (
+                    <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {sortedCases.map(c => {
                   const isNoInt = c.caseType === 'No Interaction';
+                  const isMultiItem = c.caseType === 'Sale' && c.saleItems && c.saleItems.length > 1;
+                  const isExpanded = c.id ? expandedRows.has(c.id) : false;
                   const reasonAction = c.lostReason || c.followUpAction;
                   const canEdit = !isClosed || role === 'admin';
                   return (
-                    <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-25 group">
-                      <td className="py-2.5 px-3 text-slate-400 font-mono text-xs whitespace-nowrap">{c.timeLogged}</td>
-                      <td className="py-2.5 px-3"><CaseTypeBadge type={c.caseType} /></td>
-                      <td className="py-2.5 px-3 font-medium text-slate-700 text-xs">{c.staff}</td>
-                      <td className="py-2.5 px-3 text-xs">
-                        {c.outlet
-                          ? <span className="px-1.5 py-0.5 rounded-md bg-brand-50 text-brand-700 font-medium whitespace-nowrap">{c.outlet}</span>
-                          : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="py-2.5 px-3 text-xs text-slate-800 max-w-[110px]">
-                        {isNoInt ? <span className="text-slate-300">—</span> : (
-                          <span className="font-medium truncate block">{c.brand || '—'}</span>
-                        )}
-                      </td>
-                      <td className="py-2.5 px-3 text-xs text-slate-500">
-                        {isNoInt ? <span className="text-slate-300">—</span> : (c.productType || '—')}
-                      </td>
-                      <td className="py-2.5 px-3 text-xs text-slate-600 max-w-[100px]">
-                        <span className="truncate block">{c.customerName || <span className="text-slate-300">—</span>}</span>
-                      </td>
-                      <td className="py-2.5 px-3 text-xs text-slate-500 whitespace-nowrap">
-                        {c.contact || <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="py-2.5 px-3 text-right text-xs font-semibold text-emerald-700 whitespace-nowrap">
-                        {c.amountKD ? formatKD(c.amountKD) : <span className="text-slate-300 font-normal">—</span>}
-                      </td>
-                      <td className="py-2.5 px-3 text-xs text-slate-500 max-w-[110px]">
-                        {reasonAction ? <span className="truncate block">{reasonAction}</span> : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="py-2.5 px-3 text-xs text-slate-500 whitespace-nowrap">
-                        {c.promisedCallback
-                          ? format(new Date(c.promisedCallback + 'T12:00:00'), 'd MMM')
-                          : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="py-2.5 px-3">
-                        <StatusBadge status={c.status} />
-                      </td>
-                      <td className="py-2.5 px-3 text-xs text-slate-500 max-w-[120px]">
-                        {c.notes
-                          ? <span className="truncate block" title={c.notes}>{c.notes}</span>
-                          : <span className="text-slate-300">—</span>}
-                      </td>
-                      <td className="py-2.5 px-3 w-14">
-                        {canEdit ? (
-                          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <button onClick={() => setEditCase(c)} className="p-1.5 rounded-lg text-slate-400 hover:text-brand-700 hover:bg-brand-50" title={isClosed ? 'Manager edit' : 'Edit'}>
-                              {isClosed ? <ShieldAlert className="w-3.5 h-3.5 text-amber-500" /> : <Edit2 className="w-3.5 h-3.5" />}
-                            </button>
-                            <button onClick={() => setDeleteCase(c)} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50" title={isClosed ? 'Manager delete' : 'Delete'}>
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
+                    <React.Fragment key={c.id}>
+                      <tr className="border-b border-slate-50 hover:bg-slate-50 cursor-pointer group"
+                        onClick={() => setDetailCase(c)}>
+                        <td className="py-3 px-4 text-slate-400 font-mono text-xs whitespace-nowrap">{c.timeLogged}</td>
+                        <td className="py-3 px-4"><CaseTypeBadge type={c.caseType} /></td>
+                        <td className="py-3 px-4 font-medium text-slate-700 text-sm">{c.staff}</td>
+                        <td className="py-3 px-4 text-sm text-slate-800 max-w-[180px]">
+                          {isNoInt ? (
+                            <span className="text-slate-400">—</span>
+                          ) : isMultiItem ? (
+                            <span className="flex items-center gap-1.5 text-brand-700 font-medium">
+                              <Layers className="w-3.5 h-3.5 shrink-0" />
+                              {c.saleItems!.length} items
+                            </span>
+                          ) : (
+                            <>
+                              <span className="font-semibold truncate block">{c.brand || '—'}</span>
+                              <span className="text-xs text-slate-400">{c.productType || ''}</span>
+                              {c.caseType === 'Lost Sale' && c.product && c.product !== c.brand && (
+                                <span className="text-xs text-slate-400 truncate block">{c.product}</span>
+                              )}
+                            </>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-slate-600 max-w-[140px]">
+                          <span className="truncate block">{c.customerName || <span className="text-slate-300">—</span>}</span>
+                        </td>
+                        <td className="py-3 px-4 text-right text-sm font-semibold text-emerald-700 whitespace-nowrap">
+                          {c.amountKD ? formatKD(c.amountKD) : <span className="text-slate-300 font-normal">—</span>}
+                        </td>
+                        <td className="py-3 px-4 text-sm text-slate-500 max-w-[160px]">
+                          {reasonAction
+                            ? <span className="truncate block">{reasonAction}</span>
+                            : <span className="text-slate-300">—</span>}
+                        </td>
+                        <td className="py-3 px-4">
+                          <StatusBadge status={c.status} />
+                        </td>
+                        <td className="py-3 px-4 w-16">
+                          <div className="flex items-center gap-1">
+                            {isMultiItem && (
+                              <button onClick={e => { e.stopPropagation(); if (c.id) toggleExpand(c.id); }}
+                                className="p-1.5 rounded-lg text-slate-400 hover:text-brand-700 hover:bg-brand-50">
+                                {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                              </button>
+                            )}
+                            {canEdit ? (
+                              <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                <button onClick={e => { e.stopPropagation(); setEditCase(c); }} className="p-1.5 rounded-lg text-slate-400 hover:text-brand-700 hover:bg-brand-50" title={isClosed ? 'Manager edit' : 'Edit'}>
+                                  {isClosed ? <ShieldAlert className="w-3.5 h-3.5 text-amber-500" /> : <Edit2 className="w-3.5 h-3.5" />}
+                                </button>
+                                <button onClick={e => { e.stopPropagation(); setDeleteCase(c); }} className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50" title={isClosed ? 'Manager delete' : 'Delete'}>
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            ) : (
+                              <Lock className="w-3.5 h-3.5 text-slate-300 mx-auto" />
+                            )}
                           </div>
-                        ) : (
-                          <Lock className="w-3.5 h-3.5 text-slate-300 mx-auto" />
-                        )}
-                      </td>
-                    </tr>
+                        </td>
+                      </tr>
+                      {/* Expanded sale items sub-rows */}
+                      {isMultiItem && isExpanded && c.saleItems!.map((item, idx) => (
+                        <tr key={`${c.id}-item-${idx}`} className="bg-brand-50/40 border-b border-brand-50">
+                          <td className="py-1.5 px-4 text-slate-300 text-xs">↳</td>
+                          <td colSpan={2} />
+                          <td className="py-1.5 px-4 text-xs">
+                            <span className="font-medium text-slate-700">{item.brand || '—'}</span>
+                            {item.productType && <span className="text-slate-400 ml-1.5">{item.productType}</span>}
+                            {item.product && <span className="text-slate-400 italic ml-1.5">{item.product}</span>}
+                          </td>
+                          <td colSpan={2} />
+                          <td className="py-1.5 px-4 text-right text-xs font-semibold text-emerald-700 whitespace-nowrap">
+                            {formatKD(item.amountKD)}
+                          </td>
+                          <td colSpan={2} />
+                        </tr>
+                      ))}
+                    </React.Fragment>
                   );
                 })}
               </tbody>
@@ -309,7 +351,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
           {/* Mobile cards */}
           <div className="lg:hidden space-y-3 mb-6">
             {sortedCases.map(c => (
-              <CaseCard key={c.id} case_={c} locked={isClosed && role !== 'admin'} onEdit={() => setEditCase(c)} onDelete={() => setDeleteCase(c)} />
+              <CaseCard key={c.id} case_={c} locked={isClosed && role !== 'admin'} onEdit={() => setEditCase(c)} onDelete={() => setDeleteCase(c)} onDetail={() => setDetailCase(c)} />
             ))}
           </div>
         </>
@@ -353,6 +395,17 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
         </div>
       )}
 
+      {/* Case detail modal */}
+      {detailCase && (
+        <CaseDetailModal
+          case_={detailCase}
+          onClose={() => setDetailCase(null)}
+          onEdit={canEditHelper(detailCase) ? () => { setDetailCase(null); setEditCase(detailCase); } : undefined}
+          onDelete={canEditHelper(detailCase) ? () => { setDetailCase(null); setDeleteCase(detailCase); } : undefined}
+          isClosed={isClosed}
+        />
+      )}
+
       {/* Edit modal */}
       {editCase && (
         <Modal
@@ -368,7 +421,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
               showToast('Updated.', 'success');
               // If editing on a closed day, rebuild the stored summary so Reports History stays accurate
               if (isClosed) {
-                await rebuildDaySummary(today);
+                await rebuildDaySummary(today, dayClose?.outlet ?? '');
               }
             }}
             onCancel={() => setEditCase(null)}
@@ -427,9 +480,14 @@ function StatusBadge({ status }: { status: CaseStatus }) {
   );
 }
 
-function CaseCard({ case_: c, locked, onEdit, onDelete }: { case_: Case; locked: boolean; onEdit: () => void; onDelete: () => void }) {
+function CaseCard({ case_: c, locked, onEdit, onDelete, onDetail }: {
+  case_: Case; locked: boolean; onEdit: () => void; onDelete: () => void; onDetail: () => void;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const isMultiItem = c.caseType === 'Sale' && c.saleItems && c.saleItems.length > 1;
+
   return (
-    <div className="card p-4">
+    <div className="card p-4 active:bg-slate-50 cursor-pointer" onClick={onDetail}>
       <div className="flex items-start justify-between gap-2">
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap mb-1.5">
@@ -437,26 +495,288 @@ function CaseCard({ case_: c, locked, onEdit, onDelete }: { case_: Case; locked:
             <span className="text-xs text-slate-400 font-mono">{c.caseId}</span>
             <span className="text-xs text-slate-400">{c.timeLogged}</span>
           </div>
-          <p className="font-semibold text-slate-900 text-sm truncate">
-            {c.caseType === 'No Interaction' ? <span className="text-slate-400 font-normal">No Interaction</span> : (c.brand || c.product)}
-          </p>
+          {isMultiItem ? (
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); setExpanded(p => !p); }}
+              className="flex items-center gap-1.5 font-semibold text-brand-700 text-sm"
+            >
+              <Layers className="w-3.5 h-3.5 shrink-0" />
+              {c.saleItems!.length} items
+              {expanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            </button>
+          ) : (
+            <p className="font-semibold text-slate-900 text-sm truncate">
+              {c.caseType === 'No Interaction' ? (
+                <span className="text-slate-400 font-normal flex items-center gap-1.5">
+                  No Interaction
+                  {(c.visitorCount ?? 1) > 1 && (
+                    <span className="text-[10px] font-bold px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded-full">{c.visitorCount} visitors</span>
+                  )}
+                </span>
+              ) : (c.brand || c.product)}
+            </p>
+          )}
           <div className="flex items-center gap-3 mt-0.5 text-xs text-slate-500 flex-wrap">
-            {c.productType && <span className="text-slate-400">{c.productType}</span>}
+            {!isMultiItem && c.productType && <span className="text-slate-400">{c.productType}</span>}
             <span>{c.staff}</span>
             {c.customerName && <span>· {c.customerName}</span>}
             {c.amountKD && <span className="font-semibold text-emerald-700">{formatKD(c.amountKD)} KD</span>}
             {c.lostReason && <span className="text-rose-600">· {c.lostReason}</span>}
+            {c.caseType === 'Lost Sale' && c.product && c.product !== c.brand && (
+              <span className="text-slate-500">· {c.product}</span>
+            )}
             {c.followUpAction && <span className="text-amber-700">· {c.followUpAction}</span>}
           </div>
+          {c.caseType === 'Follow-up' && c.notes && (
+            <p className="text-[11px] text-slate-500 italic mt-1 leading-snug">"{c.notes}"</p>
+          )}
+          {c.caseType === 'Lost Sale' && c.notes && (
+            <p className="text-[11px] text-slate-400 italic mt-1 leading-snug">"{c.notes}"</p>
+          )}
+
+          {/* Expanded items list */}
+          {isMultiItem && expanded && (
+            <div className="mt-2 space-y-1 border-t border-slate-100 pt-2">
+              {c.saleItems!.map((item, i) => (
+                <div key={i} className="flex items-center justify-between text-xs">
+                  <span className="text-slate-600 font-medium">{item.brand || '—'} · {item.productType || '—'}{item.product ? ` · ${item.product}` : ''}</span>
+                  <span className="text-emerald-700 font-semibold shrink-0 ml-2">{formatKD(item.amountKD)} KD</span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
         {!locked && (
           <div className="flex gap-1 shrink-0">
-            <button onClick={onEdit} className="p-2 rounded-xl text-slate-400 hover:text-brand-700 hover:bg-brand-50 transition-colors"><Edit2 className="w-4 h-4" /></button>
-            <button onClick={onDelete} className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"><Trash2 className="w-4 h-4" /></button>
+            <button onClick={e => { e.stopPropagation(); onEdit(); }} className="p-2 rounded-xl text-slate-400 hover:text-brand-700 hover:bg-brand-50 transition-colors"><Edit2 className="w-4 h-4" /></button>
+            <button onClick={e => { e.stopPropagation(); onDelete(); }} className="p-2 rounded-xl text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"><Trash2 className="w-4 h-4" /></button>
           </div>
         )}
         {locked && <Lock className="w-4 h-4 text-slate-300 shrink-0 mt-1" />}
       </div>
     </div>
+  );
+}
+
+function CaseDetailModal({ case_: c, onClose, onEdit, onDelete, isClosed }: {
+  case_: Case;
+  onClose: () => void;
+  onEdit?: () => void;
+  onDelete?: () => void;
+  isClosed: boolean;
+}) {
+  const isFollowUp = c.caseType === 'Follow-up';
+  const isLostSale = c.caseType === 'Lost Sale';
+  const isSale = c.caseType === 'Sale';
+  const isMultiItem = isSale && c.saleItems && c.saleItems.length > 1;
+
+  return (
+    <Modal
+      open
+      onClose={onClose}
+      title=""
+      size="lg"
+      footer={
+        <div className="flex items-center justify-between w-full">
+          <button onClick={onClose} className="btn-ghost">Close</button>
+          {(onEdit || onDelete) && (
+            <div className="flex gap-2">
+              {onDelete && (
+                <button onClick={onDelete}
+                  className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-rose-600 border border-rose-200 rounded-xl hover:bg-rose-50 transition-colors">
+                  <Trash2 className="w-3.5 h-3.5" />
+                  {isClosed ? 'Manager Delete' : 'Delete'}
+                </button>
+              )}
+              {onEdit && (
+                <button onClick={onEdit}
+                  className="flex items-center gap-1.5 px-4 py-2 text-sm font-semibold bg-brand-700 text-white rounded-xl hover:bg-brand-800 transition-colors">
+                  {isClosed ? <ShieldAlert className="w-3.5 h-3.5" /> : <Edit2 className="w-3.5 h-3.5" />}
+                  {isClosed ? 'Manager Edit' : 'Edit'}
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      }
+    >
+      <div className="space-y-4">
+        {/* Header */}
+        <div className="flex items-center gap-3 flex-wrap">
+          <CaseTypeBadge type={c.caseType} />
+          <span className="font-mono text-sm font-semibold text-slate-700">{c.caseId}</span>
+          <span className="text-sm text-slate-400">{format(new Date(c.dateLogged + 'T12:00:00'), 'd MMM yyyy')} · {c.timeLogged}</span>
+          <StatusBadge status={c.status} />
+        </div>
+
+        {/* Staff & Outlet */}
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Staff</p>
+            <p className="text-sm font-semibold text-slate-800">{c.staff}</p>
+          </div>
+          {c.outlet && (
+            <div>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Outlet</p>
+              <p className="text-sm font-semibold text-brand-700">{c.outlet}</p>
+            </div>
+          )}
+        </div>
+
+        {/* Multi-item sale items */}
+        {isMultiItem && (
+          <div>
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Sale Items</p>
+            <div className="space-y-1.5">
+              {c.saleItems!.map((item, i) => (
+                <div key={i} className="flex items-center justify-between bg-slate-50 rounded-xl px-3 py-2">
+                  <div className="text-sm">
+                    <span className="font-semibold text-slate-800">{item.brand || '—'}</span>
+                    {item.productType && <span className="text-slate-400 ml-1.5">· {item.productType}</span>}
+                    {item.product && <span className="text-slate-500 ml-1.5 italic">{item.product}</span>}
+                    {item.quantity > 1 && <span className="text-slate-400 ml-1.5">× {item.quantity}</span>}
+                  </div>
+                  <span className="text-sm font-bold text-emerald-700 shrink-0 ml-3">{formatKD(item.amountKD)} KD</span>
+                </div>
+              ))}
+              <div className="flex justify-between px-3 py-2 bg-emerald-50 rounded-xl">
+                <span className="text-sm font-semibold text-emerald-800">Total</span>
+                <span className="text-sm font-bold text-emerald-700">{formatKD(c.amountKD ?? 0)} KD</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Single-item brand/product info */}
+        {!isMultiItem && c.caseType !== 'No Interaction' && (
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Brand</p>
+              <p className="text-sm font-semibold text-slate-800">{c.brand || '—'}</p>
+            </div>
+            {c.productType && (
+              <div>
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Product Type</p>
+                <p className="text-sm text-slate-700">{c.productType}</p>
+              </div>
+            )}
+            {c.product && c.product !== c.brand && (
+              <div className="col-span-2">
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">
+                  {isSale ? 'Model / Reference' : 'Item Details'}
+                </p>
+                <p className="text-sm text-slate-700">{c.product}</p>
+              </div>
+            )}
+            {c.amountKD != null && (
+              <div>
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Amount</p>
+                <p className="text-sm font-bold text-emerald-700">{formatKD(c.amountKD)} KD</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Lost Sale reason */}
+        {isLostSale && c.lostReason && (
+          <div>
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Lost Reason</p>
+            <span className="inline-flex px-2.5 py-1 bg-rose-50 text-rose-700 rounded-xl text-sm font-semibold">{c.lostReason}</span>
+          </div>
+        )}
+
+        {/* Follow-up specifics */}
+        {isFollowUp && (
+          <div className="grid grid-cols-2 gap-3">
+            {c.followUpAction && (
+              <div>
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Action</p>
+                <span className="inline-flex px-2.5 py-1 bg-amber-50 text-amber-700 rounded-xl text-sm font-semibold">{c.followUpAction}</span>
+              </div>
+            )}
+            {c.promisedCallback && (
+              <div>
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Callback Date</p>
+                <p className="text-sm font-semibold text-slate-800">{format(new Date(c.promisedCallback + 'T12:00:00'), 'd MMM yyyy')}</p>
+              </div>
+            )}
+            {c.channel && (
+              <div>
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Channel</p>
+                <p className="text-sm text-slate-700">{c.channel}</p>
+              </div>
+            )}
+            {c.lastContactDate && (
+              <div>
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Last Contact</p>
+                <p className="text-sm text-slate-700">{format(new Date(c.lastContactDate + 'T12:00:00'), 'd MMM yyyy')}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Customer */}
+        {(c.customerName || c.contact) && (
+          <div className="grid grid-cols-2 gap-3">
+            {c.customerName && (
+              <div>
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Customer</p>
+                <p className="text-sm font-semibold text-slate-800">{c.customerName}</p>
+              </div>
+            )}
+            {c.contact && (
+              <div>
+                <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-0.5">Contact</p>
+                <p className="text-sm text-slate-700">{c.contact}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Notes / Customer Requirement — prominent */}
+        {c.notes && (
+          <div className={`rounded-2xl p-4 ${isFollowUp ? 'bg-amber-50 border border-amber-100' : isLostSale ? 'bg-rose-50 border border-rose-100' : 'bg-slate-50'}`}>
+            <p className={`text-[10px] font-semibold uppercase tracking-wide mb-1 ${isFollowUp ? 'text-amber-600' : isLostSale ? 'text-rose-600' : 'text-slate-400'}`}>
+              {isFollowUp ? 'Customer Requirement' : isLostSale ? 'Details / What They Wanted' : 'Notes'}
+            </p>
+            <p className="text-sm text-slate-800 leading-relaxed">{c.notes}</p>
+          </div>
+        )}
+
+        {/* Browsing tags */}
+        {c.browsingTags && c.browsingTags.length > 0 && (
+          <div>
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">Browsing Tags</p>
+            <div className="flex flex-wrap gap-1.5">
+              {c.browsingTags.map(tag => (
+                <span key={tag} className="px-2.5 py-1 bg-slate-100 text-slate-600 rounded-xl text-xs font-medium">{tag}</span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Audit log */}
+        {c.auditLog && c.auditLog.length > 0 && (
+          <div className="border-t border-slate-100 pt-3">
+            <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wide mb-2">History</p>
+            <div className="space-y-1.5">
+              {[...c.auditLog].reverse().map((entry, i) => (
+                <div key={i} className="flex items-start gap-2 text-xs text-slate-500">
+                  <span className="shrink-0 font-mono text-slate-300">
+                    {format(new Date(entry.timestamp), 'd MMM HH:mm')}
+                  </span>
+                  <span>
+                    <span className="font-semibold text-slate-600 capitalize">{entry.action}</span>
+                    {' '}by {entry.by}
+                    {entry.note && <span className="text-slate-400"> — {entry.note}</span>}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
