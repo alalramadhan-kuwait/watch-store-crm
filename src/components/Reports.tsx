@@ -93,7 +93,7 @@ export function Reports() {
   }
 
   return (
-    <div className="px-4 pt-6 pb-32 max-w-lg mx-auto lg:max-w-3xl lg:px-8">
+    <div className="px-4 pt-6 pb-32 max-w-lg mx-auto lg:max-w-none lg:px-8">
       {/* Header */}
       <div className="mb-5">
         <h1 className="text-2xl font-bold text-slate-900">Reports History</h1>

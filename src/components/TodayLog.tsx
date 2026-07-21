@@ -182,7 +182,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
 
   const outerClass = panelMode
     ? 'px-5 pt-5 pb-8'
-    : 'px-4 pt-6 pb-32 max-w-lg mx-auto lg:max-w-3xl';
+    : 'px-4 pt-6 pb-32 max-w-lg mx-auto lg:max-w-none lg:px-8';
 
   return (
     <div className={outerClass}>

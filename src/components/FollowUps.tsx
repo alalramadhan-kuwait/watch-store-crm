@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { format, isToday, isBefore, differenceInDays, startOfDay } from 'date-fns';
 import { Phone, MessageCircle, CheckCircle, XCircle, UserX, ChevronDown, Filter, BarChart2, TrendingUp } from 'lucide-react';
 import { getOpenFollowUps, getSettings, updateCase, insertCase, nextCaseId } from '../db';
@@ -36,6 +36,8 @@ export function FollowUps() {
   const [actionAmount, setActionAmount] = useState('');
   const [actionLostReason, setActionLostReason] = useState('');
   const [actionBumpDate, setActionBumpDate] = useState('');
+  const [actionClosedDate, setActionClosedDate] = useState('');
+  const [groupByBrand, setGroupByBrand] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
@@ -100,12 +102,26 @@ export function FollowUps() {
     [followUps, staffFilter, brandFilter, productTypeFilter, urgencyFilter],
   );
 
+  /** Follow-ups as [group, items] — one group when off, one per brand when grouping is on. */
+  const groupedFollowUps = useMemo<[string, Case[]][]>(() => {
+    if (!groupByBrand) return [['all', filtered]];
+    const map = new Map<string, Case[]>();
+    for (const c of filtered) {
+      const brand = c.brand || c.product || 'No brand';
+      if (!map.has(brand)) map.set(brand, []);
+      map.get(brand)!.push(c);
+    }
+    // biggest demand first, so the brands customers are waiting on lead
+    return [...map.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+  }, [filtered, groupByBrand]);
+
   function openAction(c: Case, type: typeof actionType) {
     setActionCase(c);
     setActionType(type);
     setActionAmount('');
     setActionLostReason('');
     setActionBumpDate(format(new Date(), 'yyyy-MM-dd'));
+    setActionClosedDate(format(new Date(), 'yyyy-MM-dd'));
   }
 
   async function handleAction() {
@@ -126,10 +142,12 @@ export function FollowUps() {
       }
 
       if (actionType === 'won') {
-        const saleId = await nextCaseId(todayStr);
+        // closed date lets old sales be recorded on the day they actually closed
+        const closedStr = actionClosedDate || todayStr;
+        const saleId = await nextCaseId(closedStr);
         await insertCase({
           caseId: saleId,
-          dateLogged: todayStr,
+          dateLogged: closedStr,
           timeLogged: format(now, 'HH:mm'),
           staff: actionCase.staff,
           outlet: actionCase.outlet,
@@ -141,12 +159,13 @@ export function FollowUps() {
           status: 'Won',
           dayLocked: false,
           linkedCaseId: actionCase.caseId,
-          auditLog: [{ timestamp: nowStr, action: 'converted', by: actionCase.staff, note: `From follow-up ${actionCase.caseId}` }],
+          auditLog: [{ timestamp: nowStr, action: 'converted', by: actionCase.staff, note: `From follow-up ${actionCase.caseId}${(actionClosedDate && actionClosedDate !== todayStr) ? ` · closed ${actionClosedDate}` : ''}` }],
         });
         await updateCase(actionCase.id, {
           status: 'Won',
           linkedCaseId: saleId,
-          auditLog: [...actionCase.auditLog, { timestamp: nowStr, action: 'converted', by: actionCase.staff, note: 'Closed — Won' }],
+          lastContactDate: actionClosedDate || todayStr,
+          auditLog: [...actionCase.auditLog, { timestamp: nowStr, action: 'converted', by: actionCase.staff, note: `Closed — Won on ${actionClosedDate || todayStr}` }],
         });
         showToast("Converted to sale! Entry added to today's log.", 'success');
       }
@@ -155,7 +174,8 @@ export function FollowUps() {
         await updateCase(actionCase.id, {
           status: 'Lost',
           lostReason: actionLostReason || undefined,
-          auditLog: [...actionCase.auditLog, { timestamp: nowStr, action: 'status_changed', by: actionCase.staff, note: 'Closed — Lost' }],
+          lastContactDate: actionClosedDate || todayStr,
+          auditLog: [...actionCase.auditLog, { timestamp: nowStr, action: 'status_changed', by: actionCase.staff, note: `Closed — Lost on ${actionClosedDate || todayStr}` }],
         });
         showToast('Marked as lost.', 'info');
       }
@@ -177,7 +197,7 @@ export function FollowUps() {
   }
 
   return (
-    <div className="px-4 pt-6 pb-32 max-w-lg mx-auto lg:max-w-5xl lg:px-8">
+    <div className="px-4 pt-6 pb-32 max-w-lg mx-auto lg:max-w-none lg:px-8">
       {/* Title */}
       <div className="mb-4">
         <h1 className="text-2xl font-bold text-slate-900">Follow-ups</h1>
@@ -234,6 +254,14 @@ export function FollowUps() {
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${showAnalytics ? 'bg-brand-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
           >
             <BarChart2 className="w-3.5 h-3.5" /> Analytics
+          </button>
+        )}
+        {followUps.length > 0 && (
+          <button
+            onClick={() => setGroupByBrand(v => !v)}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${groupByBrand ? 'bg-brand-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
+          >
+            Group by brand
           </button>
         )}
       </div>
@@ -318,14 +346,34 @@ export function FollowUps() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map(c => <FollowUpTableRow key={c.id} case_={c} onAction={openAction} />)}
+                {groupedFollowUps.map(([brand, items]) => (
+                  <Fragment key={brand}>
+                    {groupByBrand && (
+                      <tr className="bg-slate-50 border-b border-slate-200">
+                        <td colSpan={9} className="py-1.5 px-4 text-xs font-bold text-slate-600 uppercase tracking-wide">
+                          {brand}<span className="ml-2 font-normal text-slate-400 normal-case">{items.length} open</span>
+                        </td>
+                      </tr>
+                    )}
+                    {items.map(c => <FollowUpTableRow key={c.id} case_={c} onAction={openAction} />)}
+                  </Fragment>
+                ))}
               </tbody>
             </table>
           </div>
 
           {/* Mobile cards */}
           <div className="lg:hidden space-y-3">
-            {filtered.map(c => <FollowUpRow key={c.id} case_={c} onAction={openAction} />)}
+            {groupedFollowUps.map(([brand, items]) => (
+              <div key={brand} className="space-y-3">
+                {groupByBrand && (
+                  <p className="text-xs font-bold text-slate-500 uppercase tracking-wide pt-2">
+                    {brand} <span className="font-normal text-slate-400 normal-case">({items.length})</span>
+                  </p>
+                )}
+                {items.map(c => <FollowUpRow key={c.id} case_={c} onAction={openAction} />)}
+              </div>
+            ))}
           </div>
         </>
       )}
@@ -355,6 +403,14 @@ export function FollowUps() {
               <label className="label">Bump callback to</label>
               <input type="date" value={actionBumpDate} onChange={e => setActionBumpDate(e.target.value)} className="input" />
               <p className="text-xs text-slate-400 mt-1">Leave as today if no new date promised.</p>
+            </div>
+          )}
+          {(actionType === 'won' || actionType === 'lost') && (
+            <div>
+              <label className="label">Closed date</label>
+              <input type="date" value={actionClosedDate} max={format(new Date(), 'yyyy-MM-dd')}
+                onChange={e => setActionClosedDate(e.target.value)} className="input" />
+              <p className="text-xs text-slate-400 mt-1">Defaults to today — pick an earlier date for a sale that closed before it was updated here.</p>
             </div>
           )}
           {actionType === 'won' && (

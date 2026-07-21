@@ -14,7 +14,7 @@ export function ManagerDashboard() {
   const [view, setView] = useState<'daily' | 'weekly'>('daily');
 
   return (
-    <div className="px-4 pt-6 pb-32 max-w-5xl mx-auto">
+    <div className="px-4 pt-6 pb-32 max-w-5xl mx-auto lg:max-w-none lg:px-8">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Manager Dashboard</h1>

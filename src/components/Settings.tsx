@@ -102,7 +102,7 @@ export function Settings() {
   }
 
   return (
-    <div className="px-4 pt-6 pb-32 max-w-lg mx-auto lg:max-w-5xl lg:px-8">
+    <div className="px-4 pt-6 pb-32 max-w-lg mx-auto lg:max-w-none lg:px-8">
       <h1 className="text-2xl font-bold text-slate-900 mb-6 lg:mb-8">Settings</h1>
 
       {/* Brand Catalog */}
