@@ -26,6 +26,9 @@ export function Reports() {
   const [expanded, setExpanded] = useState<string | null>(null);
   const [deletingReport, setDeletingReport] = useState<DayClose | null>(null);
   const [deletingAll, setDeletingAll] = useState(false);
+  // Build a report for ANY date + outlet, even if that combination was never "closed"
+  const [pickDate, setPickDate] = useState(format(new Date(), 'yyyy-MM-dd'));
+  const [pickOutlet, setPickOutlet] = useState('');
 
   async function reload() {
     const r = await getAllDayCloses();
@@ -51,6 +54,10 @@ export function Reports() {
     try {
       const allCases = await getCasesByDate(date);
       const filteredForPDF = outlet ? allCases.filter(c => !c.outlet || c.outlet === outlet) : allCases;
+      if (filteredForPDF.length === 0) {
+        showToast(`No entries for ${date}${outlet ? ` at ${outlet}` : ''}.`, 'info');
+        return;
+      }
       const pdfUri = generatePDF(date, filteredForPDF, outlet || undefined);
       downloadReport(date, pdfUri, outlet || undefined);
     } catch {
@@ -82,6 +89,10 @@ export function Reports() {
     try {
       const allCases = await getCasesByDate(date);
       const filteredForPDF = outlet ? allCases.filter(c => !c.outlet || c.outlet === outlet) : allCases;
+      if (filteredForPDF.length === 0) {
+        showToast(`No entries for ${date}${outlet ? ` at ${outlet}` : ''}.`, 'info');
+        return;
+      }
       const pdfUri = generatePDF(date, filteredForPDF, outlet || undefined);
       const result = await shareReport(date, pdfUri, outlet || undefined);
       if (result === 'cancelled') return; // user dismissed the share sheet
@@ -99,6 +110,42 @@ export function Reports() {
       <div className="mb-5">
         <h1 className="text-2xl font-bold text-slate-900">Reports History</h1>
         <p className="text-slate-500 text-sm mt-0.5">All closed daily reports — download or share any day</p>
+      </div>
+
+      {/* Build a report for any date + outlet (works even if that day/outlet was never closed) */}
+      <div className="card p-4 mb-5">
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Get a report for any day</p>
+        <div className="flex flex-wrap gap-2 items-end">
+          <label className="text-xs flex-1 min-w-[140px]">
+            <span className="block text-slate-500 mb-1">Date</span>
+            <input type="date" value={pickDate} max={format(new Date(), 'yyyy-MM-dd')}
+              onChange={e => setPickDate(e.target.value)} className="input py-1.5 text-sm w-full" />
+          </label>
+          <label className="text-xs flex-1 min-w-[140px]">
+            <span className="block text-slate-500 mb-1">Outlet</span>
+            <select value={pickOutlet} onChange={e => setPickOutlet(e.target.value)} className="input py-1.5 text-sm w-full">
+              <option value="">All outlets</option>
+              {outlets.map(o => <option key={o} value={o}>{o}</option>)}
+            </select>
+          </label>
+          <button
+            onClick={() => handleShare(pickDate, pickOutlet)}
+            disabled={!!generating || !pickDate}
+            className="flex items-center justify-center gap-1.5 bg-brand-700 text-white font-semibold text-sm px-4 py-2 rounded-xl disabled:opacity-40"
+          >
+            <Share2 className="w-4 h-4" /> {generating === pickDate ? 'Working…' : 'Share PDF'}
+          </button>
+          <button
+            onClick={() => handleDownload(pickDate, pickOutlet)}
+            disabled={!!generating || !pickDate}
+            className="flex items-center justify-center gap-1.5 border-2 border-brand-700 text-brand-700 font-semibold text-sm px-4 py-2 rounded-xl disabled:opacity-40"
+          >
+            <Download className="w-4 h-4" /> Download
+          </button>
+        </div>
+        <p className="text-xs text-slate-400 mt-2">
+          Pick any past date and outlet — the PDF is built from that day's entries, whether or not the day was closed.
+        </p>
       </div>
 
       {/* Filters */}
