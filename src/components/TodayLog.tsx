@@ -29,6 +29,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   const [closingDay, setClosingDay] = useState(false);
   const [closerName, setCloserName] = useState('');
   const [pdfUri, setPdfUri] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const [sharingPdf, setSharingPdf] = useState(false);
 
   const load = useCallback(async () => {
@@ -85,15 +86,32 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   // Generate (or regenerate) the PDF whenever the day is closed AND case data changes
   useEffect(() => {
     if (isClosed && pdfCases.length > 0) {
-      setPdfUri(generatePDF(today, pdfCases, pdfOutlet || undefined));
+      try {
+        setPdfUri(generatePDF(today, pdfCases, pdfOutlet || undefined));
+        setPdfError(null);
+      } catch (err) {
+        setPdfUri(null);
+        setPdfError(err instanceof Error ? err.message : 'Could not build the PDF');
+      }
     }
   }, [isClosed, casesSig, pdfOutlet]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Rebuild the PDF on demand (used by the retry button). */
+  function buildPdfNow() {
+    try {
+      setPdfUri(generatePDF(today, pdfCases, pdfOutlet || undefined));
+      setPdfError(null);
+    } catch (err) {
+      setPdfError(err instanceof Error ? err.message : 'Could not build the PDF');
+    }
+  }
 
   async function handleSharePdf() {
     if (!pdfUri) return;
     setSharingPdf(true);
     try {
       const result = await shareReport(today, pdfUri, pdfOutlet || undefined);
+      if (result === 'cancelled') return; // user dismissed the share sheet
       showToast(result === 'shared' ? 'Report shared!' : 'PDF downloaded.', 'success');
     } finally {
       setSharingPdf(false);
@@ -374,6 +392,15 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
         <div className="mt-6">
           <div className="h-px bg-slate-200 mb-4" />
           <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">Daily Report</p>
+          {pdfError && (
+            <div className="mb-3 px-3 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm flex items-center gap-2 flex-wrap">
+              <span className="flex-1">Couldn’t build the PDF: {pdfError}</span>
+              <button onClick={buildPdfNow} className="font-semibold underline shrink-0">Try again</button>
+            </div>
+          )}
+          {!pdfUri && !pdfError && (
+            <p className="mb-3 text-xs text-slate-400">Preparing the PDF…</p>
+          )}
           <div className={`flex gap-3 ${panelMode ? 'flex-col' : 'grid grid-cols-2'}`}>
             <button
               onClick={handleSharePdf}

@@ -337,8 +337,11 @@ export function downloadReport(date: string, pdfUri: string, outlet?: string) {
   document.body.removeChild(link);
 }
 
-export async function shareReport(date: string, pdfUri: string, outlet?: string): Promise<'shared' | 'downloaded'> {
+export async function shareReport(
+  date: string, pdfUri: string, outlet?: string,
+): Promise<'shared' | 'downloaded' | 'cancelled'> {
   const fileName = pdfFileName(date, outlet);
+  const title = `Daily Store Report — ${date}${outlet ? ` · ${outlet}` : ''}`;
 
   if (navigator.share) {
     try {
@@ -347,17 +350,19 @@ export async function shareReport(date: string, pdfUri: string, outlet?: string)
       const file = new File([blob], fileName, { type: 'application/pdf' });
 
       if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ title: 'TIME KEEPER Daily Report', files: [file] });
-        return 'shared';
-      } else {
-        await navigator.share({ title: 'TIME KEEPER Daily Report' });
+        await navigator.share({ title, text: title, files: [file] });
         return 'shared';
       }
-    } catch {
-      // User cancelled — fall through to download
+      // this device can't attach files (e.g. desktop) — give them the PDF instead
+      downloadReport(date, pdfUri, outlet);
+      return 'downloaded';
+    } catch (err) {
+      // the user dismissed the share sheet — don't force a download on them
+      if ((err as { name?: string })?.name === 'AbortError') return 'cancelled';
+      // anything else: fall through and still hand over the file
     }
   }
 
-  downloadReport(date, pdfUri);
+  downloadReport(date, pdfUri, outlet);
   return 'downloaded';
 }

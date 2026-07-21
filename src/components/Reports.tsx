@@ -84,6 +84,7 @@ export function Reports() {
       const filteredForPDF = outlet ? allCases.filter(c => !c.outlet || c.outlet === outlet) : allCases;
       const pdfUri = generatePDF(date, filteredForPDF, outlet || undefined);
       const result = await shareReport(date, pdfUri, outlet || undefined);
+      if (result === 'cancelled') return; // user dismissed the share sheet
       showToast(result === 'shared' ? 'Report shared!' : 'PDF downloaded.', 'success');
     } catch {
       showToast('Failed to generate PDF.', 'error');
