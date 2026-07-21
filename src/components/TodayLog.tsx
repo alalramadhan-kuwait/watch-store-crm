@@ -13,6 +13,7 @@ import type { Case, AppSettings, DayClose, CaseStatus } from '../types';
 import { QuickEntryEdit } from './QuickEntryEdit';
 
 const today = format(new Date(), 'yyyy-MM-dd');
+const yesterday = format(new Date(Date.now() - 86400000), 'yyyy-MM-dd');
 
 export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   const { showToast, refreshLog, activeOutlet } = useAppStore();
@@ -31,7 +32,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   const [pdfUri, setPdfUri] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
   // past-day report (staff can only get their own outlet; admin follows the outlet filter)
-  const [pastDate, setPastDate] = useState(format(new Date(Date.now() - 86400000), 'yyyy-MM-dd'));
+  const [pastDate, setPastDate] = useState(yesterday);
   const [pastBusy, setPastBusy] = useState(false);
   const [sharingPdf, setSharingPdf] = useState(false);
 
@@ -128,22 +129,24 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
 
   /** Build and share/download the report for an earlier day, scoped to this user's outlet. */
   async function handlePastReport(mode: 'share' | 'download') {
-    if (!pastDate || pastBusy) return;
+    // staff are limited to the previous day only; anything older is the manager's to pull
+    const reportDate = role === 'admin' ? pastDate : yesterday;
+    if (!reportDate || pastBusy) return;
     setPastBusy(true);
     try {
-      const all = await getCasesByDate(pastDate);
+      const all = await getCasesByDate(reportDate);
       const scoped = pdfOutlet ? all.filter(c => !c.outlet || c.outlet === pdfOutlet) : all;
       if (scoped.length === 0) {
-        showToast(`No entries for ${pastDate}${pdfOutlet ? ` at ${pdfOutlet}` : ''}.`, 'info');
+        showToast(`No entries for ${reportDate}${pdfOutlet ? ` at ${pdfOutlet}` : ''}.`, 'info');
         return;
       }
-      const uri = generatePDF(pastDate, scoped, pdfOutlet || undefined);
+      const uri = generatePDF(reportDate, scoped, pdfOutlet || undefined);
       if (mode === 'download') {
-        downloadReport(pastDate, uri, pdfOutlet || undefined);
+        downloadReport(reportDate, uri, pdfOutlet || undefined);
         showToast('PDF downloaded.', 'success');
         return;
       }
-      const result = await shareReport(pastDate, uri, pdfOutlet || undefined);
+      const result = await shareReport(reportDate, uri, pdfOutlet || undefined);
       if (result === 'cancelled') return;
       showToast(result === 'shared' ? 'Report shared!' : 'PDF downloaded.', 'success');
     } catch {
@@ -456,18 +459,25 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
       <div className="mt-6">
         <div className="h-px bg-slate-200 mb-4" />
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
-          Earlier day report{pdfOutlet ? ` — ${pdfOutlet}` : ''}
+          {role === 'admin' ? 'Earlier day report' : "Yesterday's report"}{pdfOutlet ? ` — ${pdfOutlet}` : ''}
         </p>
         <div className="flex flex-wrap gap-2 items-end">
           <label className="text-xs flex-1 min-w-[140px]">
             <span className="block text-slate-500 mb-1">Date</span>
-            <input
-              type="date"
-              value={pastDate}
-              max={today}
-              onChange={e => setPastDate(e.target.value)}
-              className="input py-1.5 text-sm w-full"
-            />
+            {role === 'admin' ? (
+              <input
+                type="date"
+                value={pastDate}
+                max={today}
+                onChange={e => setPastDate(e.target.value)}
+                className="input py-1.5 text-sm w-full"
+              />
+            ) : (
+              // staff get yesterday only — older days stay with the manager
+              <div className="input py-1.5 text-sm w-full bg-slate-50 text-slate-600">
+                {format(new Date(yesterday + 'T12:00:00'), 'EEE, d MMM yyyy')}
+              </div>
+            )}
           </label>
           <button
             onClick={() => handlePastReport('share')}
