@@ -1,7 +1,7 @@
 {
   "name": "watch-store-crm",
   "private": true,
-  "version": "1.2.10",
+  "version": "1.2.11",
   "type": "module",
   "scripts": {
     "dev": "vite",

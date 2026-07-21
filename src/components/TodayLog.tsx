@@ -495,7 +495,9 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
           </button>
         </div>
         <p className="text-xs text-slate-400 mt-2">
-          Pick any past date to get that day's report{pdfOutlet ? ` for ${pdfOutlet}` : ''} — works whether or not the day was closed.
+          {role === 'admin'
+            ? <>Pick any past date to get that day's report{pdfOutlet ? ` for ${pdfOutlet}` : ''} — works whether or not the day was closed.</>
+            : <>Yesterday's report{pdfOutlet ? ` for ${pdfOutlet}` : ''} — works whether or not the day was closed. For older days, ask your manager.</>}
         </p>
       </div>
 
