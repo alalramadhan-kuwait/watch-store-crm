@@ -30,6 +30,9 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   const [closerName, setCloserName] = useState('');
   const [pdfUri, setPdfUri] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  // past-day report (staff can only get their own outlet; admin follows the outlet filter)
+  const [pastDate, setPastDate] = useState(format(new Date(Date.now() - 86400000), 'yyyy-MM-dd'));
+  const [pastBusy, setPastBusy] = useState(false);
   const [sharingPdf, setSharingPdf] = useState(false);
 
   const load = useCallback(async () => {
@@ -121,6 +124,33 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   function handleDownloadPdf() {
     if (!pdfUri) return;
     downloadReport(today, pdfUri, pdfOutlet || undefined);
+  }
+
+  /** Build and share/download the report for an earlier day, scoped to this user's outlet. */
+  async function handlePastReport(mode: 'share' | 'download') {
+    if (!pastDate || pastBusy) return;
+    setPastBusy(true);
+    try {
+      const all = await getCasesByDate(pastDate);
+      const scoped = pdfOutlet ? all.filter(c => !c.outlet || c.outlet === pdfOutlet) : all;
+      if (scoped.length === 0) {
+        showToast(`No entries for ${pastDate}${pdfOutlet ? ` at ${pdfOutlet}` : ''}.`, 'info');
+        return;
+      }
+      const uri = generatePDF(pastDate, scoped, pdfOutlet || undefined);
+      if (mode === 'download') {
+        downloadReport(pastDate, uri, pdfOutlet || undefined);
+        showToast('PDF downloaded.', 'success');
+        return;
+      }
+      const result = await shareReport(pastDate, uri, pdfOutlet || undefined);
+      if (result === 'cancelled') return;
+      showToast(result === 'shared' ? 'Report shared!' : 'PDF downloaded.', 'success');
+    } catch {
+      showToast('Could not build that report.', 'error');
+    } finally {
+      setPastBusy(false);
+    }
   }
 
   async function handleDelete() {
@@ -421,6 +451,43 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
           </div>
         </div>
       )}
+
+      {/* Report for an earlier day — available to staff too (scoped to their outlet) */}
+      <div className="mt-6">
+        <div className="h-px bg-slate-200 mb-4" />
+        <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
+          Earlier day report{pdfOutlet ? ` — ${pdfOutlet}` : ''}
+        </p>
+        <div className="flex flex-wrap gap-2 items-end">
+          <label className="text-xs flex-1 min-w-[140px]">
+            <span className="block text-slate-500 mb-1">Date</span>
+            <input
+              type="date"
+              value={pastDate}
+              max={today}
+              onChange={e => setPastDate(e.target.value)}
+              className="input py-1.5 text-sm w-full"
+            />
+          </label>
+          <button
+            onClick={() => handlePastReport('share')}
+            disabled={pastBusy}
+            className="flex items-center justify-center gap-1.5 bg-brand-700 text-white font-semibold text-sm px-4 py-2 rounded-xl disabled:opacity-40"
+          >
+            <Share2 className="w-4 h-4" /> {pastBusy ? 'Working…' : 'Share PDF'}
+          </button>
+          <button
+            onClick={() => handlePastReport('download')}
+            disabled={pastBusy}
+            className="flex items-center justify-center gap-1.5 border-2 border-brand-700 text-brand-700 font-semibold text-sm px-4 py-2 rounded-xl disabled:opacity-40"
+          >
+            <FileText className="w-4 h-4" /> Download
+          </button>
+        </div>
+        <p className="text-xs text-slate-400 mt-2">
+          Pick any past date to get that day's report{pdfOutlet ? ` for ${pdfOutlet}` : ''} — works whether or not the day was closed.
+        </p>
+      </div>
 
       {/* Case detail modal */}
       {detailCase && (
