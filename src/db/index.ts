@@ -433,7 +433,10 @@ export async function closeDay(date: string, closedBy: string, outlet = ''): Pro
   const { data: { user } } = await supabase.auth.getUser();
 
   for (const row of rows ?? []) {
-    const upd: Record<string, unknown> = { day_locked: true, updated_by: user?.id ?? null };
+    // An open follow-up carries on past today — closing the day must not lock it,
+    // or staff can never mark it contacted/won/lost afterwards.
+    const isOpenFollowUp = row.case_type === 'Follow-up' && row.status === 'Open';
+    const upd: Record<string, unknown> = { day_locked: !isOpenFollowUp, updated_by: user?.id ?? null };
     if (row.case_type === 'Sale') upd.status = 'Won';
     else if (row.case_type === 'Lost Sale') upd.status = 'Lost';
     else if (row.case_type === 'No Interaction') upd.status = 'Closed';
