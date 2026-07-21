@@ -443,7 +443,9 @@ export async function closeDay(date: string, closedBy: string, outlet = ''): Pro
     await supabase.from('cases').update(upd).eq('id', row.id);
   }
 
-  const cases = (rows ?? []).map(r => caseFromDb(r as DbCase));
+  const allRows = (rows ?? []).map(r => caseFromDb(r as DbCase));
+  // sales converted from an earlier follow-up are logged separately, not as today's trade
+  const cases = allRows.filter(c => !(c.caseType === 'Sale' && c.linkedCaseId));
   const sales = cases.filter(c => c.caseType === 'Sale');
   const followups = cases.filter(c => c.caseType === 'Follow-up');
   const lost = cases.filter(c => c.caseType === 'Lost Sale');
@@ -493,7 +495,9 @@ export async function rebuildDaySummary(date: string, outlet = ''): Promise<stri
   let q = supabase.from('cases').select('*').eq('date_logged', date).eq('deleted', false);
   if (outlet) q = q.eq('outlet', outlet);
   const { data: rows } = await q;
-  const cases = (rows ?? []).map(r => caseFromDb(r as DbCase));
+  const allRows = (rows ?? []).map(r => caseFromDb(r as DbCase));
+  // sales converted from an earlier follow-up are logged separately, not as today's trade
+  const cases = allRows.filter(c => !(c.caseType === 'Sale' && c.linkedCaseId));
 
   const sales = cases.filter(c => c.caseType === 'Sale');
   const followups = cases.filter(c => c.caseType === 'Follow-up');

@@ -191,8 +191,8 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   }
 
   function buildPreviewSummary(allCases: Case[]) {
-    const { sales: s, followups: f, lost: l, browsing: b, revenue: rev, convRate: conv, staffMap } =
-      buildDailyStats(allCases);
+    const { sales: s, followups: f, lost: l, browsing: b, revenue: rev, convRate: conv, staffMap,
+            followUpWins, followUpWinRevenue } = buildDailyStats(allCases);
     let topStaff = ''; let topKD = 0;
     for (const [name, data] of Object.entries(staffMap)) {
       if (data.kd > topKD) { topKD = data.kd; topStaff = name; }
@@ -202,7 +202,10 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
       `Revenue: ${formatKD(rev)} KD\n` +
       `Sales: ${s.length}  |  Follow-ups: ${f.length}  |  Lost: ${l.length}  |  Browsing: ${b.length}\n` +
       `Conversion: ${conv}%\n` +
-      (topStaff ? `Top Performer: ${topStaff} — ${formatKD(topKD)} KD (${staffMap[topStaff].sales} sales)\n` : '')
+      (topStaff ? `Top Performer: ${topStaff} — ${formatKD(topKD)} KD (${staffMap[topStaff].sales} sales)\n` : '') +
+      (followUpWins.length > 0
+        ? `\n🔁 Follow-up conversions (separate): ${followUpWins.length} — ${formatKD(followUpWinRevenue)} KD\n`
+        : '')
     );
   }
 

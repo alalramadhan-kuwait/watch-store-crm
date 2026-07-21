@@ -33,16 +33,24 @@ export function buildHourlyTraffic(cases: Case[]): { hour: number; label: string
 }
 
 export function buildDailyStats(cases: Case[]) {
-  const sales = cases.filter(c => c.caseType === 'Sale');
-  const followups = cases.filter(c => c.caseType === 'Follow-up');
-  const lost = cases.filter(c => c.caseType === 'Lost Sale');
-  const browsing = cases.filter(c => c.caseType === 'No Interaction');
+  // A sale created by closing an earlier follow-up carries linkedCaseId. It is NOT
+  // walk-in trade for this day, so it is kept out of the day's figures and reported
+  // in its own Follow-up Conversions log instead.
+  const followUpWins = cases.filter(c => c.caseType === 'Sale' && !!c.linkedCaseId);
+  const isFollowUpWin = (c: Case) => c.caseType === 'Sale' && !!c.linkedCaseId;
+  const dayCases = cases.filter(c => !isFollowUpWin(c));
+  const followUpWinRevenue = followUpWins.reduce((s, c) => s + (c.amountKD || 0), 0);
+
+  const sales = dayCases.filter(c => c.caseType === 'Sale');
+  const followups = dayCases.filter(c => c.caseType === 'Follow-up');
+  const lost = dayCases.filter(c => c.caseType === 'Lost Sale');
+  const browsing = dayCases.filter(c => c.caseType === 'No Interaction');
   const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
   const total = sales.length + lost.length;
   const convRate = total > 0 ? Math.round((sales.length / total) * 100) : 0;
 
   const staffMap: Record<string, { sales: number; kd: number; followups: number; lost: number }> = {};
-  for (const c of cases) {
+  for (const c of dayCases) {
     if (!staffMap[c.staff]) staffMap[c.staff] = { sales: 0, kd: 0, followups: 0, lost: 0 };
     if (c.caseType === 'Sale') { staffMap[c.staff].sales++; staffMap[c.staff].kd += c.amountKD || 0; }
     if (c.caseType === 'Follow-up') staffMap[c.staff].followups++;
@@ -63,7 +71,7 @@ export function buildDailyStats(cases: Case[]) {
     brandLostMap[brand] = (brandLostMap[brand] || 0) + 1;
   }
 
-  return { sales, followups, lost, browsing, revenue, convRate, staffMap, brandSalesMap, brandLostMap };
+  return { sales, followups, lost, browsing, revenue, convRate, staffMap, brandSalesMap, brandLostMap, dayCases, followUpWins, followUpWinRevenue };
 }
 
 export function pdfFileName(date: string, outlet?: string) {
@@ -73,7 +81,7 @@ export function pdfFileName(date: string, outlet?: string) {
 
 export function generatePDF(date: string, cases: Case[], outlet?: string): string {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
-  const { sales, followups, lost, browsing, revenue, convRate, staffMap, brandSalesMap } =
+  const { sales, followups, lost, browsing, revenue, convRate, staffMap, brandSalesMap, dayCases, followUpWins, followUpWinRevenue } =
     buildDailyStats(cases);
   const displayDate = format(new Date(date + 'T12:00:00'), 'd MMMM yyyy');
 
@@ -108,7 +116,7 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
   doc.rect(0, 28, 210, 1.5, 'F');
 
   // ── KPI tiles (2 rows × 3) ───────────────────────────────────────────────
-  const totalVisitorKd = cases.reduce((s, c) =>
+  const totalVisitorKd = dayCases.reduce((s, c) =>
     s + (c.caseType === 'No Interaction' ? (c.visitorCount ?? 1) : 1), 0);
   const kpis = [
     { label: 'Revenue (KD)', value: formatKD(revenue) },
@@ -137,9 +145,9 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
   let curY = kpiY0 + 2 * (kpiH + kpiGap) + 8;
 
   // ── Store Traffic chart (Google Maps-style popular times) ────────────────
-  const traffic = buildHourlyTraffic(cases);
+  const traffic = buildHourlyTraffic(dayCases);
   if (traffic.length > 0) {
-    const totalVisitors = cases.reduce((s, c) =>
+    const totalVisitors = dayCases.reduce((s, c) =>
       s + (c.caseType === 'No Interaction' ? (c.visitorCount ?? 1) : 1), 0);
     const peakEntry = traffic.reduce((mx, t) => t.count > mx.count ? t : mx, traffic[0]);
 
@@ -281,13 +289,47 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
     curY = (doc as any).lastAutoTable.finalY + 8;
   }
 
+  // ── Follow-up Conversions (own log — excluded from the day's figures) ────
+  if (followUpWins.length > 0) {
+    doc.setFontSize(11);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(30, 41, 59);
+    doc.text('Follow-up Conversions', 14, curY);
+
+    doc.setFontSize(7.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(100, 116, 139);
+    doc.text(
+      `${followUpWins.length} closed today · ${formatKD(followUpWinRevenue)} KD — from earlier follow-ups, not counted in today's sales figures above`,
+      14, curY + 5,
+    );
+
+    autoTable(doc, {
+      startY: curY + 8,
+      head: [['Time', 'Customer', 'Brand / Product', 'Staff', 'From follow-up', 'Amount (KD)']],
+      body: followUpWins.map(c => [
+        c.timeLogged || '—',
+        (c.customerName || '—').substring(0, 22),
+        (c.brand || c.product || '—').substring(0, 26),
+        (c.staff || '—').substring(0, 16),
+        c.linkedCaseId || '—',
+        formatKD(c.amountKD || 0),
+      ]),
+      theme: 'striped',
+      headStyles: { fillColor: [124, 58, 237] },
+      margin: { left: 14, right: 14 },
+      styles: { fontSize: 9 },
+    });
+    curY = (doc as any).lastAutoTable.finalY + 8;
+  }
+
   // ── All Cases table ──────────────────────────────────────────────────────
   doc.setFontSize(11);
   doc.setFont('helvetica', 'bold');
   doc.setTextColor(30, 41, 59);
   doc.text('All Cases', 14, curY);
 
-  const caseRows = cases.map(c => {
+  const caseRows = dayCases.map(c => {
     const brandProduct = c.caseType === 'Lost Sale' && c.product && c.product !== c.brand
       ? `${c.brand || ''} — ${c.product}`.substring(0, 28)
       : (c.brand || c.product || '—').substring(0, 28);
