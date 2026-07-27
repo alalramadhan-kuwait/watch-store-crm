@@ -92,9 +92,9 @@ Public base tables (Supabase project `ttshgrujnycapugrmyxs`):
 
 **HR:** `employees`, `attendance_records`, `leave_records`, `employee_requests`, `geofences`, `company_documents`.
 
-**Marketing:** `content_tasks`, `paid_ads`, `influencer_campaigns`, `instagram_auth`, `instagram_daily`, `instagram_media`, `instagram_sync_log`.
+**Marketing:** `content_tasks`, `paid_ads`, `influencer_campaigns`, `instagram_auth`, `instagram_daily` (**multi-account**: PK `(snapshot_date, username)`, cols incl. `followers`, `last_post_date`, `media_count`; `reach`/`impressions`/`profile_views` only fillable by the Meta path, null from the scraper), `instagram_media`, `instagram_sync_log`.
 
-**Platform:** `profiles`, `user_activity`, `audit_log`, `alert_actions`.
+**Platform:** `profiles`, `user_activity`, `audit_log`, `alert_actions`, `apify_config` (single row, RLS-locked to service role, holds the Apify API token — same posture as `lightspeed_auth`).
 
 ### `settings` (single row) — dashboard config
 `sales_target_month`, `sales_target_avenues`, `sales_target_timegallery` (per-outlet monthly targets), plus brand list, work-start time, etc.
@@ -167,8 +167,9 @@ Behaviour worth knowing:
 | `lightspeed-po-sync` | false | cron + admin/manager JWT | Mirror SUPPLIER consignments → POs (§6.1) |
 | `admin-users` | true | Settings UI | Create/edit/delete users, change password/role |
 | `daily-briefing` | false | cron (parked) | Email daily briefing (needs `RESEND_API_KEY`) |
-| `instagram-connect` | true | Settings UI | Instagram OAuth connect |
-| `instagram-sync` | false | cron + manual | Instagram followers/media/insights import |
+| `instagram-connect` | true | Settings UI | Instagram OAuth connect (Meta path, dormant) |
+| `instagram-sync` | false | cron + manual | Instagram insights via Meta Graph API (dormant — token never finished) |
+| `instagram-apify-sync` | false | cron + admin/manager/marketing JWT | **Active IG tracker.** Scrapes 3 public accounts (timekeeperkw, timegallerykw, timekeeperkwshop) via Apify Instagram Profile Scraper → `instagram_daily`. Followers + last-post date; no login. Token from `apify_config`/`APIFY_TOKEN`. Async start-poll-fetch. Newest post = `max(timestamp)` (pinned posts float to top — never trust the first item). |
 
 Auth for cron-callable syncs: `x-sync-key` header = `lightspeed_auth.sync_key`, OR an admin/manager JWT. Edge functions get **~150s wall clock** and PostgREST caps selects at 1000 rows — heavy syncs must batch/paginate and respect the deadline.
 
@@ -178,7 +179,8 @@ Auth for cron-callable syncs: `x-sync-key` header = `lightspeed_auth.sync_key`, 
 |-----|----------------|--------|-------|
 | `lightspeed-daily-sync` | `0 5 * * *` | 08:00 | `lightspeed-sync` |
 | `lightspeed-po-sync` | `5 5 * * *` | 08:05 | `lightspeed-po-sync` |
-| `instagram-daily-sync` | `15 5 * * *` | 08:15 | `instagram-sync` |
+| `instagram-daily-sync` | `15 5 * * *` | 08:15 | `instagram-sync` (Meta, dormant) |
+| `instagram-apify-sync` | `20 5 * * *` | 08:20 | `instagram-apify-sync` (active) |
 
 Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_milliseconds := 150000`.
 
@@ -207,6 +209,7 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-07-27** (later) — **Instagram tracking via Apify** (replaces the never-finished Meta path for followers/cadence). New `instagram-apify-sync` edge function + daily cron scrapes 3 public accounts; `instagram_daily` made multi-account; `apify_config` table for the token. Dashboard Marketing section gains a 3-account comparison (followers · Δ today · last post · days idle) + main-account followers trend.
 - **2026-07-27** — Fixed **cancelled POs never syncing**: Lightspeed's consignment list omits CANCELLED, so cancels were invisible. Added a reconciliation pass to `lightspeed-po-sync` that single-fetches vanished open POs (MAI-417 + 4 others were stuck). Also normalised the function source to ASCII.
 - **2026-07-25** (later) — **Owner-view dashboard charts** added (`src/components/Charts.tsx`): 6 first charts across Sales, Stock & Purchasing, Repairs, Marketing sections. `Section` extended with a `charts` slot.
 - **2026-07-25** — Created this reference. Added **Influencer Tracker** (`influencer_campaigns`, `/influencers`). Added **per-outlet sales targets** (Avenues, Time Gallery) in Settings + dashboard cards. Stock product view gained **Avg cost / Retail / Margin**. Fixed CrudModule NOT-NULL save error (read-only fields now stripped from payload) + paginated `load()`. PO page: **order number now from Lightspeed `reference`** + `supplier_invoice_no`; **3 summary cards** (Outstanding balance / Awaiting receipt / Awaiting invoice); **project-linked flag**; table slimmed to 8 columns. Historical/untracked received POs marked settled. `lightspeed-po-sync` deployed + daily cron.
