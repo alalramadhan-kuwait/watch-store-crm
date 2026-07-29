@@ -209,6 +209,7 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-07-29** (later) — Dashboard "Stock value over time" chart now plots **cost** for admin/manager (title "Stock cost over time"), retail for staff — keeps the manager-only cost convention.
 - **2026-07-29** — Fixed **short-shipped closed POs stuck on "Partially Received"**: the derive rule now only applies while the order is still `Ordered`, so RECEIVED-but-short consignments show Fully Received. Re-ran sync — cleared MAI-329/533/695/695[cont]/349/44 and all others (0 left).
 - **2026-07-27** (later) — **Instagram tracking via Apify** (replaces the never-finished Meta path for followers/cadence). New `instagram-apify-sync` edge function + daily cron scrapes 3 public accounts; `instagram_daily` made multi-account; `apify_config` table for the token. Dashboard Marketing section gains a 3-account comparison (followers · Δ today · last post · days idle) + main-account followers trend.
 - **2026-07-27** — Fixed **cancelled POs never syncing**: Lightspeed's consignment list omits CANCELLED, so cancels were invisible. Added a reconciliation pass to `lightspeed-po-sync` that single-fetches vanished open POs (MAI-417 + 4 others were stuck). Also normalised the function source to ASCII.
