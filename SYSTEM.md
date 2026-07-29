@@ -118,7 +118,7 @@ OAuth (Standard Access, own account); long-lived token + refresh in `lightspeed_
 Lightspeed models POs as **SUPPLIER consignments** (`OPEN → SENT → DISPATCHED → RECEIVED`, `CANCELLED`). POs are **created in Lightspeed, never hand-entered** in Timekeeper. `lightspeed-po-sync` mirrors them; Timekeeper owns only the money/coordination side.
 
 - **Order number** = consignment `reference` (e.g. `MAI-1234`), NOT `name` (blank on ~90% of consignments). `supplier_invoice` → `supplier_invoice_no`.
-- **Status map:** OPEN→Pending Approval; SENT/DISPATCHED→Ordered; RECEIVED/CLOSED→Fully Received; CANCELLED→Cancelled. **Partially Received is derived** when `0 < received_qty < ordered_qty` (Lightspeed has no such status).
+- **Status map:** OPEN→Pending Approval; SENT/DISPATCHED→Ordered; RECEIVED/CLOSED→Fully Received; CANCELLED→Cancelled. **Partially Received is derived only while the order is still in flight** — mapped status `Ordered` AND `0 < received_qty < ordered_qty`. A RECEIVED/CLOSED consignment stays **Fully Received even if short-shipped** (Lightspeed closes short orders as RECEIVED); deriving Partially Received there would freeze them open forever.
 - **Ownership:** the sync writes only Lightspeed-owned columns; it never touches `amount_paid, payment_status, payment_date, payment_method, invoice_received, team_notified, notes, linked_project`.
 - **Totals/brand** come from line items (`/consignments/{id}/products`) → `purchase_order_items` + `po_fill_brands()`. Line items are the expensive call, so they are queued (in-flight POs first, then newest-first backfill), capped ~120/run.
 - **Legacy rows** (hand-entered before the sync, `source='manual'`): auto-merge only on exact order-number match; weaker matches surface in the **Review legacy matches** panel on the PO page for a human to confirm. `merged_into` makes any merge reversible; merged rows are hidden from the list.
@@ -209,6 +209,7 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-07-29** — Fixed **short-shipped closed POs stuck on "Partially Received"**: the derive rule now only applies while the order is still `Ordered`, so RECEIVED-but-short consignments show Fully Received. Re-ran sync — cleared MAI-329/533/695/695[cont]/349/44 and all others (0 left).
 - **2026-07-27** (later) — **Instagram tracking via Apify** (replaces the never-finished Meta path for followers/cadence). New `instagram-apify-sync` edge function + daily cron scrapes 3 public accounts; `instagram_daily` made multi-account; `apify_config` table for the token. Dashboard Marketing section gains a 3-account comparison (followers · Δ today · last post · days idle) + main-account followers trend.
 - **2026-07-27** — Fixed **cancelled POs never syncing**: Lightspeed's consignment list omits CANCELLED, so cancels were invisible. Added a reconciliation pass to `lightspeed-po-sync` that single-fetches vanished open POs (MAI-417 + 4 others were stuck). Also normalised the function source to ASCII.
 - **2026-07-25** (later) — **Owner-view dashboard charts** added (`src/components/Charts.tsx`): 6 first charts across Sales, Stock & Purchasing, Repairs, Marketing sections. `Section` extended with a `charts` slot.
