@@ -92,7 +92,7 @@ Public base tables (Supabase project `ttshgrujnycapugrmyxs`):
 
 **HR:** `employees`, `attendance_records`, `leave_records`, `employee_requests`, `geofences`, `company_documents`.
 
-**Marketing:** `content_tasks`, `paid_ads`, `influencer_campaigns`, `instagram_auth`, `instagram_daily` (**multi-account**: PK `(snapshot_date, username)`, cols incl. `followers`, `last_post_date`, `media_count`; `reach`/`impressions`/`profile_views` only fillable by the Meta path, null from the scraper), `instagram_media`, `instagram_sync_log`.
+**Marketing:** `content_tasks`, `paid_ads`, `influencer_campaigns`, `instagram_auth`, `instagram_daily` (**multi-account**: PK `(snapshot_date, username)`, cols incl. `followers`, `follows_count`, `last_post_date`, `media_count`; `reach`/`impressions`/`profile_views` only fillable by the Meta path, null from the scraper), `instagram_posts` (per-post engagement: PK `shortcode`, cols `username, posted_at, type, likes, comments, video_views, caption, hashtags[], url`; last ~12 posts/account refreshed daily, accumulates history), `instagram_media`, `instagram_sync_log`.
 
 **Platform:** `profiles`, `user_activity`, `audit_log`, `alert_actions`, `apify_config` (single row, RLS-locked to service role, holds the Apify API token — same posture as `lightspeed_auth`).
 
@@ -169,7 +169,7 @@ Behaviour worth knowing:
 | `daily-briefing` | false | cron (parked) | Email daily briefing (needs `RESEND_API_KEY`) |
 | `instagram-connect` | true | Settings UI | Instagram OAuth connect (Meta path, dormant) |
 | `instagram-sync` | false | cron + manual | Instagram insights via Meta Graph API (dormant — token never finished) |
-| `instagram-apify-sync` | false | cron + admin/manager/marketing JWT | **Active IG tracker.** Scrapes 3 public accounts (timekeeperkw, timegallerykw, timekeeperkwshop) via Apify Instagram Profile Scraper → `instagram_daily`. Followers + last-post date; no login. Token from `apify_config`/`APIFY_TOKEN`. Async start-poll-fetch. Newest post = `max(timestamp)` (pinned posts float to top — never trust the first item). |
+| `instagram-apify-sync` | false | cron + admin/manager/marketing JWT | **Active IG tracker.** Scrapes 3 public accounts (timekeeperkw, timegallerykw, timekeeperkwshop) via Apify Instagram Profile Scraper → `instagram_daily` (followers, follows, last-post) **and `instagram_posts`** (per-post likes/comments/type/caption/hashtags). No login. Token from `apify_config`/`APIFY_TOKEN`. Async start-poll-fetch. Newest post = `max(timestamp)` (pinned posts float to top — never trust the first item). |
 
 Auth for cron-callable syncs: `x-sync-key` header = `lightspeed_auth.sync_key`, OR an admin/manager JWT. Edge functions get **~150s wall clock** and PostgREST caps selects at 1000 rows — heavy syncs must batch/paginate and respect the deadline.
 
@@ -209,6 +209,7 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-08-02** — **IG post-level engagement** (Phase 3): `instagram-apify-sync` now stores per-post likes/comments/type/caption/hashtags into new `instagram_posts` (+ `follows_count` on `instagram_daily`). Dashboard Marketing gains an "Avg engagement / post" KPI (+ % of followers) and a "Top posts (30d)" widget for @timekeeperkw. Also: installed the **Agent-Reach** skill (`~/.claude/skills/agent-reach`) for on-demand web/social research — public data only, no private IG insights.
 - **2026-07-30** — Reworked short-receipt handling after the 07-29 change went too far (it closed *all* short orders). Now: short orders show **Partially Received** by default (shortfall stays visible); a per-PO **`closed_override`** flag force-closes specific old ones. Restored the 6 genuinely-in-flight partials (MAI-2071/2100/2102/2107/2108/2138) and kept the 6 the owner closed (MAI-329/349/44/533/695/695[cont]). Added the "Close order" checkbox on the PO form.
 - **2026-07-29** (later) — Dashboard "Stock value over time" chart now plots **cost** for admin/manager (title "Stock cost over time"), retail for staff — keeps the manager-only cost convention.
 - **2026-07-29** — (superseded by 07-30) attempted fix for short-shipped closed POs stuck on Partially Received.
