@@ -152,7 +152,7 @@ Behaviour worth knowing:
 - **`src/pages/Stock.tsx`** — 8 clickable KPI cards, product & brand views, stock-value history chart. Product view shows **Avg cost / Retail / Margin** (cost & margin manager-only). Brand view shows Cost value + Margin.
 - **`src/pages/Settings.tsx`** — user/role admin (via `admin-users` fn), page-access editor, **Monthly sales targets** (overall + Avenues + Time Gallery), brands, geofences, work-start time, Daily Briefing email.
 - **`src/pages/MyPortal.tsx`, `Attendance.tsx`, `Leave.tsx`** — employee portal, clock-in/out, lateness bands (9–5, grace to 10:00, Minor/Late/Serious late, early-leave before 17:00), leave/sick/WFH requests.
-- **`src/pages/Instagram.tsx`** — Instagram performance (auto-sync). Insights only available for own account via Graph API.
+- **`src/pages/Instagram.tsx`** — Instagram performance, wired to the **Apify** pipeline (was originally built for the dead Meta path). Account switcher across the 3 tracked handles; reads `instagram_daily` (filtered to the selected account — do NOT mix accounts or the follower line zigzags) + `instagram_posts`. Cards: Followers (+30d), Following/posts, Avg engagement/post, Engagement rate. "Sync now" calls **`instagram-apify-sync`**. Top posts sortable by Engagement/Likes/Comments/Newest. Reach/impressions/saves intentionally absent (Meta-only).
 - **`src/pages/modules.tsx`** — home of most CrudConfigs: contentTasks, paidAds, **influencers**, repairWatches, demandList, consignments, vipCustomers, employees, companyDocs, limitedProjects. Exports the page components.
 - **`src/pages/UserActivity.tsx`, `HistoryLog.tsx`** — admin audit views.
 
@@ -209,6 +209,7 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-08-02** (later) — Rewired the **Instagram Performance page** to the Apify pipeline: "Sync now" now calls `instagram-apify-sync` (was the dead Meta `instagram-sync` → "non-2xx"); follower chart filtered per-account (fixes the zigzag from mixing 3 accounts); Top posts read `instagram_posts`; added a 3-account switcher; dropped Meta-only cards.
 - **2026-08-02** — **IG post-level engagement** (Phase 3): `instagram-apify-sync` now stores per-post likes/comments/type/caption/hashtags into new `instagram_posts` (+ `follows_count` on `instagram_daily`). Dashboard Marketing gains an "Avg engagement / post" KPI (+ % of followers) and a "Top posts (30d)" widget for @timekeeperkw. Also: installed the **Agent-Reach** skill (`~/.claude/skills/agent-reach`) for on-demand web/social research — public data only, no private IG insights.
 - **2026-07-30** — Reworked short-receipt handling after the 07-29 change went too far (it closed *all* short orders). Now: short orders show **Partially Received** by default (shortfall stays visible); a per-PO **`closed_override`** flag force-closes specific old ones. Restored the 6 genuinely-in-flight partials (MAI-2071/2100/2102/2107/2108/2138) and kept the 6 the owner closed (MAI-329/349/44/533/695/695[cont]). Added the "Close order" checkbox on the PO form.
 - **2026-07-29** (later) — Dashboard "Stock value over time" chart now plots **cost** for admin/manager (title "Stock cost over time"), retail for staff — keeps the manager-only cost convention.
