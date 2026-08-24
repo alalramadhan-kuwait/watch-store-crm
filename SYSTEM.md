@@ -169,6 +169,7 @@ Behaviour worth knowing:
 | `daily-briefing` | false | cron (parked) | Email daily briefing (needs `RESEND_API_KEY`) |
 | `instagram-connect` | true | Settings UI | Instagram OAuth connect (Meta path, dormant) |
 | `instagram-sync` | false | cron + manual | Instagram insights via Meta Graph API (dormant — token never finished) |
+| `influencer-followers-sync` | false | cron (weekly, all) + admin/manager/marketing JWT ("Refresh followers", per influencer via `{influencer_id}`) | Scrapes fresh follower counts for influencers via Apify → updates `influencers.followers`/`followers_updated` + records `influencer_follower_snapshots`. Extracts the IG username from @handle / profile URL / bare handle. |
 | `instagram-apify-sync` | false | cron + admin/manager/marketing JWT | **Active IG tracker.** Scrapes 3 public accounts (timekeeperkw, timegallerykw, timekeeperkwshop) via Apify Instagram Profile Scraper → `instagram_daily` (followers, follows, last-post) **and `instagram_posts`** (per-post likes/comments/type/caption/hashtags). No login. Token from `apify_config`/`APIFY_TOKEN`. Async start-poll-fetch. Newest post = `max(timestamp)` (pinned posts float to top — never trust the first item). |
 
 Auth for cron-callable syncs: `x-sync-key` header = `lightspeed_auth.sync_key`, OR an admin/manager JWT. Edge functions get **~150s wall clock** and PostgREST caps selects at 1000 rows — heavy syncs must batch/paginate and respect the deadline.
@@ -181,6 +182,7 @@ Auth for cron-callable syncs: `x-sync-key` header = `lightspeed_auth.sync_key`, 
 | `lightspeed-po-sync` | `5 5 * * *` | 08:05 | `lightspeed-po-sync` |
 | `instagram-daily-sync` | `15 5 * * *` | 08:15 | `instagram-sync` (Meta, dormant) |
 | `instagram-apify-sync` | `20 5 * * *` | 08:20 | `instagram-apify-sync` (active) |
+| `influencer-followers-weekly` | `0 6 * * 1` | Mon 09:00 | `influencer-followers-sync` (all influencers) |
 
 Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_milliseconds := 150000`.
 
@@ -208,6 +210,8 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 ---
 
 ## 13. Changelog
+
+- **2026-08-24** — Influencer profile: **"Refresh followers"** button (per influencer) + **weekly cron** (all) via new `influencer-followers-sync` edge function (Apify scrape → `influencers.followers` + snapshot). "Completed" status added to Limited Watch Projects.
 
 - **2026-08-02** (later 2) — **Influencer Tracker → two-level model.** New `influencers` (permanent profile) + `influencer_collaborations` + `influencer_follower_snapshots`; migrated the 25 flat `influencer_campaigns` rows (1→1 influencer+collab, legacy table kept). List page (`InfluencersPage`) row-click navigates to a full **profile page** `src/pages/InfluencerProfile.tsx` (`/influencers/:id`): header (photo, followers, 30d growth, country, contact, status, rating, Open-Instagram), performance KPIs (collabs, paid, gift, revenue, last collab, ROI), follower-growth chart (30/90d), a Collaborations CrudModule (+ Add), notes. Added `CrudConfig.rowLink`. Back button + browser Back return to the list.
 - **2026-08-02** (later) — Rewired the **Instagram Performance page** to the Apify pipeline: "Sync now" now calls `instagram-apify-sync` (was the dead Meta `instagram-sync` → "non-2xx"); follower chart filtered per-account (fixes the zigzag from mixing 3 accounts); Top posts read `instagram_posts`; added a 3-account switcher; dropped Meta-only cards.
