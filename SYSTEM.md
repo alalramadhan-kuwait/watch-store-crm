@@ -56,7 +56,7 @@ Timekeeper is a Kuwait watch retailer. Two connected web apps run the business, 
 | Purchasing & Stock | `/purchase-orders` Supplier Payments · `/stock` Stock (Lightspeed) · `/consignments` · `/limited-projects` · `/repairs` |
 | HR & Team | `/attendance` · `/hr` Employees · `/leave` |
 | Media & Marketing | `/instagram` · `/content` Content Planner · `/paid-ads` · `/influencers` (+ `/influencers/:id` profile) |
-| Admin | `/activity` User Activity · `/history` History Log · `/settings` |
+| Admin | `/activity` User Activity · `/performance` Employee Performance · `/history` History Log · `/settings` |
 
 `/company-documents` exists (module + data) but is hidden from the menu; direct URL works.
 
@@ -210,6 +210,8 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 ---
 
 ## 13. Changelog
+
+- **2026-08-24** (later 2) — **Identity unified + Employee Performance page.** Attendance/activity/audit all key off `user_id`; duplicate names (e.g. "Ali Akbar" vs "Ali Akbar Modi", trailing spaces) fixed by: trimming all names, backfilling `attendance_records.employee_name` to one canonical name per `user_id` (HR name if the account is linked, else login name), and a **`before insert` trigger `attendance_canonical_name`** so clock-ins can never drift again. User Activity now shows the same canonical (HR) name. New **`/performance`** page (admin/manager, nav Admin): pick a person + range → **Attendance** (days present, on-time %, avg hours/arrival, missed clock-outs, last clock-in), **App activity** (active days, page views, last active, top pages from `user_activity`), **Edits & input changes** (`audit_log` by `changed_by`: created/updated/deleted, top modules, recent list), and **Leave**. Note: `audit_log` rows from syncs have `changed_by = null`, so per-person filtering shows only human edits.
 
 - **2026-08-24** (later) — **Dashboard simplified**: headline strip trimmed to 4 (Sales month vs target · Supplier balance · Stock value · Action alerts); each section cut to its 3 must-follow KPIs with a **View details →** link; section charts now **collapsed by default** behind a per-section **"Trends ▸"** toggle (`Section` gained `showCharts` state). ~39 cards → ~19.
 
