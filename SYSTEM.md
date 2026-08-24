@@ -55,7 +55,7 @@ Timekeeper is a Kuwait watch retailer. Two connected web apps run the business, 
 | Sales & Customers | `/sales` · `/crm` · `/follow-ups` · `/waiting-list` · `/pre-orders` · `/vip` |
 | Purchasing & Stock | `/purchase-orders` Supplier Payments · `/stock` Stock (Lightspeed) · `/consignments` · `/limited-projects` · `/repairs` |
 | HR & Team | `/attendance` · `/hr` Employees · `/leave` |
-| Media & Marketing | `/instagram` · `/content` Content Planner · `/paid-ads` · `/influencers` |
+| Media & Marketing | `/instagram` · `/content` Content Planner · `/paid-ads` · `/influencers` (+ `/influencers/:id` profile) |
 | Admin | `/activity` User Activity · `/history` History Log · `/settings` |
 
 `/company-documents` exists (module + data) but is hidden from the menu; direct URL works.
@@ -92,7 +92,7 @@ Public base tables (Supabase project `ttshgrujnycapugrmyxs`):
 
 **HR:** `employees`, `attendance_records`, `leave_records`, `employee_requests`, `geofences`, `company_documents`.
 
-**Marketing:** `content_tasks`, `paid_ads`, `influencer_campaigns`, `instagram_auth`, `instagram_daily` (**multi-account**: PK `(snapshot_date, username)`, cols incl. `followers`, `follows_count`, `last_post_date`, `media_count`; `reach`/`impressions`/`profile_views` only fillable by the Meta path, null from the scraper), `instagram_posts` (per-post engagement: PK `shortcode`, cols `username, posted_at, type, likes, comments, video_views, caption, hashtags[], url`; last ~12 posts/account refreshed daily, accumulates history), `instagram_media`, `instagram_sync_log`.
+**Marketing:** `content_tasks`, `paid_ads`, **`influencers`** (permanent profile: name, handle, platform, tier, country, followers, followers_updated, contact, photo_url, status [Active/Prospect/Paused/Inactive], rating, notes) + **`influencer_collaborations`** (one row per collab, FK influencer_id: campaign, product_brand, product, collab_type [Paid/Gift/Affiliate/Event], platform, coverage, deliverables, agreed/posted dates, fee, amount_paid, gift_value, attributed_revenue, payment_status, status, engagement, owner, notes) + **`influencer_follower_snapshots`** (influencer_id, snapshot_date, followers — for the growth graph & 30/90d deltas). `influencer_campaigns` = **legacy** flat table, migrated into the above (1 row → 1 influencer + 1 collab), kept for rollback. `instagram_auth`, `instagram_auth`, `instagram_daily` (**multi-account**: PK `(snapshot_date, username)`, cols incl. `followers`, `follows_count`, `last_post_date`, `media_count`; `reach`/`impressions`/`profile_views` only fillable by the Meta path, null from the scraper), `instagram_posts` (per-post engagement: PK `shortcode`, cols `username, posted_at, type, likes, comments, video_views, caption, hashtags[], url`; last ~12 posts/account refreshed daily, accumulates history), `instagram_media`, `instagram_sync_log`.
 
 **Platform:** `profiles`, `user_activity`, `audit_log`, `alert_actions`, `apify_config` (single row, RLS-locked to service role, holds the Apify API token — same posture as `lightspeed_auth`).
 
@@ -135,7 +135,7 @@ Daily import of products, inventory, sales, outlets, cost → `lightspeed_stock`
 Generic table+form engine. Config type `CrudConfig`:
 - Fields: `FieldDef { key, label, type, options, required, defaultValue, placeholder, bucket, parse, display, readOnly, hint }`. Types: `text | number | date | select | combobox | textarea | checkbox | image`.
 - Columns: `ColumnDef { key, label, sortable, sortValue, render, hideBelow ('sm'|'md'|'lg'|'xl') }`.
-- Config: `statusField, statusOptions, searchKeys, orderBy, canWrite, stampCreatedBy, beforeSave, onChanged, filter, toolbarExtra, rowClickToEdit, extraFilters, groupBy, allowCreate, allowDelete(row), formExtra(row)`.
+- Config: `statusField, statusOptions, searchKeys, orderBy, canWrite, stampCreatedBy, beforeSave, onChanged, filter, toolbarExtra, rowClickToEdit, rowLink(row)→route, extraFilters, groupBy, allowCreate, allowDelete(row), formExtra(row)`.
 
 Behaviour worth knowing:
 - **`readOnly` fields** render disabled AND are stripped from the save payload (both in `RecordForm` submit and `save()`), so a synced/other-owned column is never written back (this fixed the `item_count` NOT-NULL error). Use for externally-owned columns.
@@ -209,6 +209,7 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-08-02** (later 2) — **Influencer Tracker → two-level model.** New `influencers` (permanent profile) + `influencer_collaborations` + `influencer_follower_snapshots`; migrated the 25 flat `influencer_campaigns` rows (1→1 influencer+collab, legacy table kept). List page (`InfluencersPage`) row-click navigates to a full **profile page** `src/pages/InfluencerProfile.tsx` (`/influencers/:id`): header (photo, followers, 30d growth, country, contact, status, rating, Open-Instagram), performance KPIs (collabs, paid, gift, revenue, last collab, ROI), follower-growth chart (30/90d), a Collaborations CrudModule (+ Add), notes. Added `CrudConfig.rowLink`. Back button + browser Back return to the list.
 - **2026-08-02** (later) — Rewired the **Instagram Performance page** to the Apify pipeline: "Sync now" now calls `instagram-apify-sync` (was the dead Meta `instagram-sync` → "non-2xx"); follower chart filtered per-account (fixes the zigzag from mixing 3 accounts); Top posts read `instagram_posts`; added a 3-account switcher; dropped Meta-only cards.
 - **2026-08-02** — **IG post-level engagement** (Phase 3): `instagram-apify-sync` now stores per-post likes/comments/type/caption/hashtags into new `instagram_posts` (+ `follows_count` on `instagram_daily`). Dashboard Marketing gains an "Avg engagement / post" KPI (+ % of followers) and a "Top posts (30d)" widget for @timekeeperkw. Also: installed the **Agent-Reach** skill (`~/.claude/skills/agent-reach`) for on-demand web/social research — public data only, no private IG insights.
 - **2026-07-30** — Reworked short-receipt handling after the 07-29 change went too far (it closed *all* short orders). Now: short orders show **Partially Received** by default (shortfall stays visible); a per-PO **`closed_override`** flag force-closes specific old ones. Restored the 6 genuinely-in-flight partials (MAI-2071/2100/2102/2107/2108/2138) and kept the 6 the owner closed (MAI-329/349/44/533/695/695[cont]). Added the "Close order" checkbox on the PO form.
