@@ -211,6 +211,8 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-08-25** (later 2) — **My Portal dashboard tiles**: Today's Attendance card now leads with a **This week** summary row (hours worked, days present, on-time /days) computed from the current Kuwait week's own attendance records (Sat→now); leave balances redesigned as **bigger stat tiles** (3xl numbers, Remaining colored emerald/amber by threshold). Makes the portal read like a personal dashboard on desktop.
+
 - **2026-08-25** (later) — **My Portal desktop layout**: widened from `max-w-3xl` to `max-w-6xl`; Today's Attendance stays full-width, then a 2-column grid (leave + action forms | requests + HR info) on `lg+`, single column on mobile. Fills the screen instead of a narrow left strip.
 
 - **2026-08-25** — **Role-scoped dashboard**: the headline financial cards (Sales month/target, Supplier balance, Stock value) now render only if the role can access `/sales` / `/purchase-orders` / `/stock`; the **Store Daily Report** button is gated to `/sales`; the **Alerts & Actions** panel is admin/manager-only. A non-financial role (e.g. marketing) sees an empty headline + only its own sections (Marketing). My Portal: dedicated **Request WFH** quick button (pre-fills a WFH leave request for today; WFH was already a leave type).
