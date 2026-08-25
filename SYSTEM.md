@@ -211,7 +211,7 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
-- **2026-08-24** (later 4) — Attendance scoring: **overtime days (>8:10) ×2** and **short days (<6h) −3** added to `employee_scoreboard` + performance cards/leaderboard. **Team Attendance week calendar** (List/Week toggle): employees × 7 days grid flags **unexplained absences** (missed a working day — one where others clocked in — with no approved leave); week nav + absence count.
+- **2026-08-24** (later 4) — Attendance scoring: **overtime days (>8:10) ×2** and **short days (<6h) −3** added to `employee_scoreboard` + performance cards/leaderboard. **Team Attendance calendar** (List/Calendar toggle): **month** (default) or week grid of **all active employees** × days; flags **unexplained absences** (missed a working day — one where others clocked in — with no approved leave); month/week nav; per-period absence count; employees can be **hidden** (persisted in localStorage; unlinked "no account" rows are never flagged absent).
 
 
 - **2026-08-24** (later 3) — Performance page: KPI cards are **clickable** (drill into /attendance, /activity, /history, /leave), and a new **Overall leaderboard** ranks everyone by **cumulative points** (`employee_scoreboard(since)` RPC, admin/manager-guarded): days present ×3 · on-time days ×2 · late −5 · full 8h days ×3 · overtime(8:10+) ×2 · short(<6h) −3 · active days ×2 · created ×3 · updated ×1. Click a row → that person's profile.
