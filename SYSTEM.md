@@ -211,6 +211,8 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-08-25** (later) — **My Portal desktop layout**: widened from `max-w-3xl` to `max-w-6xl`; Today's Attendance stays full-width, then a 2-column grid (leave + action forms | requests + HR info) on `lg+`, single column on mobile. Fills the screen instead of a narrow left strip.
+
 - **2026-08-25** — **Role-scoped dashboard**: the headline financial cards (Sales month/target, Supplier balance, Stock value) now render only if the role can access `/sales` / `/purchase-orders` / `/stock`; the **Store Daily Report** button is gated to `/sales`; the **Alerts & Actions** panel is admin/manager-only. A non-financial role (e.g. marketing) sees an empty headline + only its own sections (Marketing). My Portal: dedicated **Request WFH** quick button (pre-fills a WFH leave request for today; WFH was already a leave type).
 
 - **2026-08-24** (later 4) — Attendance scoring: **overtime days (>8:10) ×2** and **short days (<6h) −3** added to `employee_scoreboard` + performance cards/leaderboard. **Team Attendance calendar** (List/Calendar toggle): **month** (default) or week grid of **all active employees** × days; flags **unexplained absences** (missed a working day — one where others clocked in — with no approved leave); month/week nav; per-period absence count; employees can be **hidden** (persisted in localStorage; unlinked "no account" rows are never flagged absent).
