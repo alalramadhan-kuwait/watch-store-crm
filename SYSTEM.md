@@ -211,7 +211,9 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
-- **2026-08-30** (later) — **Employee Performance: exclude admins + credit paid leave.** Admin-role accounts are filtered out of the page (individual selector and Overall leaderboard). `employee_scoreboard` RPC now adds a `lv` CTE: **approved leave** working-days (Fri excluded, matching `workingDaysBetween`; leave_records joined to employees→user_id, clamped to the range) are added to both **days_present** and **full_days**, so paid leave scores as a full present day (present ×3 + on-time ×2 + full ×3). Legend on the leaderboard notes both rules.
+- **2026-08-30** (later 2) — Scoreboard **WFH scores less than paid leave.** The `lv` CTE now splits approved absence by type: **paid leave (non-WFH: annual/sick)** adds to both `days_present` and `full_days` (full 8pts/day); **WFH** adds to `days_present` only (present ×3 + on-time ×2 = 5pts, no full-8h bonus). Legend updated.
+
+- **2026-08-30** (later) — **Employee Performance: exclude admins + credit paid leave.** Admin-role accounts are filtered out of the page (individual selector and Overall leaderboard). `employee_scoreboard` RPC adds a `lv` CTE: approved leave working-days (Fri excluded, matching `workingDaysBetween`; leave_records joined to employees→user_id, clamped to the range) credited to the scoreboard. Legend on the leaderboard notes the rules.
 
 - **2026-08-30** — **Fixed Employee Performance → Overall leaderboard showing nothing.** The `employee_scoreboard(since)` RPC threw `column reference "user_id" is ambiguous` (the `shift` CTE selected/grouped by a bare `user_id` that collided with the function's `user_id` OUT column), so the RPC returned null and the leaderboard rendered empty. Qualified it as `day_hours.user_id`. Database-only fix (no redeploy).
 
