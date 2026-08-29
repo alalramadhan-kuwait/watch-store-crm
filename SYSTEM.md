@@ -211,6 +211,8 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-08-30** — **Fixed Employee Performance → Overall leaderboard showing nothing.** The `employee_scoreboard(since)` RPC threw `column reference "user_id" is ambiguous` (the `shift` CTE selected/grouped by a bare `user_id` that collided with the function's `user_id` OUT column), so the RPC returned null and the leaderboard rendered empty. Qualified it as `day_hours.user_id`. Database-only fix (no redeploy).
+
 - **2026-08-25** (later 9) — My Portal month summary tiles changed from "total hours" to **Late hours** and **Missing hours**. Late hours = cumulative time arrived **past the grace window** (work_start + 1h) across the month, excluding justified records; Missing hours = cumulative shortfall **below 8h/day** on completed days (days with a clock-out; overtime does not offset). Tiles are now Days present · On time · Late hours (amber if >0) · Missing hours (rose if >0). `STANDARD_DAY_HOURS = 8`; `kwMinutes()` reads Kuwait arrival time.
 
 - **2026-08-25** (later 8) — My Portal **Today's Attendance summary now covers the month, not the week** (per request). The three headline values (hours, days present, on-time days) are computed from the current calendar month's own `attendance_records` (`monthStart = first of month`), relabeled **This month**; `weekRecs/weekStats` renamed to `monthRecs/monthStats`.
