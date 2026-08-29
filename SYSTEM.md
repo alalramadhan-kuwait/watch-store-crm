@@ -211,6 +211,8 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-08-30** (later) — **Employee Performance: exclude admins + credit paid leave.** Admin-role accounts are filtered out of the page (individual selector and Overall leaderboard). `employee_scoreboard` RPC now adds a `lv` CTE: **approved leave** working-days (Fri excluded, matching `workingDaysBetween`; leave_records joined to employees→user_id, clamped to the range) are added to both **days_present** and **full_days**, so paid leave scores as a full present day (present ×3 + on-time ×2 + full ×3). Legend on the leaderboard notes both rules.
+
 - **2026-08-30** — **Fixed Employee Performance → Overall leaderboard showing nothing.** The `employee_scoreboard(since)` RPC threw `column reference "user_id" is ambiguous` (the `shift` CTE selected/grouped by a bare `user_id` that collided with the function's `user_id` OUT column), so the RPC returned null and the leaderboard rendered empty. Qualified it as `day_hours.user_id`. Database-only fix (no redeploy).
 
 - **2026-08-25** (later 9) — My Portal month summary tiles changed from "total hours" to **Late hours** and **Missing hours**. Late hours = cumulative time arrived **past the grace window** (work_start + 1h) across the month, excluding justified records; Missing hours = cumulative shortfall **below 8h/day** on completed days (days with a clock-out; overtime does not offset). Tiles are now Days present · On time · Late hours (amber if >0) · Missing hours (rose if >0). `STANDARD_DAY_HOURS = 8`; `kwMinutes()` reads Kuwait arrival time.
