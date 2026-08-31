@@ -211,6 +211,8 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-08-31** (later) — App icon set to the supplied **tk clock monogram** (512/192/180 in `public/`). Fixed **iOS status-bar overlap** on the installed PWA: mobile top bar and sidebar header padded by `env(safe-area-inset-top)` (header also made sticky). White PWA splash, dark theme-color.
+
 - **2026-08-31** — **Installable PWA + Web Push notifications.** App is now a PWA (`public/manifest.webmanifest`, generated clock icons `public/icon-192/512.png` + `apple-touch-icon.png` via `scripts/gen-icons.mjs`, `public/sw.js` service worker, index.html meta) — staff can Add to Home Screen and run fullscreen. Web Push: VAPID keypair stored in `push_config` (service-role only); `push_subscriptions` table (own-row RLS); `src/lib/push.ts` (`enablePush`/`pushEnabled`/`notify`, iOS-install guard); "Enable notifications" control in My Portal header; SW registered in `main.tsx` (prod only). Edge function **`push-notify`** (npm:web-push, verify_jwt) sends pushes for two events: **task_assigned** (admin/manager assigns → the assignee's account; called from AssignTasks after insert) and **approval_request** (employee submits leave/WFH/correction → all admin/manager/hr; called from MyPortal submitLeave/submitRequest). Stale subs (404/410) auto-pruned. iOS caveat: push works only when the PWA is installed to the home screen (iOS 16.4+).
 
 - **2026-08-30** (later 2) — Scoreboard **WFH scores less than paid leave.** The `lv` CTE now splits approved absence by type: **paid leave (non-WFH: annual/sick)** adds to both `days_present` and `full_days` (full 8pts/day); **WFH** adds to `days_present` only (present ×3 + on-time ×2 = 5pts, no full-8h bonus). Legend updated.
