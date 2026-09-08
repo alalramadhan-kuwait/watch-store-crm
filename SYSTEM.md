@@ -211,6 +211,8 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-09-08** (later 3) — **Install-as-app button** in the mobile top bar (next to the bell). `src/lib/pwaInstall.ts` captures the browser `beforeinstallprompt` (Android/desktop Chrome/Edge) so tapping the ⬇ icon fires the native install prompt; on iOS Safari (no such API) it opens an "Add to Home Screen" instructions popover. Hidden once the app is already installed (`display-mode: standalone`). Registered early via a side-effect import in `main.tsx`.
+
 - **2026-09-08** (later 2) — `notify-flush`: the bulk PO summary now **lists brands for small batches** — ≤5 POs with ≤6 distinct brands → "3 POs updated · WMT, Rapport London, Gaga Laboratorio" (looks up each PO's brand by the notification's `record_id`); larger batches keep the "N POs updated (counts)" form.
 
 - **2026-09-08** (later) — Dashboard: **"Who's at work now"** panel (managers/HR — gated by `can('/attendance')`), above HR & Attendance. Self-contained `WhoAtWork` component lists staff currently clocked in (today's `attendance_records` with `clock_out is null`), showing name, "since {time}", late tag, and location, with a live count and a link to Attendance.
