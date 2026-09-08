@@ -211,6 +211,8 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-09-08** (later 2) — `notify-flush`: the bulk PO summary now **lists brands for small batches** — ≤5 POs with ≤6 distinct brands → "3 POs updated · WMT, Rapport London, Gaga Laboratorio" (looks up each PO's brand by the notification's `record_id`); larger batches keep the "N POs updated (counts)" form.
+
 - **2026-09-08** (later) — Dashboard: **"Who's at work now"** panel (managers/HR — gated by `can('/attendance')`), above HR & Attendance. Self-contained `WhoAtWork` component lists staff currently clocked in (today's `attendance_records` with `clock_out is null`), showing name, "since {time}", late tag, and location, with a live count and a link to Attendance.
 
 - **2026-09-08** — PO notifications now include the **brand** in every body (new / status / shipment / payment), e.g. "PO #MAI-2185 · Rapport London → Ordered". `trg_po_notify()` builds a `· {brand}` fragment (omitted when brand is null). DB-only change; the batched "N POs updated" summary remains a count (no per-PO brand).
