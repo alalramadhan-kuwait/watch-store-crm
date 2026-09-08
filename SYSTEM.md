@@ -211,6 +211,8 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-09-08** (later) — Dashboard: **"Who's at work now"** panel (managers/HR — gated by `can('/attendance')`), above HR & Attendance. Self-contained `WhoAtWork` component lists staff currently clocked in (today's `attendance_records` with `clock_out is null`), showing name, "since {time}", late tag, and location, with a live count and a link to Attendance.
+
 - **2026-09-08** — PO notifications now include the **brand** in every body (new / status / shipment / payment), e.g. "PO #MAI-2185 · Rapport London → Ordered". `trg_po_notify()` builds a `· {brand}` fragment (omitted when brand is null). DB-only change; the batched "N POs updated" summary remains a count (no per-PO brand).
 
 - **2026-09-02** (later 4) — **Managers merged into HR** (no dedicated HR role in use). Managers now have HR-level write everywhere: RLS `emp_write` (employees), `lv_write` (leave_records) and `cd_write` (company_documents) policies extended to `admin/manager/hr`; frontend `hrRoles` helper (Employees + Company Docs `canWrite`) and the Leave page `canWrite` now include `manager`. Managers can edit employee records, approve/edit leave (also unblocks the Inbox leave-approval action), and manage company documents. Attendance & employee-requests already allowed managers.
