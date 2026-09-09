@@ -211,6 +211,8 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-09-09** — **Admin check-in/out notifications.** `trg_attendance_notify()` on `attendance_records` fires **admin-only** pushes: INSERT → `att_in` "{name} checked in · {time}[ · late]"; UPDATE (clock_out null→set) → `att_out` "{name} checked out · {time}" (Kuwait time; deep-links to /attendance). Registered in `notification_settings` (category Attendance) so admin can toggle them off. Feed shows a clock icon for `att_*`. Note: high-frequency — one per clock-in and clock-out; respects quiet hours.
+
 - **2026-09-08** (later 3) — **Install-as-app button** in the mobile top bar (next to the bell). `src/lib/pwaInstall.ts` captures the browser `beforeinstallprompt` (Android/desktop Chrome/Edge) so tapping the ⬇ icon fires the native install prompt; on iOS Safari (no such API) it opens an "Add to Home Screen" instructions popover. Hidden once the app is already installed (`display-mode: standalone`). Registered early via a side-effect import in `main.tsx`.
 
 - **2026-09-08** (later 2) — `notify-flush`: the bulk PO summary now **lists brands for small batches** — ≤5 POs with ≤6 distinct brands → "3 POs updated · WMT, Rapport London, Gaga Laboratorio" (looks up each PO's brand by the notification's `record_id`); larger batches keep the "N POs updated (counts)" form.
