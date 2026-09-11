@@ -211,6 +211,8 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ## 13. Changelog
 
+- **2026-09-11** — **Fixed blank live site.** A deploy from a checkout without `.env` shipped a bundle with an empty `VITE_SUPABASE_URL` (“supabaseUrl is required” → white screen). Rebuilt with env + redeployed (incl. the newly-added `/studio/` Watch Design Studio from another checkout). Committed the **public** Supabase URL+anon key as `.env.production` (+ `.env.example`) so every build embeds them and can't ship a config-less bundle again.
+
 - **2026-09-10** (later 2) — **Phase 0 (structured-coding hardening).** Added Supabase scaffolding (`supabase/config.toml`, `migrations/`, `README.md` runbook) so the DB is pullable into git (`supabase db pull`; 85 migrations verified recoverable). Committed active edge functions (`notify-flush`, `notify-test`); `push-notify`/`notify-dispatch` marked deprecated. **Rotated + externalized** the notify dispatch secret into a service-role-only `app_config` table (flush cron + function read it live; verified new key 200 / old key 403). Added **ESLint (flat) + Prettier + GitHub Actions CI** (`tsc` + build are hard gates, lint informational). `.env` remains untracked.
 
 - **2026-09-10** (later) — LP automation 4th rule: **Operations must set the expected delivery date.** A project marked **Confirmed** with no `expected_delivery` (and not yet delivered) → Operations task `lp_expdate:{id}` "Set expected delivery date — {project}" (instant on status→Confirmed via `trg_lp_tasks`, plus daily backstop in `lp_generate_tasks`); auto-closes when the date is set, delivery arrives, or status leaves Confirmed. Closes the gap where overdue tracking couldn't run without an expected date.
