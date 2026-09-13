@@ -8,7 +8,9 @@ and the relevant dependencies are ready.
 
 ## 1. Multi-item Sale
 
-**Status:** Confirmed needed. Not started. Blocked until CRM structure is decided.
+**Status:** Built. Quick Entry has "+ Add Item", lines are stored in `sale_items`,
+and `cases.amount_kd` holds the basket total. Reports attribute revenue per item
+(see item 5). Kept here for the requirements record.
 
 **Why it matters:**
 The current system only supports one item per Sale entry.
@@ -76,7 +78,8 @@ without a status update.
 
 ## 5. Reports — Brand and Product Type Breakdown
 
-**Status:** Not started. Depends on multi-item sale being built first.
+**Status:** Built. The daily PDF's Brand Analytics attributes revenue per line
+item and sits beside a By Product Type table. Kept here for the record.
 
 **Current behaviour:** Reports show total revenue and sale count only.
 **Proposed:** Break down revenue by brand and product type in the daily report summary and PDF.

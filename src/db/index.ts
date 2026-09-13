@@ -123,23 +123,9 @@ function caseFromDb(row: DbCase & { sale_items?: DbSaleItem[] }): Case {
   };
 }
 
-/**
- * Returns the effective sale items for a case.
- * - If the case has sale_items loaded, returns those.
- * - Otherwise constructs a single item from the legacy case fields (backward compat).
- */
-export function getEffectiveItems(c: Case): SaleItem[] {
-  if (c.saleItems && c.saleItems.length > 0) return c.saleItems;
-  if (c.caseType !== 'Sale') return [];
-  return [{
-    brand: c.brand,
-    productType: c.productType,
-    product: c.product || undefined,
-    quantity: 1,
-    amountKD: c.amountKD ?? 0,
-    sortOrder: 0,
-  }];
-}
+// Moved to utils/saleItems.ts so the PDF builder can share it without importing
+// the Supabase client. Re-exported here so existing callers keep working.
+export { getEffectiveItems } from '../utils/saleItems';
 
 function caseToDb(c: Omit<Case, 'id'>): Omit<DbCase, 'id' | 'created_by' | 'created_at' | 'updated_by' | 'updated_at'> {
   return {
