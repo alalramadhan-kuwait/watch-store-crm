@@ -7,8 +7,7 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "predeploy": "npm version patch --no-git-tag-version",
-    "deploy": "npm run build && gh-pages -d dist"
+    "deploy": "echo 'Deploys are automatic: push to main and GitHub Actions builds and publishes it. Deploying from a laptop once overwrote the live site with an older build, so this is disabled on purpose.' && exit 1"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.106.0",

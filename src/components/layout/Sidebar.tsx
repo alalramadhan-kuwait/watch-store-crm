@@ -64,7 +64,7 @@ export function Sidebar() {
           {!sidebarCollapsed && 'Sign Out'}
         </button>
         {!sidebarCollapsed && (
-          <p className="text-center text-[10px] text-slate-300 font-medium mt-1 pb-1">v{pkg.version}</p>
+          <p className="text-center text-[10px] text-slate-300 font-medium mt-1 pb-1">v{pkg.version}{__BUILD_SHA__ && ` · ${__BUILD_SHA__}`}</p>
         )}
       </div>
     </nav>

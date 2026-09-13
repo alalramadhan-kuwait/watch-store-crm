@@ -35,7 +35,7 @@ export function TopBar() {
           <span className="tk-wordmark text-[13px] text-slate-900 leading-none">Time Keeper</span>
           <div className="flex items-center gap-2 mt-1">
             <span className="tk-sub text-[8px] text-slate-400 leading-none">Daily Store Report</span>
-            <span className="text-[8px] font-semibold text-slate-300 leading-none">v{pkg.version}</span>
+            <span className="text-[8px] font-semibold text-slate-300 leading-none">v{pkg.version}{__BUILD_SHA__ && ` · ${__BUILD_SHA__}`}</span>
           </div>
         </div>
 
