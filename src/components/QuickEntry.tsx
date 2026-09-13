@@ -238,7 +238,7 @@ function SaleItemsEditor({ items, onChange, brands, errors }: {
 
 export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
   const { lastStaff, setLastStaff, showToast, bumpRefreshLog, activeOutlet, setActiveOutlet } = useAppStore();
-  const { role, salesName } = useAuth();
+  const { role, salesName, onFloor } = useAuth();
   const [showOutletPicker, setShowOutletPicker] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [brands, setBrands] = useState<Brand[]>([]);
@@ -448,7 +448,7 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
         <h1 className={`font-bold text-slate-900 ${panelMode ? 'text-xl' : 'text-2xl'}`}>Quick Entry</h1>
         <div className="flex items-center gap-3 mt-0.5">
           <p className="text-slate-500 text-sm">{format(new Date(), 'EEEE, d MMMM yyyy')}</p>
-          {role === 'staff' && activeOutlet && (
+          {onFloor && activeOutlet && (
             <div className="relative">
               <button
                 type="button"

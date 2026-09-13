@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { format } from 'date-fns';
-import { Edit2, Trash2, Lock, Share2, FileText, ShieldAlert, ChevronDown, ChevronUp, Layers } from 'lucide-react';
+import { Edit2, Trash2, Lock, Share2, FileText, ShieldAlert, ChevronDown, ChevronUp, Layers, MapPin, UserRound } from 'lucide-react';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
 import { getTodayCases, getDayClose, closeDay, getSettings, updateCase, rebuildDaySummary, getCasesByDate } from '../db';
 import { generatePDF, shareReport, downloadReport, buildDailyStats } from '../utils/report';
@@ -17,7 +17,7 @@ const yesterday = format(new Date(Date.now() - 86400000), 'yyyy-MM-dd');
 
 export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   const { showToast, refreshLog, activeOutlet } = useAppStore();
-  const { role, profile, salesName } = useAuth();
+  const { role, profile, salesName, onFloor } = useAuth();
   const [cases, setCases] = useState<Case[]>([]);
   const [dayClose, setDayClose] = useState<DayClose | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -37,7 +37,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   const [sharingPdf, setSharingPdf] = useState(false);
 
   const load = useCallback(async () => {
-    const outlet = role === 'staff' ? (activeOutlet ?? '') : ''; // eslint-disable-line react-hooks/exhaustive-deps
+    const outlet = onFloor ? (activeOutlet ?? '') : ''; // eslint-disable-line react-hooks/exhaustive-deps
     const [c, dc, s] = await Promise.all([getTodayCases(), getDayClose(today, outlet), getSettings()]);
     setCases(c);
     setDayClose(dc);
@@ -80,7 +80,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   const convRate = total > 0 ? Math.round((sales.length / total) * 100) : 0;
 
   // Outlet for PDF: staff always use their outlet; manager uses filter if set
-  const pdfOutlet = role === 'staff' ? (activeOutlet ?? '') : outletFilter;
+  const pdfOutlet = onFloor ? (activeOutlet ?? '') : outletFilter;
   // Cases for PDF: match what is shown on screen (already outlet-filtered)
   const pdfCases = filteredCases;
 
@@ -221,7 +221,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
     setClosingDay(true);
     try {
       const closer = closerName || salesName || settings?.staffRoster[0] || 'Manager';
-      const outlet = role === 'staff' ? (activeOutlet ?? '') : '';
+      const outlet = onFloor ? (activeOutlet ?? '') : '';
       await closeDay(today, closer, outlet);
       showToast('Day closed. Report ready to share.', 'success');
       setCloseDayOpen(false);
@@ -242,6 +242,19 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
     });
   }
 
+  const hasOutletFilter = role === 'admin' && !!settings?.outlets?.length;
+  // What the list below is actually showing: the floor is pinned to the outlet
+  // they picked, everyone else follows the filter (empty = the whole company).
+  const scopeOutlet = onFloor
+    ? (activeOutlet ?? 'No outlet')
+    : (outletFilter || 'All outlets');
+  // The account, not the roster name — several people share one login, and
+  // knowing which one is signed in is the point. The roster name follows it
+  // when a personal login files its cases under a different one.
+  const accountLabel = profile?.full_name
+    ? (salesName && salesName !== profile.full_name ? `${profile.full_name} · ${salesName}` : profile.full_name)
+    : (salesName ?? '—');
+
   const outerClass = panelMode
     ? 'px-5 pt-5 pb-8'
     : 'px-4 pt-6 pb-32 max-w-lg mx-auto lg:max-w-none lg:px-8';
@@ -250,13 +263,29 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
     <div className={outerClass}>
       {/* Header */}
       <div className="flex items-center justify-between mb-4 gap-3 flex-wrap">
-        <div>
+        <div className="min-w-0">
           <h1 className={`font-bold text-slate-900 ${panelMode ? 'text-xl' : 'text-2xl'}`}>Today's Log</h1>
           <p className="text-slate-500 text-sm mt-0.5">{format(new Date(), 'EEEE, d MMMM yyyy')}</p>
+          {/* Which outlet's day this is, and which account is looking at it.
+              The report is shared per outlet and several people share one
+              phone, so neither should need a menu to check. */}
+          <div className="flex items-center gap-1.5 mt-1.5 flex-wrap text-xs">
+            {/* Admin already has the outlet dropdown next to it — no need to say it twice */}
+            {!hasOutletFilter && (
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-brand-50 text-brand-700 border border-brand-100 font-semibold">
+                <MapPin className="w-3 h-3 shrink-0" />
+                {scopeOutlet}
+              </span>
+            )}
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-lg bg-slate-100 text-slate-600 border border-slate-200 font-medium">
+              <UserRound className="w-3 h-3 shrink-0" />
+              {accountLabel}
+            </span>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           {/* Outlet filter — admin only */}
-          {role === 'admin' && settings?.outlets?.length && (
+          {hasOutletFilter && (
             <select
               value={outletFilter}
               onChange={e => setOutletFilter(e.target.value)}
@@ -267,12 +296,6 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
                 <option key={o} value={o}>{o}</option>
               ))}
             </select>
-          )}
-          {/* Active outlet badge — staff */}
-          {role !== 'admin' && activeOutlet && (
-            <span className="text-xs font-semibold px-2.5 py-1 bg-brand-50 text-brand-700 rounded-lg border border-brand-100">
-              {activeOutlet}
-            </span>
           )}
           <DayStatusBadge
             closed={isClosed}

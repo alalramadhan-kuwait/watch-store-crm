@@ -3,9 +3,16 @@ import type { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { useAppStore } from '../store';
 
-// Roles the shared project uses that this app can meet. Only admin and staff
-// have behaviour here; the others are named so they stop being a silent branch.
-export type DsrRole = 'admin' | 'staff' | 'manager' | 'viewer';
+// Roles the shared project uses that this app can meet. Only admin and the two
+// floor roles have behaviour here; the others are named so they stop being a
+// silent branch.
+export type DsrRole = 'admin' | 'staff' | 'sales' | 'manager' | 'viewer';
+
+// 'staff' (the shared login) and 'sales' (a personal login) both sell on the
+// floor and behave identically here: they pick an outlet, see only that
+// outlet's day, and log cases. They exist as two words because Team Access
+// offers both, so the app must not care which one was picked.
+export const isFloorRole = (r: DsrRole | null) => r === 'staff' || r === 'sales';
 
 export interface Profile {
   id: string;
@@ -22,6 +29,8 @@ interface AuthContextType {
   role: DsrRole | null;
   /** Roster name for a personal login; null = pick from the dropdown. */
   salesName: string | null;
+  /** Sells on the floor — role 'staff' or 'sales'. Drives the outlet gate. */
+  onFloor: boolean;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -32,6 +41,7 @@ const AuthContext = createContext<AuthContextType>({
   profile: null,
   role: null,
   salesName: null,
+  onFloor: false,
   loading: true,
   signIn: async () => ({ error: 'Not initialized' }),
   signOut: async () => {},
@@ -86,7 +96,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, profile, role: profile?.role ?? null,
-      salesName: profile?.sales_name ?? null, loading, signIn, signOut,
+      salesName: profile?.sales_name ?? null,
+      onFloor: isFloorRole(profile?.role ?? null),
+      loading, signIn, signOut,
     }}>
       {children}
     </AuthContext.Provider>

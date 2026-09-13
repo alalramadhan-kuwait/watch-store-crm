@@ -26,13 +26,14 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppShell() {
-  const { user, loading, role, profile } = useAuth();
+  const { user, loading, role, profile, onFloor } = useAuth();
   const { sidebarCollapsed, activeOutlet } = useAppStore();
-  // Staff must have an outlet before entering; derived, not remembered, so a
-  // sign-out (which clears the outlet) puts the next login back on the picker.
-  // Everyone picks their outlet at the start of each session: the day's report
-  // is per-outlet, and people cover for each other between the two shops.
-  const outletChosen = role !== 'staff' || !!activeOutlet;
+  // Anyone on the floor must have an outlet before entering; derived, not
+  // remembered, so a sign-out (which clears the outlet) puts the next login
+  // back on the picker. Everyone picks their outlet at the start of each
+  // session: the day's report is per-outlet, and people cover for each other
+  // between the two shops.
+  const outletChosen = !onFloor || !!activeOutlet;
 
   // Auto-close safety net: check yesterday on startup
   useEffect(() => {
@@ -75,8 +76,8 @@ function AppShell() {
 
   if (!user) return <LoginPage />;
 
-  // Staff must choose outlet before entering — admin skips this
-  if (role === 'staff' && !outletChosen) {
+  // The floor chooses an outlet before entering — admin and office roles skip it
+  if (!outletChosen) {
     return (
       <OutletSelector onSelected={() => { /* outletChosen is derived from the store */ }} />
     );
