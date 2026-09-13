@@ -106,8 +106,12 @@ const CONTENT_R = PAGE_W - ML;           // 196
 const HEADER_H = 28;
 const FOOTER_H = 12;
 const CONTENT_TOP = 36;
+// Continuation pages get a slim header strip instead of the full bar, so the
+// room goes to the tables. Both the page-break margin and ensureSpace use it.
+const CONT_HEADER_H = 11;
+const CONT_TOP = 17;
 const CONTENT_BOTTOM = PAGE_H - FOOTER_H - 4;   // 281
-const TABLE_MARGIN = { left: ML, right: ML, top: CONTENT_TOP, bottom: PAGE_H - CONTENT_BOTTOM };
+const TABLE_MARGIN = { left: ML, right: ML, top: CONT_TOP, bottom: PAGE_H - CONTENT_BOTTOM };
 // Smallest table worth starting on a page: head row plus one body row. A heading
 // is only drawn where at least this much room follows it, so it can never sit
 // alone at the foot of a page with its table on the next one.
@@ -117,7 +121,24 @@ const TEAL: [number, number, number] = [15, 118, 110];
 const INK: [number, number, number] = [30, 41, 59];
 const MUTED: [number, number, number] = [100, 116, 139];
 
-function drawHeader(doc: jsPDF, displayDate: string, outlet?: string) {
+function drawHeader(doc: jsPDF, displayDate: string, page: number, outlet?: string) {
+  if (page > 1) {
+    doc.setFillColor(10, 10, 10);
+    doc.rect(0, 0, PAGE_W, CONT_HEADER_H, 'F');
+    doc.setFillColor(...TEAL);
+    doc.rect(0, CONT_HEADER_H, PAGE_W, 1, 'F');
+    doc.setFont('helvetica', 'normal');
+    doc.setCharSpace(2);
+    doc.setFontSize(8);
+    doc.setTextColor(200, 200, 200);
+    doc.text('TIME KEEPER', ML, 7.5);
+    doc.setCharSpace(0);
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(8.5);
+    doc.setTextColor(255, 255, 255);
+    doc.text(`${displayDate}${outlet ? `  ·  ${outlet.toUpperCase()}` : ''}  ·  continued`, CONTENT_R, 7.5, { align: 'right' });
+    return;
+  }
   doc.setFillColor(10, 10, 10);
   doc.rect(0, 0, PAGE_W, HEADER_H, 'F');
   doc.setTextColor(255, 255, 255);
@@ -164,6 +185,9 @@ function drawFooter(doc: jsPDF, page: number, pages: number, generatedAt: string
 
 /** Sortable label for a case's time-of-day; entries without one sort last. */
 const timeKey = (c: Case) => c.timeLogged || '99:99';
+/** Clip long free text to about two table lines; the full note lives in the app. */
+const clip = (s: string | undefined, n: number) =>
+  !s ? '—' : s.length <= n ? s : s.slice(0, n - 1).trimEnd() + '…';
 
 export function generatePDF(date: string, cases: Case[], outlet?: string): string {
   const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
@@ -179,11 +203,13 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
 
   /** Start a new page if `h` mm will not fit above the footer. */
   const ensureSpace = (h: number) => {
-    if (curY + h > CONTENT_BOTTOM) { doc.addPage(); curY = CONTENT_TOP; }
+    if (curY + h > CONTENT_BOTTOM) { doc.addPage(); curY = CONT_TOP; }
   };
   /** Section heading, optional one-line note beneath; returns the y a table should start at. */
+  // The note shares the heading's baseline, right-aligned, so it costs no
+  // height — on a report that should stay short, every line is a row of data.
   const heading = (title: string, note?: string) => {
-    ensureSpace((note ? 8 : 3) + MIN_TABLE_H);
+    ensureSpace(3 + MIN_TABLE_H);
     doc.setFontSize(11);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...INK);
@@ -192,12 +218,17 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
       doc.setFontSize(7.5);
       doc.setFont('helvetica', 'normal');
       doc.setTextColor(...MUTED);
-      doc.text(note, ML, curY + 5);
+      doc.text(note, CONTENT_R, curY, { align: 'right' });
     }
-    return curY + (note ? 8 : 3);
+    return curY + 3;
   };
-  const tableEnd = () => { curY = (doc as any).lastAutoTable.finalY + 8; };
-  const tableBase = { theme: 'striped' as const, headStyles: { fillColor: TEAL }, margin: TABLE_MARGIN };
+  const tableEnd = () => { curY = (doc as any).lastAutoTable.finalY + 5; };
+  // Tight rows throughout: this is read on a phone and shared as a record, so
+  // it should be short. Body font stays above 8pt.
+  const tableBase = {
+    theme: 'striped' as const, headStyles: { fillColor: TEAL }, margin: TABLE_MARGIN,
+    styles: { fontSize: 8, cellPadding: 1.5 },
+  };
 
   // ── KPI tiles (2 rows × 3) ───────────────────────────────────────────────
   const totalVisitorKd = dayCases.reduce((s, c) =>
@@ -210,27 +241,28 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
     { label: 'Total Visitors', value: String(totalVisitorKd) },
     { label: 'Conversion', value: `${convRate}%` },
   ];
-  const kpiW = 58, kpiH = 18, kpiGap = 3;
+  // One row of six, not two rows of three — the numbers are short.
+  const kpiGap = 3, kpiH = 15;
+  const kpiW = (CONTENT_R - ML - kpiGap * (kpis.length - 1)) / kpis.length;
   kpis.forEach((kpi, i) => {
-    const x = ML + (i % 3) * (kpiW + kpiGap);
-    const y = curY + Math.floor(i / 3) * (kpiH + kpiGap);
+    const x = ML + i * (kpiW + kpiGap);
     doc.setFillColor(240, 253, 250);
-    doc.roundedRect(x, y, kpiW, kpiH, 2, 2, 'F');
-    doc.setFontSize(13);
+    doc.roundedRect(x, curY, kpiW, kpiH, 2, 2, 'F');
+    doc.setFontSize(12);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...TEAL);
-    doc.text(kpi.value, x + kpiW / 2, y + 7, { align: 'center' });
-    doc.setFontSize(7);
+    doc.text(kpi.value, x + kpiW / 2, curY + 6.5, { align: 'center' });
+    doc.setFontSize(6.5);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...MUTED);
-    doc.text(kpi.label, x + kpiW / 2, y + 13, { align: 'center' });
+    doc.text(kpi.label, x + kpiW / 2, curY + 11.8, { align: 'center' });
   });
-  curY += 2 * (kpiH + kpiGap) + 8;
+  curY += kpiH + 6;
 
   // ── Store Traffic chart (Google Maps-style popular times) ────────────────
   const traffic = buildHourlyTraffic(dayCases);
   if (traffic.length > 0) {
-    const chartH = 36;           // total chart box height
+    const chartH = 26;           // total chart box height
     ensureSpace(9 + chartH + 8);
     const peakEntry = traffic.reduce((mx, t) => t.count > mx.count ? t : mx, traffic[0]);
 
@@ -321,7 +353,7 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
     doc.setTextColor(180, 190, 205);
     doc.text('Popular times', chartX + chartW - 3, chartY + 5.5, { align: 'right' });
 
-    curY = chartY + chartH + 8;
+    curY = chartY + chartH + 6;
   }
 
   // ── Staff Performance ────────────────────────────────────────────────────
@@ -335,7 +367,6 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
       startY,
       head: [['Staff Member', 'Sales', 'Revenue (KD)', 'Follow-ups', 'Lost']],
       body: staffRows.length ? staffRows : [['—', '0', '0.000 KD', '0', '0']],
-      styles: { fontSize: 9 },
     });
     tableEnd();
   }
@@ -355,10 +386,10 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
     // Rather than let a long brand table split across the fold, move the whole
     // section to a fresh page when it would fit there entire — that keeps the two
     // tables side by side. Only a table too tall for any page is allowed to span.
-    const ROW_H = 7.3, HEAD_H = 10;                       // 9pt striped rows, measured
+    const ROW_H = 5.2, HEAD_H = 7;                        // 8pt rows at 1.5 padding, measured
     const estimate = 8 + HEAD_H + Math.max(brandRows.length, typeRows.length) * ROW_H;
     if (estimate <= CONTENT_BOTTOM - CONTENT_TOP) ensureSpace(estimate);
-    const startY = heading('Brand Analytics', 'Revenue by brand and by product type, across every item sold');
+    const startY = heading('Brand Analytics', 'per item sold — a basket counts under each of its brands');
     const pageBefore = doc.getCurrentPageInfo().pageNumber;
     autoTable(doc, {
       ...tableBase,
@@ -366,17 +397,16 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
       tableWidth: brandW,
       head: [['Brand', 'Items', 'Revenue (KD)']],
       body: brandRows,
-      styles: { fontSize: 9 },
     });
     const brandEnd = (doc as any).lastAutoTable.finalY;
     const spanned = doc.getCurrentPageInfo().pageNumber !== pageBefore;
     if (typeRows.length) {
       if (spanned) {
-        curY = brandEnd + 8;
+        curY = brandEnd + 5;
         const y2 = heading('By Product Type');
         autoTable(doc, {
           ...tableBase, startY: y2, tableWidth: brandW,
-          head: [['Type', 'Items', 'Revenue (KD)']], body: typeRows, styles: { fontSize: 9 },
+          head: [['Type', 'Items', 'Revenue (KD)']], body: typeRows,
         });
         tableEnd();
       } else {
@@ -387,12 +417,11 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
           tableWidth: CONTENT_R - typeLeft,
           head: [['Type', 'Items', 'Revenue (KD)']],
           body: typeRows,
-          styles: { fontSize: 9 },
-        });
-        curY = Math.max(brandEnd, (doc as any).lastAutoTable.finalY) + 8;
+            });
+        curY = Math.max(brandEnd, (doc as any).lastAutoTable.finalY) + 5;
       }
     } else {
-      curY = brandEnd + 8;
+      curY = brandEnd + 5;
     }
   }
 
@@ -400,7 +429,7 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
   if (followUpWins.length > 0) {
     const startY = heading(
       'Follow-up Conversions',
-      `${followUpWins.length} closed today · ${formatKD(followUpWinRevenue)} KD — from earlier follow-ups, not counted in today's sales figures above`,
+      `${followUpWins.length} closed today · ${formatKD(followUpWinRevenue)} KD — from earlier follow-ups, not in today's figures above`,
     );
     autoTable(doc, {
       ...tableBase,
@@ -415,18 +444,23 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
         c.linkedCaseId || '—',
         formatKD(c.amountKD || 0),
       ]),
-      styles: { fontSize: 9 },
       columnStyles: { 5: { halign: 'right' } },
     });
     tableEnd();
   }
 
   // ── All Cases table ──────────────────────────────────────────────────────
-  // Nothing is truncated here: this is the record of the day, and a note cut
-  // off mid-word is a note lost. Long cells wrap instead.
+  // Browsing visits with nothing written about them are footfall, not events:
+  // they are already in the visitor count and the traffic chart, and each one
+  // would print as a row of dashes. Anything with a note stays. Notes wrap,
+  // clipped at about two lines — the full text is in the app.
   {
-    const startY = heading('All Cases');
-    const caseRows = [...dayCases]
+    const listed = dayCases.filter(c => c.caseType !== 'No Interaction' || !!c.notes);
+    const skipped = dayCases.length - listed.length;
+    const startY = heading('All Cases', skipped
+      ? `${skipped} browsing visit${skipped === 1 ? '' : 's'} without a note counted in traffic above, not listed`
+      : undefined);
+    const caseRows = listed
       .sort((a, b) => timeKey(a).localeCompare(timeKey(b)))
       .map(c => {
         const items = getEffectiveItems(c);
@@ -445,7 +479,7 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
           c.customerName || '—',
           brandProduct,
           c.amountKD ? formatKD(c.amountKD) : '—',
-          c.notes || '—',
+          clip(c.notes, 110),
         ];
       });
     autoTable(doc, {
@@ -453,14 +487,16 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
       startY,
       head: [['Time', 'Staff', 'Type', 'Customer', 'Brand / Product', 'KD', 'Notes / Requirement']],
       body: caseRows,
-      styles: { fontSize: 7.5, cellPadding: 1.5, overflow: 'linebreak' },
+      styles: { fontSize: 7.5, cellPadding: 1.2, overflow: 'linebreak' },
       columnStyles: {
-        0: { cellWidth: 12 },
-        1: { cellWidth: 26 },
-        2: { cellWidth: 20 },
-        3: { cellWidth: 28 },
-        4: { cellWidth: 36 },
-        5: { cellWidth: 16, halign: 'right' },
+        // Notes is the column worth reading, so it gets the width: ~62mm here
+        // fits a typical note in two lines instead of three.
+        0: { cellWidth: 11 },
+        1: { cellWidth: 22 },
+        2: { cellWidth: 17 },
+        3: { cellWidth: 24 },
+        4: { cellWidth: 32 },
+        5: { cellWidth: 14, halign: 'right' },
         6: { cellWidth: 'auto' },
       },
     });
@@ -472,7 +508,7 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
   const pages = doc.getNumberOfPages();
   for (let p = 1; p <= pages; p++) {
     doc.setPage(p);
-    drawHeader(doc, displayDate, outlet);
+    drawHeader(doc, displayDate, p, outlet);
     drawFooter(doc, p, pages, generatedAt);
   }
 
