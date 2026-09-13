@@ -56,42 +56,51 @@ export function FollowUps() {
     return () => { supabase.removeChannel(channel); };
   }, [load]);
 
-  // Analytics computed from all follow-ups (regardless of filters)
-  const overdue = useMemo(() => followUps.filter(c => followUpUrgency(c) === 'overdue').length, [followUps]);
-  const dueToday = useMemo(() => followUps.filter(c => followUpUrgency(c) === 'today').length, [followUps]);
+  // A personal login sees only the customers they are chasing; a manager sees
+  // the whole board. Matched on the roster name, not created_by, so follow-ups
+  // logged under the shared account before they had their own login still
+  // belong to them.
+  const scoped = useMemo(
+    () => (salesName ? followUps.filter(c => c.staff === salesName) : followUps),
+    [followUps, salesName],
+  );
+
+  // Analytics computed from the scoped list (regardless of the other filters)
+  const overdue = useMemo(() => scoped.filter(c => followUpUrgency(c) === 'overdue').length, [scoped]);
+  const dueToday = useMemo(() => scoped.filter(c => followUpUrgency(c) === 'today').length, [scoped]);
 
   const brandCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const c of followUps) {
+    for (const c of scoped) {
       const brand = c.brand || c.product || 'Unknown';
       counts[brand] = (counts[brand] || 0) + 1;
     }
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  }, [followUps]);
+  }, [scoped]);
 
   const productTypeCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    for (const c of followUps) {
+    for (const c of scoped) {
       const type = c.productType || 'Watch';
       counts[type] = (counts[type] || 0) + 1;
     }
     return Object.entries(counts).sort((a, b) => b[1] - a[1]);
-  }, [followUps]);
+  }, [scoped]);
 
   const topBrand = brandCounts[0]?.[0] ?? '—';
   const topProductType = productTypeCounts[0]?.[0] ?? '—';
   const demandSignals = brandCounts.filter(([, n]) => n >= 2);
 
   const availableBrands = useMemo(
-    () => [...new Set(followUps.map(c => c.brand || c.product).filter((v): v is string => !!v))].sort(),
-    [followUps],
+    () => [...new Set(scoped.map(c => c.brand || c.product).filter((v): v is string => !!v))].sort(),
+    [scoped],
   );
   const availableProductTypes = useMemo(
-    () => [...new Set(followUps.map(c => c.productType).filter(Boolean))].sort() as string[],
-    [followUps],
+    () => [...new Set(scoped.map(c => c.productType).filter(Boolean))].sort() as string[],
+    [scoped],
   );
 
-  const filtered = useMemo(() => followUps
+  const filtered = useMemo(() => scoped
     .filter(c => !staffFilter || c.staff === staffFilter)
     .filter(c => !brandFilter || c.brand === brandFilter || c.product === brandFilter)
     .filter(c => !productTypeFilter || c.productType === productTypeFilter)
@@ -101,7 +110,7 @@ export function FollowUps() {
       if (diff !== 0) return diff;
       return (a.promisedCallback || '').localeCompare(b.promisedCallback || '');
     }),
-    [followUps, staffFilter, brandFilter, productTypeFilter, urgencyFilter],
+    [scoped, staffFilter, brandFilter, productTypeFilter, urgencyFilter],
   );
 
   /** Follow-ups as [group, items] — one group when off, one per brand when grouping is on. */
@@ -211,7 +220,7 @@ export function FollowUps() {
       {/* KPI tiles */}
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 lg:mx-0 lg:px-0 mb-4 scrollbar-none">
         {[
-          { label: 'Total Open', value: String(followUps.length), color: 'bg-slate-100 text-slate-700' },
+          { label: 'Total Open', value: String(scoped.length), color: 'bg-slate-100 text-slate-700' },
           { label: 'Overdue', value: String(overdue), color: overdue > 0 ? 'bg-rose-100 text-rose-700' : 'bg-slate-100 text-slate-400' },
           { label: 'Due Today', value: String(dueToday), color: dueToday > 0 ? 'bg-amber-100 text-amber-700' : 'bg-slate-100 text-slate-400' },
           { label: 'Top Brand', value: topBrand, color: 'bg-brand-50 text-brand-700' },
@@ -226,13 +235,15 @@ export function FollowUps() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2 mb-4">
-        <div className="flex items-center gap-2 flex-1 min-w-[130px]">
-          <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0" />
-          <select value={staffFilter} onChange={e => setStaffFilter(e.target.value)} className="input py-1.5 text-sm flex-1 min-w-0">
-            <option value="">All staff</option>
-            {settings?.staffRoster.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-        </div>
+        {!salesName && (
+          <div className="flex items-center gap-2 flex-1 min-w-[130px]">
+            <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+            <select value={staffFilter} onChange={e => setStaffFilter(e.target.value)} className="input py-1.5 text-sm flex-1 min-w-0">
+              <option value="">All staff</option>
+              {settings?.staffRoster.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </div>
+        )}
         {availableBrands.length > 0 && (
           <select value={brandFilter} onChange={e => setBrandFilter(e.target.value)} className="input py-1.5 text-sm flex-1 min-w-[110px]">
             <option value="">All brands</option>
@@ -252,7 +263,7 @@ export function FollowUps() {
           <option value="stale">Stale</option>
           <option value="upcoming">Upcoming</option>
         </select>
-        {followUps.length > 0 && (
+        {scoped.length > 0 && (
           <button
             onClick={() => setShowAnalytics(v => !v)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${showAnalytics ? 'bg-brand-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
@@ -260,7 +271,7 @@ export function FollowUps() {
             <BarChart2 className="w-3.5 h-3.5" /> Analytics
           </button>
         )}
-        {followUps.length > 0 && (
+        {scoped.length > 0 && (
           <button
             onClick={() => setGroupByBrand(v => !v)}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-colors ${groupByBrand ? 'bg-brand-700 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
