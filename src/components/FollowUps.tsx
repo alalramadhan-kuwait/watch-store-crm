@@ -1,12 +1,14 @@
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { format, isToday, isBefore, differenceInDays, startOfDay } from 'date-fns';
-import { Phone, MessageCircle, CheckCircle, XCircle, UserX, ChevronDown, Filter, BarChart2, TrendingUp } from 'lucide-react';
-import { getOpenFollowUps, getSettings, updateCase, insertCase, nextCaseId } from '../db';
+import { Phone, MessageCircle, CheckCircle, XCircle, UserX, ChevronDown, Filter, BarChart2, TrendingUp, Pencil, Plus } from 'lucide-react';
+import { getOpenFollowUps, getSettings, updateCase, insertCase, nextCaseId, getBrands } from '../db';
 import { supabase } from '../lib/supabase';
 import { useAppStore } from '../store';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from './shared/Modal';
-import type { Case, AppSettings } from '../types';
+import { QuickEntryEdit } from './QuickEntryEdit';
+import type { Case, AppSettings, Brand, ProductType } from '../types';
+import { PRODUCT_TYPES } from '../types';
 
 function followUpUrgency(c: Case): 'overdue' | 'today' | 'upcoming' | 'stale' {
   if (!c.promisedCallback) return 'upcoming';
@@ -23,8 +25,11 @@ function followUpUrgency(c: Case): 'overdue' | 'today' | 'upcoming' | 'stale' {
 
 const urgencyOrder = { overdue: 0, stale: 1, today: 2, upcoming: 3 };
 
+/** What a row's Actions menu can start. 'edit' opens the editor, the rest confirm. */
+type FollowUpAction = 'contacted' | 'won' | 'lost' | 'no_response' | 'edit';
+
 export function FollowUps() {
-  const { showToast } = useAppStore();
+  const { showToast, activeOutlet } = useAppStore();
   const { salesName } = useAuth(); // audit entries name who acted, not who owns the case
   const [followUps, setFollowUps] = useState<Case[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -35,6 +40,24 @@ export function FollowUps() {
   const [showAnalytics, setShowAnalytics] = useState(false);
   const [actionCase, setActionCase] = useState<Case | null>(null);
   const [actionType, setActionType] = useState<'contacted' | 'won' | 'lost' | 'no_response' | null>(null);
+  // Editing reuses Today's Log's editor, so a follow-up is corrected the same
+  // way everywhere. It stays available after the day is closed: a follow-up
+  // outlives the day it was logged on, and so must fixing a wrong number.
+  const [editCase, setEditCase] = useState<Case | null>(null);
+  const [newOpen, setNewOpen] = useState(false);
+  const [brands, setBrands] = useState<Brand[]>([]);
+  const [nf, setNf] = useState({
+    staff: '', brand: '', productType: 'Watch' as ProductType, product: '',
+    customerName: '', contact: '', followUpAction: '', channel: '',
+    promisedCallback: '', notes: '', outlet: '',
+  });
+  const [nfErrors, setNfErrors] = useState<Record<string, string>>({});
+  /** Set one field and drop its error: a filled field must never still read red. */
+  function setField<K extends keyof typeof nf>(key: K, value: (typeof nf)[K]) {
+    setNf(prev => ({ ...prev, [key]: value }));
+    setNfErrors(prev => (prev[key as string] ? { ...prev, [key as string]: '' } : prev));
+  }
+  const [nfSaving, setNfSaving] = useState(false);
   const [actionAmount, setActionAmount] = useState('');
   const [actionLostReason, setActionLostReason] = useState('');
   const [actionBumpDate, setActionBumpDate] = useState('');
@@ -43,9 +66,10 @@ export function FollowUps() {
   const [saving, setSaving] = useState(false);
 
   const load = useCallback(async () => {
-    const [fu, s] = await Promise.all([getOpenFollowUps(), getSettings()]);
+    const [fu, s, b] = await Promise.all([getOpenFollowUps(), getSettings(), getBrands()]);
     setFollowUps(fu);
     setSettings(s);
+    setBrands(b);
   }, []);
 
   useEffect(() => {
@@ -126,7 +150,73 @@ export function FollowUps() {
     return [...map.entries()].sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
   }, [filtered, groupByBrand]);
 
-  function openAction(c: Case, type: typeof actionType) {
+  function openNew() {
+    setNf({
+      // a personal login always files under its own roster name
+      staff: salesName ?? '',
+      brand: '', productType: 'Watch', product: '',
+      customerName: '', contact: '', followUpAction: '', channel: '',
+      // tomorrow, like Quick Entry — a callback promised for today is unusual
+      promisedCallback: format(new Date(Date.now() + 86400000), 'yyyy-MM-dd'),
+      notes: '',
+      // an entry with no outlet is invisible to every per-outlet report, so it
+      // is asked for whenever the session has not already pinned one
+      outlet: activeOutlet ?? '',
+    });
+    setNfErrors({});
+    setNewOpen(true);
+  }
+
+  async function saveNew() {
+    // the same required fields Quick Entry enforces, so both doors produce
+    // follow-ups the shop can actually act on
+    const errs: Record<string, string> = {};
+    if (!nf.staff) errs.staff = 'Required';
+    if (!nf.outlet) errs.outlet = 'Required';
+    if (!nf.brand) errs.brand = 'Select a brand';
+    if (!nf.followUpAction) errs.followUpAction = 'Select an action';
+    if (!nf.contact.trim()) errs.contact = 'Required for follow-ups';
+    if (!nf.promisedCallback) errs.promisedCallback = 'Required';
+    if (!nf.notes.trim()) errs.notes = 'Describe what the customer needs';
+    setNfErrors(errs);
+    if (Object.keys(errs).length > 0) return;
+
+    setNfSaving(true);
+    try {
+      const now = new Date();
+      const dateStr = format(now, 'yyyy-MM-dd');
+      await insertCase({
+        caseId: await nextCaseId(dateStr),
+        dateLogged: dateStr,
+        timeLogged: format(now, 'HH:mm'),
+        staff: nf.staff,
+        outlet: nf.outlet,
+        caseType: 'Follow-up',
+        brand: nf.brand,
+        productType: nf.productType,
+        product: nf.product.trim() || nf.brand,
+        customerName: nf.customerName.trim() || undefined,
+        contact: nf.contact.trim(),
+        followUpAction: nf.followUpAction,
+        channel: nf.channel || undefined,
+        promisedCallback: nf.promisedCallback,
+        notes: nf.notes.trim(),
+        status: 'Open',
+        dayLocked: false,
+        auditLog: [{ timestamp: now.toISOString(), action: 'created', by: salesName ?? nf.staff }],
+      });
+      setNewOpen(false);
+      showToast('Follow-up added.', 'success');
+      load();
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not add the follow-up.', 'error');
+    } finally {
+      setNfSaving(false);
+    }
+  }
+
+  function openAction(c: Case, type: FollowUpAction) {
+    if (type === 'edit') { setEditCase(c); return; }
     setActionCase(c);
     setActionType(type);
     setActionAmount('');
@@ -212,9 +302,17 @@ export function FollowUps() {
   return (
     <div className="px-4 pt-6 pb-32 max-w-lg mx-auto lg:max-w-none lg:px-8">
       {/* Title */}
-      <div className="mb-4">
-        <h1 className="text-2xl font-bold text-slate-900">Follow-ups</h1>
-        <p className="text-slate-500 text-sm mt-0.5">Open cases across all dates</p>
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h1 className="text-2xl font-bold text-slate-900">Follow-ups</h1>
+          <p className="text-slate-500 text-sm mt-0.5">Open cases across all dates</p>
+        </div>
+        <button
+          onClick={openNew}
+          className="shrink-0 flex items-center gap-1.5 bg-brand-700 text-white text-sm font-semibold px-3.5 py-2 rounded-xl active:bg-brand-800 hover:bg-brand-800 transition-colors touch-manipulation"
+        >
+          <Plus className="w-4 h-4" /> New
+        </button>
       </div>
 
       {/* KPI tiles */}
@@ -451,6 +549,124 @@ export function FollowUps() {
           )}
         </div>
       </Modal>
+
+      {/* Edit details — the same editor Today's Log uses, so one case is
+          corrected the same way wherever it is opened from. */}
+      <Modal
+        open={!!editCase}
+        onClose={() => setEditCase(null)}
+        title="Edit Follow-up"
+        size="lg"
+      >
+        {editCase && (
+          <QuickEntryEdit
+            case_={editCase}
+            onDone={() => { setEditCase(null); showToast('Follow-up updated.', 'success'); load(); }}
+            onCancel={() => setEditCase(null)}
+          />
+        )}
+      </Modal>
+
+      {/* New follow-up — the same required fields Quick Entry asks for */}
+      <Modal
+        open={newOpen}
+        onClose={() => setNewOpen(false)}
+        title="New Follow-up"
+        size="lg"
+        footer={
+          <>
+            <button onClick={() => setNewOpen(false)} className="btn-ghost" disabled={nfSaving}>Cancel</button>
+            <button onClick={saveNew} className="btn-primary" disabled={nfSaving}>{nfSaving ? 'Saving…' : 'Add Follow-up'}</button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          {!salesName && (
+            <div>
+              <label className="label">Staff</label>
+              <select value={nf.staff} onChange={e => setField('staff', e.target.value)} className="input">
+                <option value="">— Select —</option>
+                {settings?.staffRoster.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+              {nfErrors.staff && <p className="text-xs text-rose-600 mt-1">{nfErrors.staff}</p>}
+            </div>
+          )}
+          {!activeOutlet && (
+            <div>
+              <label className="label">Outlet</label>
+              <select value={nf.outlet} onChange={e => setField('outlet', e.target.value)} className="input">
+                <option value="">— Select —</option>
+                {settings?.outlets.map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+              {nfErrors.outlet && <p className="text-xs text-rose-600 mt-1">{nfErrors.outlet}</p>}
+            </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Brand</label>
+              <select value={nf.brand} onChange={e => setField('brand', e.target.value)} className="input">
+                <option value="">— Select —</option>
+                {brands.filter(b => b.is_active).map(b => <option key={b.id} value={b.name}>{b.name}</option>)}
+              </select>
+              {nfErrors.brand && <p className="text-xs text-rose-600 mt-1">{nfErrors.brand}</p>}
+            </div>
+            <div>
+              <label className="label">Type</label>
+              <select value={nf.productType} onChange={e => setField('productType', e.target.value as ProductType)} className="input">
+                {PRODUCT_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="label">Model / reference <span className="text-slate-400 font-normal">(optional)</span></label>
+            <input value={nf.product} onChange={e => setField('product', e.target.value)} className="input" placeholder="e.g. Submariner 41mm" />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Customer <span className="text-slate-400 font-normal">(optional)</span></label>
+              <input value={nf.customerName} onChange={e => setField('customerName', e.target.value)} className="input" />
+            </div>
+            <div>
+              <label className="label">Contact</label>
+              <input value={nf.contact} onChange={e => setField('contact', e.target.value)} className="input" inputMode="tel" placeholder="Phone" />
+              {nfErrors.contact && <p className="text-xs text-rose-600 mt-1">{nfErrors.contact}</p>}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Action</label>
+              <select value={nf.followUpAction} onChange={e => setField('followUpAction', e.target.value)} className="input">
+                <option value="">— Select —</option>
+                {settings?.followUpActions.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+              {nfErrors.followUpAction && <p className="text-xs text-rose-600 mt-1">{nfErrors.followUpAction}</p>}
+            </div>
+            <div>
+              <label className="label">Channel <span className="text-slate-400 font-normal">(optional)</span></label>
+              <select value={nf.channel} onChange={e => setField('channel', e.target.value)} className="input">
+                <option value="">— Select —</option>
+                {settings?.channels.map(c => <option key={c} value={c}>{c}</option>)}
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="label">Call back on</label>
+            <input type="date" value={nf.promisedCallback} onChange={e => setField('promisedCallback', e.target.value)} className="input" />
+            {nfErrors.promisedCallback && <p className="text-xs text-rose-600 mt-1">{nfErrors.promisedCallback}</p>}
+          </div>
+
+          <div>
+            <label className="label">What the customer needs</label>
+            <textarea value={nf.notes} onChange={e => setField('notes', e.target.value)} rows={3} className="input resize-none" placeholder="Wants it in rose gold, will decide after the weekend…" />
+            {nfErrors.notes && <p className="text-xs text-rose-600 mt-1">{nfErrors.notes}</p>}
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 }
@@ -477,7 +693,7 @@ function AnalyticsBar({ label, count, max, color, onClick, active }: {
   );
 }
 
-function FollowUpTableRow({ case_: c, onAction }: { case_: Case; onAction: (c: Case, type: 'contacted' | 'won' | 'lost' | 'no_response') => void }) {
+function FollowUpTableRow({ case_: c, onAction }: { case_: Case; onAction: (c: Case, type: FollowUpAction) => void }) {
   const urgency = followUpUrgency(c);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuPos, setMenuPos] = useState({ top: 0, right: 0 });
@@ -504,6 +720,7 @@ function FollowUpTableRow({ case_: c, onAction }: { case_: Case; onAction: (c: C
     { icon: <CheckCircle className="w-4 h-4" />, label: 'Closed — Won', color: 'text-emerald-700', type: 'won' as const },
     { icon: <XCircle className="w-4 h-4" />, label: 'Closed — Lost', color: 'text-rose-600', type: 'lost' as const },
     { icon: <UserX className="w-4 h-4" />, label: 'No Response', color: 'text-slate-500', type: 'no_response' as const },
+    { icon: <Pencil className="w-4 h-4" />, label: 'Edit Details', color: 'text-slate-600', type: 'edit' as const },
   ];
 
   return (
@@ -561,7 +778,7 @@ function FollowUpTableRow({ case_: c, onAction }: { case_: Case; onAction: (c: C
   );
 }
 
-function FollowUpRow({ case_: c, onAction }: { case_: Case; onAction: (c: Case, type: 'contacted' | 'won' | 'lost' | 'no_response') => void }) {
+function FollowUpRow({ case_: c, onAction }: { case_: Case; onAction: (c: Case, type: FollowUpAction) => void }) {
   const urgency = followUpUrgency(c);
   const [sheetOpen, setSheetOpen] = useState(false);
   const urgencyStyles = { overdue: 'border-rose-200 bg-rose-50', today: 'border-amber-200 bg-amber-50', upcoming: 'border-slate-100 bg-white', stale: 'border-rose-200 bg-rose-50' };
@@ -575,6 +792,7 @@ function FollowUpRow({ case_: c, onAction }: { case_: Case; onAction: (c: Case, 
 
   const sheetActions = [
     { icon: <Phone className="w-5 h-5" />, label: 'Mark Contacted', color: 'text-slate-800', type: 'contacted' as const },
+    { icon: <Pencil className="w-5 h-5" />, label: 'Edit Details', color: 'text-slate-800', type: 'edit' as const },
     { icon: <CheckCircle className="w-5 h-5" />, label: 'Closed — Won', color: 'text-emerald-700', type: 'won' as const },
     { icon: <XCircle className="w-5 h-5" />, label: 'Closed — Lost', color: 'text-rose-600', type: 'lost' as const },
     { icon: <UserX className="w-5 h-5" />, label: 'No Response', color: 'text-slate-400', type: 'no_response' as const },
