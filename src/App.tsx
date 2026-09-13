@@ -15,8 +15,9 @@ import { CRM } from './components/CRM';
 import { OutletSelector } from './components/OutletSelector';
 import { ToastContainer } from './components/shared/Toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { isDayClosed, closeDay, getTodayCases, updateCase } from './db';
+import { isDayClosed, closeDay, getTodayCases, updateCase, getSettings } from './db';
 import { useAppStore } from './store';
+import { matchOutlet } from './utils/outlet';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { role } = useAuth();
@@ -25,12 +26,24 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppShell() {
-  const { user, loading, role } = useAuth();
+  const { user, loading, role, profile, homeLocation } = useAuth();
   const { sidebarCollapsed, activeOutlet, setActiveOutlet } = useAppStore();
-  // Staff must pick an outlet once per session before accessing the app
-  const [outletChosen, setOutletChosen] = useState(() => {
-    return role === 'admin' || !!sessionStorage.getItem('activeOutlet');
-  });
+  // Staff must have an outlet before entering; derived, not remembered, so a
+  // sign-out (which clears the outlet) puts the next login back on the picker.
+  const outletChosen = role !== 'staff' || !!activeOutlet;
+  const [resolvingOutlet, setResolvingOutlet] = useState(false);
+
+  // A personal login works at the outlet on their HR record, so they skip the
+  // picker; the chip in Quick Entry still lets them switch when covering elsewhere.
+  useEffect(() => {
+    if (role !== 'staff' || activeOutlet || !homeLocation) return;
+    let cancelled = false;
+    setResolvingOutlet(true);
+    getSettings()
+      .then(s => { if (!cancelled) { const m = matchOutlet(homeLocation, s.outlets); if (m) setActiveOutlet(m); } })
+      .finally(() => { if (!cancelled) setResolvingOutlet(false); });
+    return () => { cancelled = true; };
+  }, [role, homeLocation, activeOutlet]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-close safety net: check yesterday on startup
   useEffect(() => {
@@ -59,7 +72,8 @@ function AppShell() {
     return () => clearTimeout(timer);
   }, [user]);
 
-  if (loading) {
+  // nothing renders until the profile is known: role decides the outlet gate
+  if (loading || (user && !profile) || resolvingOutlet) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
         <div className="flex flex-col items-center gap-4">
@@ -75,9 +89,7 @@ function AppShell() {
   // Staff must choose outlet before entering — admin skips this
   if (role === 'staff' && !outletChosen) {
     return (
-      <OutletSelector
-        onSelected={() => setOutletChosen(true)}
-      />
+      <OutletSelector onSelected={() => { /* outletChosen is derived from the store */ }} />
     );
   }
 

@@ -4,6 +4,7 @@ import { Phone, MessageCircle, CheckCircle, XCircle, UserX, ChevronDown, Filter,
 import { getOpenFollowUps, getSettings, updateCase, insertCase, nextCaseId } from '../db';
 import { supabase } from '../lib/supabase';
 import { useAppStore } from '../store';
+import { useAuth } from '../context/AuthContext';
 import { Modal } from './shared/Modal';
 import type { Case, AppSettings } from '../types';
 
@@ -24,6 +25,7 @@ const urgencyOrder = { overdue: 0, stale: 1, today: 2, upcoming: 3 };
 
 export function FollowUps() {
   const { showToast } = useAppStore();
+  const { salesName } = useAuth(); // audit entries name who acted, not who owns the case
   const [followUps, setFollowUps] = useState<Case[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [staffFilter, setStaffFilter] = useState('');
@@ -136,7 +138,7 @@ export function FollowUps() {
         await updateCase(actionCase.id, {
           lastContactDate: todayStr,
           promisedCallback: actionBumpDate || actionCase.promisedCallback,
-          auditLog: [...actionCase.auditLog, { timestamp: nowStr, action: 'contacted', by: actionCase.staff }],
+          auditLog: [...actionCase.auditLog, { timestamp: nowStr, action: 'contacted', by: salesName ?? actionCase.staff }],
         });
         showToast('Marked as contacted.', 'success');
       }
@@ -159,13 +161,13 @@ export function FollowUps() {
           status: 'Won',
           dayLocked: false,
           linkedCaseId: actionCase.caseId,
-          auditLog: [{ timestamp: nowStr, action: 'converted', by: actionCase.staff, note: `From follow-up ${actionCase.caseId}${(actionClosedDate && actionClosedDate !== todayStr) ? ` · closed ${actionClosedDate}` : ''}` }],
+          auditLog: [{ timestamp: nowStr, action: 'converted', by: salesName ?? actionCase.staff, note: `From follow-up ${actionCase.caseId}${(actionClosedDate && actionClosedDate !== todayStr) ? ` · closed ${actionClosedDate}` : ''}` }],
         });
         await updateCase(actionCase.id, {
           status: 'Won',
           linkedCaseId: saleId,
           lastContactDate: actionClosedDate || todayStr,
-          auditLog: [...actionCase.auditLog, { timestamp: nowStr, action: 'converted', by: actionCase.staff, note: `Closed — Won on ${actionClosedDate || todayStr}` }],
+          auditLog: [...actionCase.auditLog, { timestamp: nowStr, action: 'converted', by: salesName ?? actionCase.staff, note: `Closed — Won on ${actionClosedDate || todayStr}` }],
         });
         showToast("Converted to sale! Entry added to today's log.", 'success');
       }
@@ -175,7 +177,7 @@ export function FollowUps() {
           status: 'Lost',
           lostReason: actionLostReason || undefined,
           lastContactDate: actionClosedDate || todayStr,
-          auditLog: [...actionCase.auditLog, { timestamp: nowStr, action: 'status_changed', by: actionCase.staff, note: `Closed — Lost on ${actionClosedDate || todayStr}` }],
+          auditLog: [...actionCase.auditLog, { timestamp: nowStr, action: 'status_changed', by: salesName ?? actionCase.staff, note: `Closed — Lost on ${actionClosedDate || todayStr}` }],
         });
         showToast('Marked as lost.', 'info');
       }
@@ -183,13 +185,15 @@ export function FollowUps() {
       if (actionType === 'no_response') {
         await updateCase(actionCase.id, {
           status: 'No Response',
-          auditLog: [...actionCase.auditLog, { timestamp: nowStr, action: 'status_changed', by: actionCase.staff, note: 'No Response' }],
+          auditLog: [...actionCase.auditLog, { timestamp: nowStr, action: 'status_changed', by: salesName ?? actionCase.staff, note: 'No Response' }],
         });
         showToast('Marked as no response.', 'info');
       }
 
       setActionCase(null);
       setActionType(null);
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not update the follow-up.', 'error');
       load(); // immediate UI refresh
     } finally {
       setSaving(false);

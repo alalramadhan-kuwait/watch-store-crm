@@ -5,6 +5,8 @@ import { getSettings, updateCase, updateSaleItems } from '../db';
 import type { Case, CaseType, AppSettings, ProductType } from '../types';
 import { PRODUCT_TYPES } from '../types';
 import { formatKD } from '../utils/formatKD';
+import { useAuth } from '../context/AuthContext';
+import { useAppStore } from '../store';
 
 const STRAP_WIDTHS = ['18mm', '20mm', '22mm', '24mm', 'Other'] as const;
 
@@ -30,7 +32,10 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
   onCancel: () => void;
 }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
+  const { salesName } = useAuth();
+  const { showToast } = useAppStore();
 
+  // the case owner; a personal login may fix its own entry but not hand it to someone else
   const [staff, setStaff] = useState(case_.staff);
   const [caseType] = useState<CaseType>(case_.caseType);
   const [customerName, setCustomerName] = useState(case_.customerName || '');
@@ -120,7 +125,7 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
           product: newProduct,
           amountKD: totalKD,
           notes: notes.trim() || undefined,
-          auditLog: [...case_.auditLog, { timestamp: new Date().toISOString(), action: 'edited', by: staff, changes }],
+          auditLog: [...case_.auditLog, { timestamp: new Date().toISOString(), action: 'edited', by: salesName ?? staff, changes }],
         });
 
         await updateSaleItems(case_.id, saleItems.map((item, i) => ({
@@ -152,11 +157,15 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
           promisedCallback: caseType === 'Follow-up' ? promisedCallback : undefined,
           channel: channel || undefined,
           notes: notes.trim() || undefined,
-          auditLog: [...case_.auditLog, { timestamp: new Date().toISOString(), action: 'edited', by: staff, changes }],
+          auditLog: [...case_.auditLog, { timestamp: new Date().toISOString(), action: 'edited', by: salesName ?? staff, changes }],
         });
       }
 
       onDone();
+    } catch (err) {
+      // with personal logins a colleague's row is refused by the database, and
+      // that must read as a failure, not a silent "saved"
+      showToast(err instanceof Error ? err.message : 'Could not save the changes.', 'error');
     } finally {
       setSaving(false);
     }
@@ -172,9 +181,13 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
 
       <div>
         <label className="label">Staff</label>
-        <select value={staff} onChange={e => setStaff(e.target.value)} className="input">
-          {settings.staffRoster.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
+        {salesName ? (
+          <div className="input bg-slate-50 text-slate-700">{staff}</div>
+        ) : (
+          <select value={staff} onChange={e => setStaff(e.target.value)} className="input">
+            {settings.staffRoster.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        )}
       </div>
 
       {/* ── Sale items editor ── */}

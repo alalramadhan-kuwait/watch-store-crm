@@ -60,7 +60,9 @@ no customer history, and no way to see all transactions for one person.
 
 ## 3. Per-outlet Staff Assignment (Optional)
 
-**Status:** Not started. Low priority.
+**Status:** Partly built (2026-09-13). A personal login's outlet is pre-selected
+from their HR record (`employees.location`) and the outlet screen is skipped;
+it is a default, not a lock — the Quick Entry chip still switches outlets.
 
 **Current behaviour:** Any staff member can log to any outlet.
 **Proposed:** Assign staff to specific outlets so they only see their outlet by default.

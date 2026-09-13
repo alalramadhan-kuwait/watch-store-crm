@@ -238,12 +238,13 @@ function SaleItemsEditor({ items, onChange, brands, errors }: {
 
 export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
   const { lastStaff, setLastStaff, showToast, bumpRefreshLog, activeOutlet, setActiveOutlet } = useAppStore();
-  const { role } = useAuth();
+  const { role, salesName } = useAuth();
   const [showOutletPicker, setShowOutletPicker] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [brands, setBrands] = useState<Brand[]>([]);
 
-  const [staff, setStaff] = useState(lastStaff || '');
+  // a personal login always logs as itself; the shared login remembers its last pick
+  const [staff, setStaff] = useState(salesName || lastStaff || '');
   const [entryType, setEntryType] = useState<CaseType | ''>('');
 
   // ── Sale items state (multi-item) ────────────────────────────────────────
@@ -273,7 +274,7 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
   useEffect(() => {
     getSettings().then(s => {
       setSettings(s);
-      if (!staff && s.staffRoster[0]) setStaff(s.staffRoster[0]);
+      if (!staff && !salesName && s.staffRoster[0]) setStaff(s.staffRoster[0]);
     });
     getBrands().then(setBrands);
   }, []);
@@ -412,7 +413,7 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
         });
       }
 
-      setLastStaff(staff);
+      if (!salesName) setLastStaff(staff);
       getBrands().then(setBrands);
       bumpRefreshLog();
       showToast('Logged!', 'success');
@@ -486,11 +487,18 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
         {/* Staff */}
         <div>
           <label className="label">Staff <span className="text-rose-500">*</span></label>
-          <select value={staff} onChange={e => setStaff(e.target.value)}
-            className={`input ${errors.staff ? 'input-error' : ''}`}>
-            <option value="">— Select staff —</option>
-            {settings.staffRoster.map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
+          {salesName ? (
+            <div className="input bg-slate-50 text-slate-700 flex items-center justify-between">
+              <span>{salesName}</span>
+              <span className="text-xs text-slate-400">Logged under your account</span>
+            </div>
+          ) : (
+            <select value={staff} onChange={e => setStaff(e.target.value)}
+              className={`input ${errors.staff ? 'input-error' : ''}`}>
+              <option value="">— Select staff —</option>
+              {settings.staffRoster.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+          )}
         </div>
 
         {/* Entry Type */}

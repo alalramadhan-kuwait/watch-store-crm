@@ -17,7 +17,7 @@ const yesterday = format(new Date(Date.now() - 86400000), 'yyyy-MM-dd');
 
 export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   const { showToast, refreshLog, activeOutlet } = useAppStore();
-  const { role, profile } = useAuth();
+  const { role, profile, salesName } = useAuth();
   const [cases, setCases] = useState<Case[]>([]);
   const [dayClose, setDayClose] = useState<DayClose | null>(null);
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -159,6 +159,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   async function handleDelete() {
     if (!deleteCase?.id) return;
     const managerName = profile?.full_name || 'Manager';
+    try {
     await updateCase(deleteCase.id, {
       deleted: true,
       auditLog: [
@@ -166,11 +167,17 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
         {
           timestamp: new Date().toISOString(),
           action: 'deleted',
-          by: isClosed ? managerName : deleteCase.staff,
+          by: salesName ?? (isClosed ? managerName : deleteCase.staff),
           note: isClosed ? 'Manager adjustment on closed day' : undefined,
         },
       ],
     });
+    } catch (err) {
+      // the delete is an admin-only RPC; before this, a refused delete still
+      // toasted "Entry removed."
+      showToast(err instanceof Error ? err.message : 'Could not remove the entry.', 'error');
+      return;
+    }
     setDeleteCase(null);
     showToast('Entry removed.', 'info');
     await load(); // immediately update KPIs and list
@@ -187,6 +194,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   async function handleOpenCloseDay() {
     if (!cases.length) { showToast('No cases logged today.', 'info'); return; }
     setCloseDaySummary(buildPreviewSummary(cases));
+    setCloserName(prev => prev || salesName || ''); // a personal login closes as itself
     setCloseDayOpen(true);
   }
 
@@ -212,7 +220,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   async function handleConfirmClose() {
     setClosingDay(true);
     try {
-      const closer = closerName || settings?.staffRoster[0] || 'Manager';
+      const closer = closerName || salesName || settings?.staffRoster[0] || 'Manager';
       const outlet = role === 'staff' ? (activeOutlet ?? '') : '';
       await closeDay(today, closer, outlet);
       showToast('Day closed. Report ready to share.', 'success');
@@ -563,10 +571,14 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
           )}
           <div>
             <label className="label">Closing staff name</label>
-            <select value={closerName} onChange={e => setCloserName(e.target.value)} className="input">
-              <option value="">— Select —</option>
-              {settings?.staffRoster.map(s => <option key={s} value={s}>{s}</option>)}
-            </select>
+            {salesName ? (
+              <div className="input bg-slate-50 text-slate-700">{salesName}</div>
+            ) : (
+              <select value={closerName} onChange={e => setCloserName(e.target.value)} className="input">
+                <option value="">— Select —</option>
+                {settings?.staffRoster.map(s => <option key={s} value={s}>{s}</option>)}
+              </select>
+            )}
           </div>
         </div>
       </Modal>
