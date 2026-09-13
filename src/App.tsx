@@ -13,11 +13,11 @@ import { Reports } from './components/Reports';
 import { Settings } from './components/Settings';
 import { CRM } from './components/CRM';
 import { OutletSelector } from './components/OutletSelector';
+import { MyPortal } from './components/MyPortal';
 import { ToastContainer } from './components/shared/Toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { isDayClosed, closeDay, getTodayCases, updateCase, getSettings } from './db';
+import { isDayClosed, closeDay, getTodayCases, updateCase } from './db';
 import { useAppStore } from './store';
-import { matchOutlet } from './utils/outlet';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { role } = useAuth();
@@ -26,24 +26,13 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 }
 
 function AppShell() {
-  const { user, loading, role, profile, homeLocation } = useAuth();
-  const { sidebarCollapsed, activeOutlet, setActiveOutlet } = useAppStore();
+  const { user, loading, role, profile } = useAuth();
+  const { sidebarCollapsed, activeOutlet } = useAppStore();
   // Staff must have an outlet before entering; derived, not remembered, so a
   // sign-out (which clears the outlet) puts the next login back on the picker.
+  // Everyone picks their outlet at the start of each session: the day's report
+  // is per-outlet, and people cover for each other between the two shops.
   const outletChosen = role !== 'staff' || !!activeOutlet;
-  const [resolvingOutlet, setResolvingOutlet] = useState(false);
-
-  // A personal login works at the outlet on their HR record, so they skip the
-  // picker; the chip in Quick Entry still lets them switch when covering elsewhere.
-  useEffect(() => {
-    if (role !== 'staff' || activeOutlet || !homeLocation) return;
-    let cancelled = false;
-    setResolvingOutlet(true);
-    getSettings()
-      .then(s => { if (!cancelled) { const m = matchOutlet(homeLocation, s.outlets); if (m) setActiveOutlet(m); } })
-      .finally(() => { if (!cancelled) setResolvingOutlet(false); });
-    return () => { cancelled = true; };
-  }, [role, homeLocation, activeOutlet]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Auto-close safety net: check yesterday on startup
   useEffect(() => {
@@ -73,7 +62,7 @@ function AppShell() {
   }, [user]);
 
   // nothing renders until the profile is known: role decides the outlet gate
-  if (loading || (user && !profile) || resolvingOutlet) {
+  if (loading || (user && !profile)) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-white">
         <div className="flex flex-col items-center gap-4">
@@ -104,6 +93,7 @@ function AppShell() {
           <Route path="/" element={<EntryWithLog />} />
           <Route path="/today" element={<TodayLog />} />
           <Route path="/followups" element={<FollowUps />} />
+          <Route path="/portal" element={<MyPortal />} />
           <Route path="/crm" element={<ProtectedRoute><CRM /></ProtectedRoute>} />
           <Route path="/manager" element={<ProtectedRoute><ManagerDashboard /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />

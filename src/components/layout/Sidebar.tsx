@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { PlusCircle, ClipboardList, Bell, BarChart2, FileText, Settings, LogOut, Users } from 'lucide-react';
+import { PlusCircle, ClipboardList, Bell, BarChart2, FileText, Settings, LogOut, Users, UserRound } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppStore } from '../../store';
 import pkg from '../../../package.json';
@@ -12,6 +12,7 @@ export function Sidebar() {
     { to: '/',          icon: PlusCircle,    label: 'Quick Entry' },
     { to: '/today',     icon: ClipboardList, label: "Today's Log" },
     { to: '/followups', icon: Bell,          label: 'Follow-ups'  },
+    { to: '/portal',    icon: UserRound,     label: 'My Portal'   },
     ...(role === 'admin' ? [
       { to: '/crm',      icon: Users,     label: 'CRM'       },
       { to: '/manager',  icon: BarChart2,  label: 'Dashboard' },

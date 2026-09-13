@@ -22,8 +22,6 @@ interface AuthContextType {
   role: DsrRole | null;
   /** Roster name for a personal login; null = pick from the dropdown. */
   salesName: string | null;
-  /** The linked HR record's location ('Avenues', 'Time Gallery'…); null = no link. */
-  homeLocation: string | null;
   loading: boolean;
   signIn: (email: string, password: string) => Promise<{ error: string | null }>;
   signOut: () => Promise<void>;
@@ -34,7 +32,6 @@ const AuthContext = createContext<AuthContextType>({
   profile: null,
   role: null,
   salesName: null,
-  homeLocation: null,
   loading: true,
   signIn: async () => ({ error: 'Not initialized' }),
   signOut: async () => {},
@@ -43,21 +40,17 @@ const AuthContext = createContext<AuthContextType>({
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [homeLocation, setHomeLocation] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   async function loadProfile(userId: string) {
     // per-user device memory (last staff picked) is keyed by the login
     useAppStore.getState().hydrateForUser(userId);
-    // The employee row is readable by its own user (RLS own_read_emp); it
-    // carries the outlet the person works at, which QuickEntry defaults to.
-    const [prof, emp] = await Promise.all([
-      supabase.from('profiles').select('id, full_name, role, sales_name').eq('id', userId).single(),
-      supabase.from('employees').select('location').eq('user_id', userId).limit(1),
-    ]);
-    // set together so no consumer sees a profile without its location
-    setHomeLocation((emp.data?.[0]?.location as string | undefined) ?? null);
-    if (prof.data) setProfile(prof.data as Profile);
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, full_name, role, sales_name')
+      .eq('id', userId)
+      .single();
+    if (data) setProfile(data as Profile);
   }
 
   useEffect(() => {
@@ -71,7 +64,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setUser(session?.user ?? null);
       if (session?.user) loadProfile(session.user.id);
-      else { setProfile(null); setHomeLocation(null); }
+      else setProfile(null);
     });
 
     return () => subscription.unsubscribe();
@@ -93,7 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, profile, role: profile?.role ?? null,
-      salesName: profile?.sales_name ?? null, homeLocation, loading, signIn, signOut,
+      salesName: profile?.sales_name ?? null, loading, signIn, signOut,
     }}>
       {children}
     </AuthContext.Provider>
