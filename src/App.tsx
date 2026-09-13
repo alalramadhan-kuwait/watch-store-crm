@@ -16,7 +16,8 @@ import { OutletSelector } from './components/OutletSelector';
 import { MyPortal } from './components/MyPortal';
 import { ToastContainer } from './components/shared/Toast';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { isDayClosed, closeDay, getTodayCases, updateCase } from './db';
+import { isDayClosed, closeDay, getCasesByDate, updateCase } from './db';
+import { previousDay, dayIsOver } from './utils/dayClose';
 import { useAppStore } from './store';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -35,31 +36,35 @@ function AppShell() {
   // between the two shops.
   const outletChosen = !onFloor || !!activeOutlet;
 
-  // Auto-close safety net: check yesterday on startup
+  // Auto-close safety net: if nobody closed a day, close it once it is over.
   useEffect(() => {
     if (!user) return;
-    async function checkAutoClose() {
-      const yesterday = format(new Date(Date.now() - 86400000), 'yyyy-MM-dd');
-      const closed = await isDayClosed(yesterday);
-      if (!closed) {
-        const cases = await getTodayCases();
-        if (cases.length > 0) await closeDay(yesterday, 'auto-close');
-      }
+    let cancelled = false;
+
+    /**
+     * Close `date` only if it is genuinely past and had entries.
+     *
+     * The date guard is the whole point. This used to be a setTimeout aimed at
+     * midnight that decided which day to close when it *fired* — and a phone
+     * that sleeps defers a pending timer, so on 13 Sep it fired at 12:29 and
+     * closed that same day while both shops were still trading. Closing a day
+     * that has not ended locks the log for everyone, at every outlet, and the
+     * auto-close writes no outlet so no outlet can escape it.
+     */
+    async function autoCloseIfOver(date: string) {
+      if (cancelled || !dayIsOver(date)) return;
+      if (await isDayClosed(date)) return;
+      // that day's entries decide it — not today's, which is what was asked before
+      const cases = await getCasesByDate(date);
+      if (cases.length > 0 && !cancelled) await closeDay(date, 'auto-close');
     }
-    checkAutoClose();
 
-    const now = new Date();
-    const midnight = new Date(now.getFullYear(), now.getMonth(), now.getDate() + 1, 0, 0, 30);
-    const timer = setTimeout(async () => {
-      const today = format(new Date(), 'yyyy-MM-dd');
-      const closed = await isDayClosed(today);
-      if (!closed) {
-        const cases = await getTodayCases();
-        if (cases.length > 0) await closeDay(today, 'auto-close');
-      }
-    }, midnight.getTime() - now.getTime());
+    autoCloseIfOver(previousDay());
+    // Polled rather than aimed at midnight: a late or throttled tick now just
+    // re-asks about the day before, which is still the right day to close.
+    const timer = setInterval(() => autoCloseIfOver(previousDay()), 10 * 60 * 1000);
 
-    return () => clearTimeout(timer);
+    return () => { cancelled = true; clearInterval(timer); };
   }, [user]);
 
   // nothing renders until the profile is known: role decides the outlet gate

@@ -36,13 +36,16 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   const [pastBusy, setPastBusy] = useState(false);
   const [sharingPdf, setSharingPdf] = useState(false);
 
+  // Re-runs when the outlet changes: the list is filtered in render, but the
+  // day-close row is per-outlet and was fetched once at mount, so switching
+  // shops used to keep showing the previous one's "Closed at ..." banner.
   const load = useCallback(async () => {
-    const outlet = onFloor ? (activeOutlet ?? '') : ''; // eslint-disable-line react-hooks/exhaustive-deps
+    const outlet = onFloor ? (activeOutlet ?? '') : '';
     const [c, dc, s] = await Promise.all([getTodayCases(), getDayClose(today, outlet), getSettings()]);
     setCases(c);
     setDayClose(dc);
     setSettings(s);
-  }, []);
+  }, [onFloor, activeOutlet]);
 
   useEffect(() => {
     load();
