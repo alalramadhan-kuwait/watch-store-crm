@@ -361,6 +361,7 @@ function ExpandedDayView({
   async function handleDelete() {
     if (!deleteCase?.id) return;
     const managerName = profile?.full_name || 'Manager';
+    try {
     await updateCase(deleteCase.id, {
       deleted: true,
       auditLog: [
@@ -373,6 +374,10 @@ function ExpandedDayView({
         },
       ],
     });
+    } catch (err) {
+      showToast(err instanceof Error ? err.message : 'Could not remove the entry.', 'error');
+      return;
+    }
     setDeleteCase(null);
     showToast('Entry removed.', 'info');
     await load();

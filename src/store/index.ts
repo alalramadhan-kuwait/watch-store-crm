@@ -11,8 +11,14 @@ interface AppStore {
   showToast: (message: string, type?: Toast['type']) => void;
   dismissToast: (id: number) => void;
 
+  // Last staff picked in Quick Entry, remembered per login (the shared
+  // account is used from one phone by several people, so it must not leak
+  // from one login to the next on the same device).
   lastStaff: string;
+  lastStaffKey: string | null;
   setLastStaff: (staff: string) => void;
+  hydrateForUser: (userId: string) => void;
+  clearSessionState: () => void;
 
   sidebarCollapsed: boolean;
   setSidebarCollapsed: (v: boolean) => void;
@@ -36,10 +42,27 @@ export const useAppStore = create<AppStore>((set, get) => ({
   },
   dismissToast: (id) => set(s => ({ toasts: s.toasts.filter(t => t.id !== id) })),
 
-  lastStaff: localStorage.getItem('lastStaff') || '',
+  lastStaff: '',
+  lastStaffKey: null,
   setLastStaff: (staff) => {
-    localStorage.setItem('lastStaff', staff);
+    const key = get().lastStaffKey;
+    if (key) localStorage.setItem(key, staff);
     set({ lastStaff: staff });
+  },
+  hydrateForUser: (userId) => {
+    const key = `lastStaff:${userId}`;
+    let value = localStorage.getItem(key);
+    if (value === null) {
+      // one-time carry-over from the device-wide key this used to be
+      const legacy = localStorage.getItem('lastStaff');
+      if (legacy) { value = legacy; localStorage.setItem(key, legacy); }
+      localStorage.removeItem('lastStaff');
+    }
+    set({ lastStaff: value || '', lastStaffKey: key });
+  },
+  clearSessionState: () => {
+    sessionStorage.removeItem('activeOutlet');
+    set({ activeOutlet: null, lastStaff: '', lastStaffKey: null });
   },
 
   sidebarCollapsed: localStorage.getItem('sidebarCollapsed') === 'true',

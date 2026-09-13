@@ -78,7 +78,9 @@ Two access layers, both enforced:
 1. **UI** — nav `roles` + `canAccessPath` (with per-user `profiles.page_access` override) gate page visibility; `CrudConfig.canWrite(role)` gates the edit/add controls.
 2. **Database RLS** — the real guard. Typical pattern: read = `auth.role() = 'authenticated'`; write = `get_my_role() = any(array[...])`.
 
-`profiles` columns: `id, full_name, role, page_access (jsonb|null), created_at, updated_at`. There is **no username column** — login identity is the auth email. `page_access = null` means default role-based access.
+`profiles` columns: `id, full_name, role, page_access (text[]|null), sales_name (text|null), created_at, updated_at`. There is **no username column** — login identity is the auth email. `page_access = null` means default role-based access; **`page_access = '{}'` (empty list) means the always-on pages only** (Dashboard, My Portal, Inbox, Notifications) — used for salespeople. **`sales_name`** is the DSR staff-roster name this login logs sales under (`cases.staff`); it must equal an entry of `settings.staff_roster`, is unique per login (`profiles_sales_name_key`), and is set in Settings → Team Access ("DSR name", via `admin-users` `update`). `null` = shared login / not a salesperson.
+
+**A salesperson with their own login = four things**, all set from the UI (repeat per person): (1) Team Access → Add account, role **`staff`** (the `cases` INSERT policy admits only `admin|staff`; `sales` cannot log); (2) Team Access → edit → **DSR name** = their roster name (keeps history continuous when the login name differs, e.g. login "Fadi Hussain" logs as "Fadi"); (3) Team Access → access → Custom with nothing ticked = portal only; (4) HR → Employees → **Linked user account** + Location — the DSR reads `employees.location` for `user_id = auth.uid()` (RLS `own_read_emp`) to pre-select their outlet, and My Portal/leave/attendance hang off the same link. Clock-in additionally needs a **geofence** named exactly like the HR location (`Time Gallery`, `Avenues`; `Timekeeper HQ` exists).
 
 ---
 
@@ -165,7 +167,7 @@ Behaviour worth knowing:
 | `lightspeed-oauth-callback` | false | OAuth redirect | Completes Lightspeed OAuth, stores token |
 | `lightspeed-sync` | false | cron + manual | Daily stock/sales/cost import |
 | `lightspeed-po-sync` | false | cron + admin/manager JWT | Mirror SUPPLIER consignments → POs (§6.1) |
-| `admin-users` | true | Settings UI | Create/edit/delete users, change password/role |
+| `admin-users` | true | Settings UI | Create/edit/delete users, change password/role **+ `sales_name` on `update`/`list` (2026-09-13)** |
 | `daily-briefing` | false | cron (parked) | Email daily briefing (needs `RESEND_API_KEY`) |
 | `instagram-connect` | true | Settings UI | Instagram OAuth connect (Meta path, dormant) |
 | `instagram-sync` | false | cron + manual | Instagram insights via Meta Graph API (dormant — token never finished) |
@@ -194,6 +196,7 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 - **Three "conversion" formulas coexist** (known, not yet unified): PDF + TodayLog = `sales ÷ (sales + lost)`; `closeDay`/`rebuildDaySummary` stored summary = `sales ÷ (sales + follow-ups + lost)` plus a visitors variant. Same day can show different percentages in the PDF and in the stored WhatsApp text.
 - `src/components/TodayLog.tsx` — close day, PDF share; staff can pull only **yesterday's** report, admin any past day.
 - `src/components/Reports.tsx` — admin "report for any day + outlet" builder (`day_closes` are per-outlet).
+- **Personal logins** (2026-09-13): `AuthContext` exposes `salesName` (= `profiles.sales_name`) and `homeLocation` (linked `employees.location`). When `salesName` is set: Quick Entry's Staff field is read-only and logs as that name (`lastStaff` ignored), Edit keeps the case owner and forbids reassignment, Close Day's closer defaults to it, and audit `by:` records the actor (`salesName ?? owner`). `App.tsx` pre-selects `activeOutlet` from `homeLocation` via `utils/outlet.ts#matchOutlet` (letters-only compare: `Time Gallery` = `TimeGallery`) so the outlet picker is skipped; the Quick Entry chip still switches. `outletChosen` is derived (`role !== 'staff' || !!activeOutlet`), and `signOut` clears `activeOutlet` + `lastStaff` (now keyed `lastStaff:<uid>`) so the next login on the same phone starts clean. `db.updateCase` **throws** on error (it used to swallow it): with personal `created_by`, a colleague's edit of your same-day Sale is refused by RLS and now shows as an error toast.
 - `src/db/index.ts` — `closeDay` does NOT lock open follow-ups (`day_locked = !isOpenFollowUp`), so staff can keep updating them (RLS: `day_locked=false AND created_by=auth.uid()`).
 
 ---
@@ -211,6 +214,8 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 ---
 
 ## 13. Changelog
+
+- **2026-09-13** (later 2) — **Personal logins for salespeople (Fadi first).** Until now every salesperson used the shared `staff@time-keeper.com` login (2006 cases) and picked their name from a dropdown. Added `profiles.sales_name` (migration `20260913120000_profiles_sales_name.sql`, the first SQL file in git) + partial unique index; `admin-users` `update`/`list` carry it (validated against `settings.staff_roster`); Team Access gets a **DSR name** select and column (amber warning when set on a non-`staff` role); `Layout.canAccessPath` treats `page_access = []` as **portal only** (was: same as null) and Team Access labels it "Portal only"; Inbox identity includes `sales_name`. DSR: `AuthContext` loads `sales_name` + linked `employees.location`; Staff field locked to the DSR name, outlet pre-selected from the HR location (switchable), closer/audit use the actor, `lastStaff` keyed per login, sign-out clears outlet/last-staff, `outletChosen` derived, app waits for the profile before rendering, `updateCase` throws on error and callers toast. Geofence **Time Gallery** added (29.364062, 47.967188, 250 m; from the store's Plus Code). Fadi: login `fadi`, role staff, DSR name `Fadi`, access portal-only, HR record linked. Old "Fadi" cases keep `created_by` = shared login on purpose (analytics key on the name).
 
 - **2026-09-13** (later) — **Deploys moved to CI in both repos.** `npm run deploy` built whatever was on the machine running it and replaced `gh-pages` with that — so a checkout that was behind `main` silently reverted the live site (it happened on 2026-09-11: the white-screen fix was overwritten for several minutes). Now `.github/workflows/ci.yml` typechecks and builds on every push to `main` and, only if that passes, publishes `dist` to `gh-pages` via `peaceiris/actions-gh-pages` with `force_orphan`. Pages settings unchanged (still branch-served). `npm run deploy` now prints why it is disabled and exits 1; the DSR's `predeploy` version bump is gone. The DSR shows `v{version} · {short sha}` (`__BUILD_SHA__` defined in `vite.config.ts` from `GITHUB_SHA`; empty in local dev) so a fresh build is visible on the phone without a version bump.
 

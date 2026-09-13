@@ -339,10 +339,11 @@ export async function updateCase(id: string, updates: Partial<Case>): Promise<vo
   // If this update includes a soft-delete (deleted=true), use the SECURITY DEFINER
   // RPC so it can bypass the SELECT policy that blocks setting deleted=true directly.
   if (updates.deleted === true) {
-    await supabase.rpc('admin_soft_delete_case', {
+    const { error } = await supabase.rpc('admin_soft_delete_case', {
       p_case_id: id,
       p_audit_log: updates.auditLog ?? [],
     });
+    if (error) throw new Error(error.message);
     return;
   }
 
@@ -371,7 +372,10 @@ export async function updateCase(id: string, updates: Partial<Case>): Promise<vo
   if (updates.linkedCaseId !== undefined) dbUpdates.linked_case_id = updates.linkedCaseId;
   if (updates.auditLog !== undefined) dbUpdates.audit_log = updates.auditLog;
 
-  await supabase.from('cases').update(dbUpdates).eq('id', id);
+  // Row-level security refuses edits to another login's same-day entries. That
+  // used to vanish here; callers now hear about it.
+  const { error } = await supabase.from('cases').update(dbUpdates).eq('id', id);
+  if (error) throw new Error(error.message);
 }
 
 // ── Day close ─────────────────────────────────────────────────────────────────
