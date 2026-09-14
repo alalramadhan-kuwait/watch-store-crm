@@ -3,16 +3,19 @@ import type { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { useAppStore } from '../store';
 
-// Roles the shared project uses that this app can meet. Only admin and the two
+// Roles the shared project uses that this app can meet. Only admin and the
 // floor roles have behaviour here; the others are named so they stop being a
 // silent branch.
 export type DsrRole = 'admin' | 'staff' | 'sales' | 'manager' | 'viewer';
 
-// 'staff' (the shared login) and 'sales' (a personal login) both sell on the
-// floor and behave identically here: they pick an outlet, see only that
-// outlet's day, and log cases. They exist as two words because Team Access
-// offers both, so the app must not care which one was picked.
-export const isFloorRole = (r: DsrRole | null) => r === 'staff' || r === 'sales';
+// Everyone who works a shop floor: 'staff' (the shared login), 'sales' (a
+// personal login) and 'manager' (the store manager, who runs both shops and
+// sells in them — 476 of the cases on the board are his). They behave
+// identically here: pick an outlet, see that outlet's day, log cases. Three
+// words for it because Team Access offers all three, so the app must not care
+// which one was picked.
+export const isFloorRole = (r: DsrRole | null) =>
+  r === 'staff' || r === 'sales' || r === 'manager';
 
 // The store manager runs both shops: he sees the numbers (Dashboard, Reports)
 // but not the books (CRM) or the keys (Settings, where logins are made).
