@@ -14,6 +14,11 @@ export type DsrRole = 'admin' | 'staff' | 'sales' | 'manager' | 'viewer';
 // offers both, so the app must not care which one was picked.
 export const isFloorRole = (r: DsrRole | null) => r === 'staff' || r === 'sales';
 
+// The store manager runs both shops: he sees the numbers (Dashboard, Reports)
+// but not the books (CRM) or the keys (Settings, where logins are made).
+// Owners keep everything.
+export const canSeePerformance = (r: DsrRole | null) => r === 'admin' || r === 'manager';
+
 export interface Profile {
   id: string;
   full_name: string;

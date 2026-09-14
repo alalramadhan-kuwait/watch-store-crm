@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { PlusCircle, ClipboardList, Bell, BarChart2, FileText, Settings, Users, UserRound } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, canSeePerformance } from '../../context/AuthContext';
 
 const baseItems = [
   { to: '/',          icon: PlusCircle,    label: 'Entry'      },
@@ -9,16 +9,24 @@ const baseItems = [
   { to: '/portal',    icon: UserRound,    label: 'Me'         },
 ];
 
-const adminItems = [
-  { to: '/crm',      icon: Users,    label: 'CRM'       },
+// The store manager gets the numbers; only owners get CRM and Settings.
+const performanceItems = [
   { to: '/manager',  icon: BarChart2, label: 'Dashboard' },
   { to: '/reports',  icon: FileText,  label: 'Reports'   },
+];
+
+const ownerItems = [
+  { to: '/crm',      icon: Users,    label: 'CRM'       },
   { to: '/settings', icon: Settings,  label: 'Settings'  },
 ];
 
 export function NavBar() {
   const { role } = useAuth();
-  const items = role === 'admin' ? [...baseItems, ...adminItems] : baseItems;
+  const items = [
+    ...baseItems,
+    ...(canSeePerformance(role) ? performanceItems : []),
+    ...(role === 'admin' ? ownerItems : []),
+  ];
 
   return (
     // Hidden on desktop — sidebar takes over

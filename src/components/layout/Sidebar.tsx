@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
 import { PlusCircle, ClipboardList, Bell, BarChart2, FileText, Settings, LogOut, Users, UserRound } from 'lucide-react';
-import { useAuth } from '../../context/AuthContext';
+import { useAuth, canSeePerformance } from '../../context/AuthContext';
 import { useAppStore } from '../../store';
 import pkg from '../../../package.json';
 

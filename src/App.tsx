@@ -15,14 +15,16 @@ import { CRM } from './components/CRM';
 import { OutletSelector } from './components/OutletSelector';
 import { MyPortal } from './components/MyPortal';
 import { ToastContainer } from './components/shared/Toast';
-import { AuthProvider, useAuth } from './context/AuthContext';
+import { AuthProvider, useAuth, canSeePerformance } from './context/AuthContext';
+import type { DsrRole } from './context/AuthContext';
 import { isDayClosed, closeDay, getCasesByDate, updateCase } from './db';
 import { previousDay, dayIsOver } from './utils/dayClose';
 import { useAppStore } from './store';
 
-function ProtectedRoute({ children }: { children: React.ReactNode }) {
+function ProtectedRoute({ children, allow }: { children: React.ReactNode; allow?: (r: DsrRole | null) => boolean }) {
   const { role } = useAuth();
-  if (role !== 'admin') return <Navigate to="/" replace />;
+  const ok = allow ? allow(role) : role === 'admin';
+  if (!ok) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -101,8 +103,8 @@ function AppShell() {
           <Route path="/followups" element={<FollowUps />} />
           <Route path="/portal" element={<MyPortal />} />
           <Route path="/crm" element={<ProtectedRoute><CRM /></ProtectedRoute>} />
-          <Route path="/manager" element={<ProtectedRoute><ManagerDashboard /></ProtectedRoute>} />
-          <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+          <Route path="/manager" element={<ProtectedRoute allow={canSeePerformance}><ManagerDashboard /></ProtectedRoute>} />
+          <Route path="/reports" element={<ProtectedRoute allow={canSeePerformance}><Reports /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
