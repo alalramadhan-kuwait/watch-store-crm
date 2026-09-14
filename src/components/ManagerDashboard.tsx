@@ -76,6 +76,7 @@ function DailyView() {
   const convRate = interactions > 0 ? Math.round((sales.length / interactions) * 100) : 0;
   const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
   const filteredCases = [...cases].filter(c => !staffFilter || c.staff === staffFilter).reverse();
+  const team = useMemo(() => buildTeam(cases), [cases]);
 
   return (
     <div className="space-y-5">
@@ -90,6 +91,14 @@ function DailyView() {
         <KpiTile icon={<AlertCircle className="w-5 h-5" />} label="Open Follow-ups" value={String(openFU)} color="rose" />
         <KpiTile icon={<TrendingUp className="w-5 h-5" />} label="Close Rate" value={`${convRate}%`} color="brand" />
       </div>
+
+      {/* The team, today. This is the manager's landing page, so his people come
+          before the case list — tapping a card filters the list to that person. */}
+      <TeamCards
+        team={team}
+        onOpen={(name) => setStaffFilter(staffFilter === name ? '' : name)}
+        subtitle="today"
+      />
 
       <div>
         <select value={staffFilter} onChange={e => setStaffFilter(e.target.value)} className="input text-sm py-2 max-w-xs">
@@ -164,6 +173,65 @@ function DailyView() {
 
 interface DrillDown { title: string; cases: Case[]; }
 
+/**
+ * Per-person KPIs for a set of cases — the same shape whether the range is one
+ * day or one month, so the manager reads his team the same way in both views.
+ */
+function buildTeam(cases: Case[]) {
+  // formula the daily PDF prints, so the manager and the report agree. It is
+  // deliberately not sales ÷ every case: browsing visits are footfall, not a
+  // chance that was lost.
+  const today = format(new Date(), 'yyyy-MM-dd');
+  type Person = {
+    name: string; sales: number; kd: number; lost: number; browsing: number;
+    openFU: number; overdueFU: number; outlets: Set<string>;
+    brands: Record<string, number>;
+  };
+  const staffMap: Record<string, Person> = {};
+  const blank = (name: string): Person => ({
+    name, sales: 0, kd: 0, lost: 0, browsing: 0, openFU: 0, overdueFU: 0,
+    outlets: new Set<string>(), brands: {},
+  });
+  for (const c of cases) {
+    const p = (staffMap[c.staff] ??= blank(c.staff));
+    if (c.outlet) p.outlets.add(c.outlet);
+    if (c.caseType === 'Sale') {
+      p.sales++;
+      p.kd += c.amountKD || 0;
+      for (const item of getEffectiveItems(c)) {
+        const b = item.brand || 'Unknown';
+        p.brands[b] = (p.brands[b] || 0) + (item.amountKD || 0);
+      }
+    } else if (c.caseType === 'Lost Sale') {
+      p.lost++;
+    } else if (c.caseType === 'No Interaction') {
+      p.browsing += c.visitorCount ?? 1;
+    } else if (c.caseType === 'Follow-up' && c.status === 'Open') {
+      p.openFU++;
+      if (c.promisedCallback && c.promisedCallback < today) p.overdueFU++;
+    }
+  }
+  return Object.values(staffMap)
+    .map((d) => {
+      const decided = d.sales + d.lost;
+      const topBrand = Object.entries(d.brands).sort((a, b) => b[1] - a[1])[0]?.[0] ?? '';
+      return {
+        ...d,
+        outletList: [...d.outlets].sort(),
+        topBrand,
+        cases: d.sales + d.lost + d.openFU + d.browsing,
+        followupsOwed: d.openFU,
+        conv: decided > 0 ? Math.round((d.sales / decided) * 100) : 0,
+        avg: d.sales > 0 ? d.kd / d.sales : 0,
+      };
+    })
+    .sort((a, b) => b.kd - a.kd);
+}
+
+export type TeamMember = ReturnType<typeof buildTeam>[number];
+
+
+
 function WeeklyView() {
   const [rangeEnd] = useState(format(new Date(), 'yyyy-MM-dd'));
   const [rangeStart, setRangeStart] = useState(format(subDays(new Date(), 6), 'yyyy-MM-dd'));
@@ -192,16 +260,7 @@ function WeeklyView() {
     const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
     const interactionRate = totalVisitors > 0 ? Math.round((interactions / totalVisitors) * 100) : 0;
 
-    const staffMap: Record<string, { cases: number; sales: number; kd: number; followupsOwed: number }> = {};
-    for (const c of cases) {
-      if (!staffMap[c.staff]) staffMap[c.staff] = { cases: 0, sales: 0, kd: 0, followupsOwed: 0 };
-      staffMap[c.staff].cases++;
-      if (c.caseType === 'Sale') { staffMap[c.staff].sales++; staffMap[c.staff].kd += c.amountKD || 0; }
-      if (c.caseType === 'Follow-up' && c.status === 'Open') staffMap[c.staff].followupsOwed++;
-    }
-    const leaderboard = Object.entries(staffMap)
-      .map(([name, d]) => ({ name, ...d, conv: d.cases > 0 ? Math.round((d.sales / d.cases) * 100) : 0 }))
-      .sort((a, b) => b.kd - a.kd);
+    const leaderboard = buildTeam(cases);
 
     const lostReasonMap: Record<string, number> = {};
     for (const c of lost) { const r = c.lostReason || 'Other'; lostReasonMap[r] = (lostReasonMap[r] || 0) + 1; }
@@ -290,38 +349,8 @@ function WeeklyView() {
 
       {/* Desktop: two-column layout */}
       <div className="lg:grid lg:grid-cols-2 lg:gap-6 space-y-6 lg:space-y-0">
-        <div className="card p-4">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="font-bold text-slate-900">Staff Leaderboard</h3>
-            <span className="text-[10px] text-slate-400">Click to see cases ↗</span>
-          </div>
-          {stats.leaderboard.length === 0 ? (
-            <p className="text-slate-400 text-sm">No data for this range.</p>
-          ) : (
-            <div className="space-y-1">
-              {stats.leaderboard.map((s, i) => (
-                <div key={s.name}
-                  onClick={() => drillInto(`${s.name} — All Cases`, cases.filter(c => c.staff === s.name))}
-                  className="flex items-center gap-3 rounded-xl px-2 py-2 -mx-2 cursor-pointer hover:bg-slate-50 transition-colors">
-                  <span className={`w-6 h-6 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${i === 0 ? 'bg-amber-400 text-amber-900' : 'bg-slate-100 text-slate-500'}`}>{i + 1}</span>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-slate-800 text-sm">{s.name}</span>
-                      <span className="text-sm font-bold text-brand-700">{formatKD(s.kd)} KD</span>
-                    </div>
-                    <div className="flex gap-3 text-xs text-slate-500 mt-0.5">
-                      <span>{s.sales} sales</span>
-                      <span>{s.conv}% conv.</span>
-                      {s.followupsOwed > 0 && <span className="text-amber-600">{s.followupsOwed} open FU</span>}
-                    </div>
-                    <div className="mt-1 h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                      <div className="h-full bg-brand-500 rounded-full" style={{ width: `${stats.leaderboard[0].kd > 0 ? (s.kd / stats.leaderboard[0].kd) * 100 : 0}%` }} />
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
+        <div className="lg:col-span-2">
+          <TeamCards team={stats.leaderboard} onOpen={(name) => drillInto(`${name} — All Cases`, cases.filter(c => c.staff === name))} />
         </div>
 
         {stats.lostReasons.length > 0 && (
@@ -415,6 +444,85 @@ function WeeklyView() {
       {drillDown && (
         <DrillDownModal drillDown={drillDown} onClose={() => setDrillDown(null)} />
       )}
+    </div>
+  );
+}
+
+
+/** The manager's main view of his team: one card per salesperson. */
+function TeamCards({ team, onOpen, subtitle }: {
+  team: TeamMember[]; onOpen: (name: string) => void; subtitle?: string;
+}) {
+  const top = team[0]?.kd ?? 0;
+  return (
+    <>
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="font-bold text-slate-900">Team{subtitle ? <span className="font-normal text-slate-400 text-sm ml-2">{subtitle}</span> : null}</h3>
+        <span className="text-[10px] text-slate-400">Tap a card to see their cases ↗</span>
+      </div>
+      {team.length === 0 ? (
+        <p className="text-slate-400 text-sm">Nobody has logged anything yet.</p>
+      ) : (
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {team.map((s, i) => (
+            <button key={s.name} type="button" onClick={() => onOpen(s.name)}
+              className="card p-4 text-left hover:border-brand-200 hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-brand-200">
+              <div className="flex items-start gap-2 mb-3">
+                <span className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold shrink-0 ${i === 0 && s.kd > 0 ? 'bg-amber-400 text-amber-900' : 'bg-slate-100 text-slate-500'}`}>{i + 1}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="font-semibold text-slate-900 text-sm truncate">{s.name}</div>
+                  <div className="text-[11px] text-slate-400 truncate">
+                    {s.outletList.length > 0 ? s.outletList.join(' · ') : 'No outlet'}
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-baseline gap-1.5">
+                <span className="text-2xl font-bold text-brand-700 leading-none">{formatKDCompact(s.kd)}</span>
+                <span className="text-xs font-semibold text-slate-400">KD</span>
+              </div>
+              <div className="mt-1.5 h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                <div className="h-full bg-brand-500 rounded-full" style={{ width: `${top > 0 ? (s.kd / top) * 100 : 0}%` }} />
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 mt-3 text-center">
+                <StaffStat label="Sales" value={String(s.sales)} />
+                <StaffStat label="Close rate" value={s.sales + s.lost === 0 ? '—' : `${s.conv}%`}
+                  tone={s.sales + s.lost === 0 ? 'muted' : s.conv >= 50 ? 'good' : s.conv >= 25 ? 'warn' : 'bad'} />
+                <StaffStat label="Avg sale" value={s.sales > 0 ? formatKDCompact(s.avg) : '—'} />
+                <StaffStat label="Lost" value={String(s.lost)} tone={s.lost > 0 ? 'bad' : 'muted'} />
+                <StaffStat label="Browsing" value={String(s.browsing)} />
+                <StaffStat label="Open FU" value={String(s.openFU)}
+                  tone={s.overdueFU > 0 ? 'bad' : s.openFU > 0 ? 'warn' : 'muted'}
+                  sub={s.overdueFU > 0 ? `${s.overdueFU} overdue` : undefined} />
+              </div>
+
+              {s.topBrand && (
+                <div className="mt-3 pt-2 border-t border-slate-100 text-[11px] text-slate-500">
+                  Best brand <span className="font-semibold text-slate-700">{s.topBrand}</span>
+                </div>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
+    </>
+  );
+}
+
+/** One KPI inside a team member's card. */
+function StaffStat({ label, value, tone = 'plain', sub }: {
+  label: string; value: string; tone?: 'plain' | 'good' | 'warn' | 'bad' | 'muted'; sub?: string;
+}) {
+  const toneClass = {
+    plain: 'text-slate-800', good: 'text-emerald-600', warn: 'text-amber-600',
+    bad: 'text-rose-600', muted: 'text-slate-400',
+  }[tone];
+  return (
+    <div className="bg-slate-50 rounded-xl py-2 px-1">
+      <div className={`text-sm font-bold leading-none ${toneClass}`}>{value}</div>
+      <div className="text-[10px] text-slate-400 mt-1 leading-tight">{label}</div>
+      {sub && <div className="text-[10px] text-rose-500 leading-tight">{sub}</div>}
     </div>
   );
 }

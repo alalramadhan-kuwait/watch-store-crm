@@ -1,5 +1,5 @@
-import { useEffect, useState } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { useEffect, useRef } from 'react';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { format } from 'date-fns';
 import { NavBar } from './components/layout/NavBar';
 import { TopBar } from './components/layout/TopBar';
@@ -37,6 +37,19 @@ function AppShell() {
   // session: the day's report is per-outlet, and people cover for each other
   // between the two shops.
   const outletChosen = !onFloor || !!activeOutlet;
+
+  // The store manager opens the app to the Dashboard, not to Quick Entry: he
+  // runs both shops and looks at the numbers first. Done once per sign-in
+  // rather than as a route rule, so tapping Entry afterwards still works.
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  const landed = useRef(false);
+  useEffect(() => {
+    if (landed.current || !user || !profile) return;
+    landed.current = true;
+    // owners keep their habit of opening on Quick Entry; this is the manager's
+    if (role === 'manager' && pathname === '/') navigate('/manager', { replace: true });
+  }, [user, profile, role, pathname, navigate]);
 
   // Auto-close safety net: if nobody closed a day, close it once it is over.
   useEffect(() => {
