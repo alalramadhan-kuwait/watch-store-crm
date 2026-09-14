@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { readDraft, writeDraft, clearDraft } from '../lib/drafts';
 import { format, addDays } from 'date-fns';
 import { ShoppingBag, Clock, TrendingDown, Users, ChevronDown, CheckCircle, Plus, Store, Trash2 } from 'lucide-react';
 import { getSettings, getBrands, insertCase, insertSaleItems, nextCaseId } from '../db';
@@ -234,6 +235,13 @@ function SaleItemsEditor({ items, onChange, brands, errors }: {
   );
 }
 
+/* One id per page load. A draft written under this id came from the visit that
+   is still going — switching to Today and back should simply find the form as
+   you left it. A draft from a different id means the app was closed and
+   reopened, which is worth saying out loud. */
+const VISIT = Math.random().toString(36).slice(2);
+const DRAFT = 'quick-entry';
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
@@ -270,6 +278,56 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
   const [notes, setNotes] = useState('');
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+  const [restored, setRestored] = useState(false);
+
+  /* ── the draft ──────────────────────────────────────────────────────────
+     Everything above that a person types, kept as they type it. Until Save,
+     a sale exists nowhere but this phone. */
+  const { user } = useAuth();
+  const snapshot = () => ({
+    visit: VISIT, entryType, saleItems, brand, productType, lostReason, followUpAction,
+    promisedCallback, customerName, contact, amountKD, lostProduct, strapWidth,
+    browsingTags, browsingBehaviour, visitorCount, showNotes, notes,
+  });
+  type Draft = ReturnType<typeof snapshot>;
+  /* "Has anything been entered?" — the fields a blank form starts with are
+     excluded, so simply opening the app never leaves a draft behind. */
+  const worthKeeping = (d: Draft) =>
+    !!d.entryType || !!d.brand || !!d.customerName || !!d.contact || !!d.amountKD ||
+    !!d.lostProduct || !!d.strapWidth || !!d.browsingBehaviour || !!d.notes ||
+    d.browsingTags.length > 0 || d.visitorCount !== 1 ||
+    d.saleItems.some((i) => i.brand || i.amountKD || i.product || i.productType !== 'Watch');
+
+  const applyDraft = (d: Draft) => {
+    setEntryType(d.entryType); setSaleItems(d.saleItems); setBrand(d.brand);
+    setProductType(d.productType); setLostReason(d.lostReason); setFollowUpAction(d.followUpAction);
+    setPromisedCallback(d.promisedCallback); setCustomerName(d.customerName); setContact(d.contact);
+    setAmountKD(d.amountKD); setLostProduct(d.lostProduct); setStrapWidth(d.strapWidth);
+    setBrowsingTags(d.browsingTags); setBrowsingBehaviour(d.browsingBehaviour);
+    setVisitorCount(d.visitorCount); setShowNotes(d.showNotes); setNotes(d.notes);
+  };
+
+  const loaded = useRef(false);
+  useEffect(() => {
+    if (loaded.current) return;
+    loaded.current = true;
+    const d = readDraft<Draft>(user?.id, DRAFT);
+    if (!d || !worthKeeping(d)) return;
+    applyDraft(d);
+    // silent when the same visit is simply coming back to this tab
+    if (d.visit !== VISIT) setRestored(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!loaded.current) return;
+    const d = snapshot();
+    if (worthKeeping(d)) writeDraft(user?.id, DRAFT, d);
+    else clearDraft(user?.id, DRAFT);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [entryType, saleItems, brand, productType, lostReason, followUpAction, promisedCallback,
+      customerName, contact, amountKD, lostProduct, strapWidth, browsingTags,
+      browsingBehaviour, visitorCount, showNotes, notes, user?.id]);
 
   useEffect(() => {
     getSettings().then(s => {
@@ -280,6 +338,8 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
   }, []);
 
   function resetForm() {
+    clearDraft(user?.id, DRAFT);
+    setRestored(false);
     setEntryType('');
     setSaleItems([blankItem()]);
     setBrand('');
@@ -443,6 +503,15 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
 
   return (
     <div className={outerClass}>
+      {/* What was being typed when the app went away. Said out loud rather than
+          slipped back in silently: the person holding the phone now may not be
+          the one who started it. */}
+      {restored && (
+        <div className="mb-4 flex items-center gap-3 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200 text-amber-800 text-sm">
+          <span className="flex-1">An unfinished entry was put back.</span>
+          <button type="button" onClick={resetForm} className="shrink-0 font-semibold underline">Discard</button>
+        </div>
+      )}
       {/* Header */}
       <div className="mb-5">
         <h1 className={`font-bold text-slate-900 ${panelMode ? 'text-xl' : 'text-2xl'}`}>Quick Entry</h1>

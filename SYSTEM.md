@@ -4,7 +4,7 @@
 >
 > **This is a mirror.** The same file lives in both repos (`timekeeper-online/SYSTEM.md` and `watch-store-crm/SYSTEM.md`) because the two apps share one system — keep the two copies identical when you update either.
 >
-> Last updated: **2026-07-25**
+> Last updated: **2026-09-14**
 
 ---
 
@@ -222,6 +222,21 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 ---
 
 ## 13. Changelog
+
+- **2026-09-14** (later 6) — **Both apps are installed applications now, and the DSR keeps what you were typing.** The same work across `timekeeper-online` and `watch-store-crm`.
+
+  *Shared shape.* Each app declares a manifest (`display: standalone`, `orientation: portrait`, `id`/`start_url`/`scope` `./`), a full-bleed icon with a separate **maskable** variant, an `apple-touch-icon`, a Home Screen name (`Timekeeper` / `DSR`) and **24 iOS launch screens** covering every iPhone and iPad Apple still ships, portrait and — on iPad — landscape, in the app's own background colour so nothing flashes on open. Both refuse the browser's own zoom: `maximum-scale=1, user-scalable=no` in the viewport, the `gesturestart/change/end` events refused in script (Safari ignores the tag), `touch-action: manipulation` for double tap, and every keyboard-bearing field at 16px on a coarse pointer. The trackpad pinch is refused **only on touch devices** — zooming a page of figures at a desk is reasonable. The four safe-area insets are named once as `--sa-t/r/b/l` custom properties, which also makes a notched layout testable by setting them.
+
+  *Service worker (both).* `public/sw.js` precaches the shell; the hashed asset list and a build id derived from it are written in at build time by a Vite plugin (`serviceWorkerManifest` in each `vite.config.ts`), so the file differs exactly when the output differs — the only signal a browser uses to notice a new worker. **Cross-origin requests are never touched**: every figure comes from Supabase, and a cached sales number is not a faster answer but a wrong one. Opening after install is ~60–85 ms against 2.2 s (Timekeeper) / 3.2 s (DSR) on 4G and 21 s / 30 s on slow 3G. The DSR's worker keeps its Web Push handlers unchanged; what it lost is the `skipWaiting()` it used to call on install — **a new version now waits and the app offers it**, and taking it reloads, so an update can no longer replace the app under someone mid-form.
+
+  *Timekeeper Online.* Safe areas extended from three ad-hoc places to the whole shell — mobile header, sidebar and its footer, page body, record sheet, sign-in screen. The record editor (`CrudModule`'s `RecordForm`) now keeps a **draft** as you type and offers it back with a Discard when you reopen the same record within two hours; drafts are per user and cleared on sign-out (`src/lib/drafts.ts`). The app also reopens on the page you left, for eight hours, unless a link or a notification says otherwise (`src/lib/platform.ts`).
+
+  *DSR.* Two real bugs fixed on the way. The bottom navigation carried a class **`safe-area-bottom` that was never defined anywhere** — not in the stylesheet, not in the Tailwind config — so on every iPhone with a home indicator the Entry/Today/Follow-ups buttons sat underneath it; the class exists now, along with `safe-area-top`/`safe-area-x` on both fixed bars, and `<main>`'s top padding grows with the status-bar inset. And `theme-color` was `#0a0a0a` above a white header, which Android drew as a black band; it matches the bar now. **Josefin Sans is self-hosted** (latin subset, `public/fonts/`) instead of fetched from `fonts.googleapis.com` — that request blocked the first paint on a third party and meant the app could not open offline with its own branding. **Quick Entry keeps a draft** of the entry in progress (`src/lib/drafts.ts`, 12-hour life, per user, cleared on save and on sign-out): until Save a sale exists nowhere but that phone, and a phone locks between customers. Coming back within the same visit restores silently; a reopened app says so and offers Discard.
+
+  *Dashboard, Timekeeper Online.* The headline **Sales this month** tile now lists the three shops beneath the total — each one's takings and how far through **its own** target it is, in the same order as the bar chart. The figures were already computed for that chart, so this adds no query. On a phone the tile takes the full row; in the two-column grid the shop names truncated to "Ti…".
+
+  Verified: 26 + 26 assertions on the installed behaviour of the two apps, 18 + 18 on the workers, offline, route memory and the update path, and 13 + 9 on the two draft stores. Both typecheck and build clean.
+
 
 - **2026-09-14** (later 4) — **More than one shift a day.** Fadi works a morning and an evening; clocking out ended the day in both portals — the button became a "Done" badge with no way back in. The table never had a per-day constraint, so every wrong assumption was in the apps. Both My Portals now hold **all** of today's records (`todayRecs`), derive `openRec` / `firstRec` / `lastRec` from the list, and always offer Clock In again ("Clock In Again", with the hours so far beside it). **Lateness belongs to the clock-in that opened the day** — an evening shift is no longer written as late (`is_late` is only set when `todayRecs.length === 0`) and the label reads off `firstRec`. Per-day aggregation replaced per-record in four places: days present (`byDay.size`, not row count), missing hours (a day's total against the 8-hour standard, not each half), late days (the first record of each day), and the manager's card and calendar. A calendar square now sums the whole day, carries a dot per shift, and lists each shift in its tooltip; the card says "3 shifts" when a day was split. Today's strip reads **First in / Last out / Total**. Asking for an attendance correction no longer requires having finished the day. Verified by driving a real in-out-in-out day in a browser (two records, only the first late, one day present) and a split day through the manager dashboard (2 days, 3 shifts, 16h, one late).
 

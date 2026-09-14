@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import type { User } from '@supabase/supabase-js';
 import { supabase } from '../lib/supabase';
 import { useAppStore } from '../store';
+import { clearAllDrafts } from '../lib/drafts';
 
 // Roles the shared project uses that this app can meet. Only admin and the
 // floor roles have behaviour here; the others are named so they stop being a
@@ -96,8 +97,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   async function signOut() {
     // Outlet and last-staff memory belong to the person, not the device:
-    // the next login on this phone must not inherit them.
+    // the next login on this phone must not inherit them. Nor must an entry
+    // the outgoing person had half typed.
     useAppStore.getState().clearSessionState();
+    clearAllDrafts(user?.id);
     await supabase.auth.signOut();
   }
 

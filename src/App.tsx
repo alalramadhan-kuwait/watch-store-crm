@@ -109,7 +109,13 @@ function AppShell() {
       <TopBar />
       <Sidebar />
 
-      <main className={`min-h-screen pt-14 transition-all duration-200 ${sidebarCollapsed ? 'lg:ml-14' : 'lg:ml-60'}`}>
+      {/* The bar above is fixed and now grows by the status-bar inset, so what
+          clears it has to grow by the same amount or the first row of every
+          page slides underneath it. */}
+      <main
+        className={`min-h-screen transition-all duration-200 ${sidebarCollapsed ? 'lg:ml-14' : 'lg:ml-60'}`}
+        style={{ paddingTop: 'calc(3.5rem + var(--sa-t))' }}
+      >
         <Routes>
           <Route path="/" element={<EntryWithLog />} />
           <Route path="/today" element={<TodayLog />} />

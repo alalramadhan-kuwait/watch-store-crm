@@ -1,3 +1,19 @@
+/* The wordmark's face, carried with the app rather than fetched from
+   fonts.googleapis.com. That request was the one thing the shell needed from a
+   third party: it blocked the first paint on someone else's server, and it
+   meant the app could not be opened offline with its own branding intact.
+   Latin subset only — the wordmark is two English words.
+
+   Three declarations, one file: this is how Google's own stylesheet serves the
+   family, and copying that exactly means the weights resolve as they did
+   before rather than being synthesised from one of them. */
+@font-face{font-family:'Josefin Sans';font-style:normal;font-weight:100;font-display:swap;
+  src:url('/fonts/josefin-sans-latin.woff2') format('woff2')}
+@font-face{font-family:'Josefin Sans';font-style:normal;font-weight:200;font-display:swap;
+  src:url('/fonts/josefin-sans-latin.woff2') format('woff2')}
+@font-face{font-family:'Josefin Sans';font-style:normal;font-weight:300;font-display:swap;
+  src:url('/fonts/josefin-sans-latin.woff2') format('woff2')}
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -106,3 +122,75 @@
 ::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 2px; }
+
+/* ── installed-app behaviour ───────────────────────────────────────
+   The DSR is opened from a home screen and used on the floor all
+   day, so it has to behave like something that belongs there. Much
+   of this was already right — no tap highlight, no callout, no
+   overscroll, touch-manipulation on the buttons. What was missing
+   was the edges of the phone and the last of the zoom. */
+:root {
+  --sa-t: env(safe-area-inset-top, 0px);
+  --sa-r: env(safe-area-inset-right, 0px);
+  --sa-b: env(safe-area-inset-bottom, 0px);
+  --sa-l: env(safe-area-inset-left, 0px);
+}
+
+/* The bottom navigation already asked for this class. It was never
+   defined anywhere — not in the stylesheet, not in the Tailwind
+   config — so on every iPhone with a home indicator the Entry,
+   Today and Follow-ups buttons sat underneath it. */
+.safe-area-bottom { padding-bottom: var(--sa-b); }
+.safe-area-top { padding-top: var(--sa-t); }
+.safe-area-x { padding-left: var(--sa-l); padding-right: var(--sa-r); }
+
+@layer base {
+  body {
+    /* No double tap to zoom anywhere, not only on the buttons that
+       happened to carry touch-manipulation. */
+    touch-action: manipulation;
+  }
+}
+
+/* Anything with a keyboard behind it is sixteen pixels on a touch
+   screen; below that iOS zooms the page as the keyboard opens. The
+   .input class is already text-base, so this only catches the
+   fields that do not use it. */
+@media (pointer: coarse) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']):not([type='color']):not([type='file']),
+  select,
+  textarea {
+    font-size: 16px;
+  }
+}
+
+/* The new-version notice. It sits above the navigation bar, and it
+   waits: reloading the app under someone halfway through logging a
+   sale is exactly the thing this is meant to prevent. */
+#tk-update {
+  position: fixed;
+  z-index: 60;
+  left: 50%;
+  bottom: calc(4.75rem + var(--sa-b));
+  transform: translateX(-50%) translateY(300%);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  max-width: calc(100vw - 1.5rem);
+  padding: 0.5rem 0.5rem 0.5rem 1rem;
+  border-radius: 9999px;
+  background: #0f766e;
+  color: #fff;
+  font-size: 0.8125rem;
+  white-space: nowrap;
+  box-shadow: 0 10px 30px rgb(15 118 110 / 0.35);
+  transition: transform 260ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+#tk-update.tk-show { transform: translateX(-50%) translateY(0); }
+#tk-update button { border-radius: 9999px; padding: 0.3125rem 0.75rem; font-size: 0.8125rem; font-weight: 600; }
+#tk-update .tk-go { background: #fff; color: #0f766e; }
+#tk-update .tk-later { background: transparent; color: #99f6e4; font-weight: 500; }
+@media (min-width: 1024px) {
+  /* no bottom bar on desktop — the notice can sit lower */
+  #tk-update { bottom: calc(1.25rem + var(--sa-b)); }
+}

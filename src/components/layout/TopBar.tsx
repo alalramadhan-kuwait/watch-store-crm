@@ -10,7 +10,7 @@ export function TopBar() {
   const sidebarW = sidebarCollapsed ? 'lg:pl-14' : 'lg:pl-60';
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-30 bg-white border-b border-slate-100">
+    <header className="fixed top-0 left-0 right-0 z-30 bg-white border-b border-slate-100 safe-area-top safe-area-x">
       <div className={`flex items-center justify-between ${sidebarW} transition-all duration-200`}>
         {/* Mobile: sign out placeholder (keeps brand centered) */}
         {profile && (

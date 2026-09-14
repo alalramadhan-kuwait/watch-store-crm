@@ -30,7 +30,7 @@ export function NavBar() {
 
   return (
     // Hidden on desktop — sidebar takes over
-    <nav className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-100 safe-area-bottom lg:hidden">
+    <nav className="fixed bottom-0 left-0 right-0 z-30 bg-white border-t border-slate-100 safe-area-bottom safe-area-x lg:hidden">
       <div className="flex items-center justify-around px-2 py-1">
         {items.map(({ to, icon: Icon, label }) => (
           <NavLink
