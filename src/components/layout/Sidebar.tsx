@@ -13,10 +13,13 @@ export function Sidebar() {
     { to: '/today',     icon: ClipboardList, label: "Today's Log" },
     { to: '/followups', icon: Bell,          label: 'Follow-ups'  },
     { to: '/portal',    icon: UserRound,     label: 'My Portal'   },
-    ...(role === 'admin' ? [
-      { to: '/crm',      icon: Users,     label: 'CRM'       },
+    // the store manager runs both shops: the numbers yes, CRM and Settings no
+    ...(canSeePerformance(role) ? [
       { to: '/manager',  icon: BarChart2,  label: 'Dashboard' },
       { to: '/reports',  icon: FileText,   label: 'Reports'   },
+    ] : []),
+    ...(role === 'admin' ? [
+      { to: '/crm',      icon: Users,     label: 'CRM'       },
       { to: '/settings', icon: Settings,   label: 'Settings'  },
     ] : []),
   ];
