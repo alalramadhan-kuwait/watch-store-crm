@@ -21,7 +21,7 @@ interface EmpRecord {
   work_permit_expiry: string | null; joining_date: string | null; annual_leave_entitlement: number | null;
   status: string | null; portal_enabled: boolean | null; phone: string | null;
 }
-interface LeaveRec { id: string; leave_type: string; leave_start: string; leave_end: string; days: number; approval_status: string; notes: string | null; created_at: string; document_url: string | null }
+interface LeaveRec { id: string; leave_type: string; leave_start: string; leave_end: string; days: number; approval_status: string; manager_status?: string; notes: string | null; created_at: string; document_url: string | null }
 interface AttRec { id: string; clock_in: string; clock_out: string | null; is_late: boolean; justified: boolean; location: string | null; correction_reason: string | null }
 interface EmpRequest { id: string; request_type: string; details: string; status: string; manager_remarks: string | null; created_at: string }
 interface Geofence { id: string; name: string; lat: number; lng: number; radius_m: number; active: boolean }
@@ -322,11 +322,17 @@ export function MyPortal() {
       title: `${l.leave_type === 'WFH' ? 'Work from home' : `${l.leave_type} leave`}${l.days ? ` · ${l.days} day${Number(l.days) > 1 ? 's' : ''}` : ''}`,
       subtitle: l.leave_start === l.leave_end ? dayLabel(l.leave_start) : `${dayLabel(l.leave_start)} → ${dayLabel(l.leave_end)}`,
       status: l.approval_status, remarks: l.notes, doc: l.document_url, startDate: l.leave_start, endDate: l.leave_end,
+      // Leave is signed off twice — the store manager first, then the owners.
+      // While it is pending, say which desk it is sitting on.
+      stage: l.approval_status !== 'Pending' ? ''
+        : l.manager_status === 'Pending' ? 'With the store manager'
+        : 'With the owners for final approval',
     })),
     ...requests.map(r => ({
       id: `rq-${r.id}`, rawId: r.id, kind: 'request' as const, when: r.created_at,
       title: r.request_type, subtitle: r.details,
       status: r.status, remarks: r.manager_remarks, doc: null as string | null, startDate: '', endDate: '',
+      stage: '',
     })),
   ].sort((a, b) => (b.when ?? '').localeCompare(a.when ?? '')), [leaves, requests]);
 
@@ -587,6 +593,7 @@ export function MyPortal() {
                         <div className="text-sm font-semibold text-slate-800">{r.title}</div>
                         <div className="text-xs text-slate-500 mt-0.5">{r.subtitle}</div>
                         <div className="text-[11px] text-slate-400 mt-0.5">Sent {stamp(r.when)}</div>
+                        {r.stage && <div className="text-[11px] text-amber-600 mt-0.5">{r.stage}</div>}
                       </div>
                       <StatusPill s={r.status} />
                     </div>
