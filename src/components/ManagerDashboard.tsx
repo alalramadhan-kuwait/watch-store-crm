@@ -1,17 +1,16 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { format, subDays } from 'date-fns';
+import { format, startOfMonth, endOfMonth, addMonths, subMonths, eachDayOfInterval, isFriday } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { TrendingUp, Users, AlertCircle, DollarSign, Calendar, FileText, X } from 'lucide-react';
+import { TrendingUp, Users, AlertCircle, DollarSign, FileText, X, ChevronLeft, ChevronRight, Clock, CalendarDays } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
-import { getTodayCases, getDayClose, getCasesForRange, getSettings, countOpenFollowUps, getEffectiveItems } from '../db';
-import { supabase } from '../lib/supabase';
+import { getCasesForRange, getSettings, getEffectiveItems, getTeamAttendance, getTeamLeave } from '../db';
+import type { AttendanceDay, LeaveDay } from '../db';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
-import { CaseTypeBadge, DayStatusBadge } from './shared/Badge';
+import { CaseTypeBadge } from './shared/Badge';
 import { Modal } from './shared/Modal';
-import type { Case, AppSettings, DayClose } from '../types';
+import type { Case } from '../types';
 
 export function ManagerDashboard() {
-  const [view, setView] = useState<'daily' | 'weekly'>('daily');
 
   return (
     <div className="px-4 pt-6 pb-32 max-w-5xl mx-auto lg:max-w-none lg:px-8">
@@ -28,150 +27,42 @@ export function ManagerDashboard() {
         </NavLink>
       </div>
 
-      <div className="flex bg-slate-100 rounded-2xl p-1 mb-6 gap-1 max-w-xs">
-        {(['daily', 'weekly'] as const).map(t => (
-          <button key={t} onClick={() => setView(t)}
-            className={`flex-1 py-2.5 rounded-xl text-sm font-semibold transition-all duration-150 capitalize ${
-              view === t ? 'bg-white text-brand-700 shadow-sm' : 'text-slate-500'}`}>
-            {t === 'daily' ? 'Today' : 'History'} View
-          </button>
-        ))}
-      </div>
-
-      {view === 'daily' ? <DailyView /> : <WeeklyView />}
-    </div>
-  );
-}
-
-function DailyView() {
-  const today = format(new Date(), 'yyyy-MM-dd');
-  const [staffFilter, setStaffFilter] = useState('');
-  const [cases, setCases] = useState<Case[]>([]);
-  const [dayClose, setDayClose] = useState<DayClose | null>(null);
-  const [openFU, setOpenFU] = useState(0);
-  const [settings, setSettings] = useState<AppSettings | null>(null);
-
-  const load = useCallback(async () => {
-    const [c, dc, fu, s] = await Promise.all([
-      getTodayCases(), getDayClose(today), countOpenFollowUps(), getSettings(),
-    ]);
-    setCases(c); setDayClose(dc); setOpenFU(fu); setSettings(s);
-  }, [today]);
-
-  useEffect(() => {
-    load();
-    const ch = supabase.channel('mgr-daily')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cases', filter: `date_logged=eq.${today}` }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'day_closes', filter: `date=eq.${today}` }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(ch); };
-  }, [load, today]);
-
-  const sales = cases.filter(c => c.caseType === 'Sale');
-  const followups = cases.filter(c => c.caseType === 'Follow-up');
-  const lost = cases.filter(c => c.caseType === 'Lost Sale');
-  const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
-  const totalVisitors = cases.reduce((s, c) => s + (c.visitorCount ?? 1), 0);
-  const interactions = sales.length + followups.length + lost.length;
-  const convRate = interactions > 0 ? Math.round((sales.length / interactions) * 100) : 0;
-  const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
-  const filteredCases = [...cases].filter(c => !staffFilter || c.staff === staffFilter).reverse();
-  const team = useMemo(() => buildTeam(cases), [cases]);
-
-  return (
-    <div className="space-y-5">
-      <div className="flex justify-end">
-        <DayStatusBadge closed={!!dayClose} closedAt={dayClose ? format(new Date(dayClose.closedAt), 'HH:mm') : undefined} />
-      </div>
-
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-        <KpiTile icon={<DollarSign className="w-5 h-5" />} label="Revenue Today" value={`${formatKDCompact(revenue)} KD`} color="brand" />
-        <KpiTile icon={<TrendingUp className="w-5 h-5" />} label="Visitor Conv." value={`${visitorConv}%`} color="emerald" />
-        <KpiTile icon={<Users className="w-5 h-5" />} label="Total Visitors" value={String(totalVisitors)} color="amber" />
-        <KpiTile icon={<AlertCircle className="w-5 h-5" />} label="Open Follow-ups" value={String(openFU)} color="rose" />
-        <KpiTile icon={<TrendingUp className="w-5 h-5" />} label="Close Rate" value={`${convRate}%`} color="brand" />
-      </div>
-
-      {/* The team, today. This is the manager's landing page, so his people come
-          before the case list — tapping a card filters the list to that person. */}
-      <TeamCards
-        team={team}
-        onOpen={(name) => setStaffFilter(staffFilter === name ? '' : name)}
-        subtitle="today"
-      />
-
-      <div>
-        <select value={staffFilter} onChange={e => setStaffFilter(e.target.value)} className="input text-sm py-2 max-w-xs">
-          <option value="">All staff</option>
-          {settings?.staffRoster.map(s => <option key={s} value={s}>{s}</option>)}
-        </select>
-      </div>
-
-      {/* Desktop table */}
-      <div className="hidden lg:block card overflow-hidden">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="border-b border-slate-100">
-              {['Time', 'Staff', 'Type', 'Brand / Product', 'Customer', 'KD'].map(h => (
-                <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wide">{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {filteredCases.map(c => (
-              <tr key={c.id} className="border-b border-slate-50 hover:bg-slate-50">
-                <td className="py-3 px-4 text-slate-400 font-mono text-xs">{c.timeLogged}</td>
-                <td className="py-3 px-4 font-medium text-slate-700">{c.staff}</td>
-                <td className="py-3 px-4"><CaseTypeBadge type={c.caseType} /></td>
-                <td className="py-3 px-4 text-slate-800 max-w-[220px]">
-                  {c.caseType === 'No Interaction' ? (
-                    <span className="text-slate-300">—</span>
-                  ) : (
-                    <>
-                      <span className="font-medium truncate block">{c.brand || c.product}</span>
-                      {c.productType && <span className="text-xs text-slate-400">{c.productType}</span>}
-                      {c.caseType === 'Follow-up' && c.notes && (
-                        <span className="text-xs text-slate-400 italic truncate block" title={c.notes}>{c.notes}</span>
-                      )}
-                      {c.caseType === 'Lost Sale' && c.product && c.product !== c.brand && (
-                        <span className="text-xs text-slate-400 truncate block" title={c.product}>{c.product}</span>
-                      )}
-                    </>
-                  )}
-                </td>
-                <td className="py-3 px-4 text-slate-500">{c.customerName || '—'}</td>
-                <td className="py-3 px-4 font-semibold text-emerald-700">{c.amountKD ? formatKD(c.amountKD) : '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {filteredCases.length === 0 && (
-          <p className="text-center py-8 text-slate-400 text-sm">No cases logged today.</p>
-        )}
-      </div>
-
-      {/* Mobile cards */}
-      <div className="lg:hidden space-y-2">
-        {filteredCases.map(c => (
-          <div key={c.id} className="card px-4 py-3 flex items-center gap-3">
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 flex-wrap">
-                <CaseTypeBadge type={c.caseType} />
-                <span className="text-xs text-slate-400">{c.timeLogged}</span>
-                <span className="text-xs text-slate-500">{c.staff}</span>
-              </div>
-              <p className="text-sm font-medium text-slate-800 mt-0.5 truncate">{c.product}</p>
-              {c.customerName && <p className="text-xs text-slate-400">{c.customerName}</p>}
-            </div>
-            {c.amountKD && <span className="text-sm font-bold text-emerald-700 shrink-0">{formatKD(c.amountKD)} KD</span>}
-          </div>
-        ))}
-      </div>
+      <MonthView />
     </div>
   );
 }
 
 interface DrillDown { title: string; cases: Case[]; }
+
+
+export interface AttendanceSummary {
+  days: number;        // days actually worked
+  hours: number;       // total clocked hours; open shifts contribute nothing
+  late: number;
+  openShifts: number;  // clocked in and never out — hours are understated by these
+  leaveDays: number;
+}
+
+/** Roll a month of attendance up per roster name. */
+function summariseAttendance(rows: AttendanceDay[], leave: LeaveDay[], monthStart: string, monthEnd: string) {
+  const out: Record<string, AttendanceSummary> = {};
+  const blank = (): AttendanceSummary => ({ days: 0, hours: 0, late: 0, openShifts: 0, leaveDays: 0 });
+  for (const r of rows) {
+    const a = (out[r.rosterName] ??= blank());
+    a.days++;
+    if (r.hours === null) a.openShifts++; else a.hours += r.hours;
+    if (r.isLate && !r.justified) a.late++;
+  }
+  for (const l of leave) {
+    const a = (out[l.rosterName] ??= blank());
+    // only the part of the leave that falls inside this month, Fridays excluded
+    for (const d of eachDayOfInterval({ start: new Date(l.start + 'T12:00:00'), end: new Date(l.end + 'T12:00:00') })) {
+      const iso = format(d, 'yyyy-MM-dd');
+      if (iso >= monthStart && iso <= monthEnd && !isFriday(d)) a.leaveDays++;
+    }
+  }
+  return out;
+}
 
 /**
  * Per-person KPIs for a set of cases — the same shape whether the range is one
@@ -232,9 +123,13 @@ export type TeamMember = ReturnType<typeof buildTeam>[number];
 
 
 
-function WeeklyView() {
-  const [rangeEnd] = useState(format(new Date(), 'yyyy-MM-dd'));
-  const [rangeStart, setRangeStart] = useState(format(subDays(new Date(), 6), 'yyyy-MM-dd'));
+function MonthView() {
+  // One whole month at a time, navigated back and forward. A shop is run and
+  // paid by the month, so that is the unit the manager compares.
+  const [month, setMonth] = useState(() => startOfMonth(new Date()));
+  const rangeStart = format(month, 'yyyy-MM-dd');
+  const rangeEnd = format(endOfMonth(month), 'yyyy-MM-dd');
+  const isThisMonth = format(month, 'yyyy-MM') === format(new Date(), 'yyyy-MM');
   const [cases, setCases] = useState<Case[]>([]);
   const [drillDown, setDrillDown] = useState<DrillDown | null>(null);
 
@@ -242,10 +137,22 @@ function WeeklyView() {
     setDrillDown({ title, cases: filteredCases });
   }
 
+  const [attendance, setAttendance] = useState<AttendanceDay[]>([]);
+  const [leave, setLeave] = useState<LeaveDay[]>([]);
+  const [sheetFor, setSheetFor] = useState<string | null>(null);
+
   const load = useCallback(async () => {
-    const data = await getCasesForRange(rangeStart, rangeEnd);
+    // `to` is exclusive for attendance, so ask for the first of the next month
+    const nextMonth = format(startOfMonth(addMonths(month, 1)), 'yyyy-MM-dd');
+    const [data, att, lv] = await Promise.all([
+      getCasesForRange(rangeStart, rangeEnd),
+      getTeamAttendance(rangeStart, nextMonth),
+      getTeamLeave(rangeStart, rangeEnd),
+    ]);
     setCases(data);
-  }, [rangeStart, rangeEnd]);
+    setAttendance(att);
+    setLeave(lv);
+  }, [rangeStart, rangeEnd, month]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -261,6 +168,7 @@ function WeeklyView() {
     const interactionRate = totalVisitors > 0 ? Math.round((interactions / totalVisitors) * 100) : 0;
 
     const leaderboard = buildTeam(cases);
+    const attendanceBy = summariseAttendance(attendance, leave, rangeStart, rangeEnd);
 
     const lostReasonMap: Record<string, number> = {};
     for (const c of lost) { const r = c.lostReason || 'Other'; lostReasonMap[r] = (lostReasonMap[r] || 0) + 1; }
@@ -307,36 +215,34 @@ function WeeklyView() {
 
     return {
       sales, followups, lost, revenue, convRate, visitorConv, interactionRate, totalVisitors,
-      leaderboard, lostReasons, brandSales, brandLost,
+      leaderboard, attendanceBy, lostReasons, brandSales, brandLost,
       topLostProducts: Object.entries(lostBrands).sort((a, b) => b[1] - a[1]).slice(0, 5),
       topFollowUpProducts: Object.entries(followUpBrands).sort((a, b) => b[1] - a[1]).slice(0, 5),
       openFollowUps: followups.filter(c => c.status === 'Open').length,
     };
-  }, [cases]);
+  }, [cases, attendance, leave, rangeStart, rangeEnd]);
 
-  const quickRanges = [{ label: '7 days', days: 6 }, { label: '14 days', days: 13 }, { label: '30 days', days: 29 }];
 
   return (
     <div className="space-y-6">
-      <div className="card p-4">
-        <div className="flex items-center gap-2 mb-3">
-          <Calendar className="w-4 h-4 text-slate-400" />
-          <span className="text-sm font-semibold text-slate-700">Date Range</span>
+      {/* Month navigator */}
+      <div className="card p-3 flex items-center justify-between gap-2">
+        <button onClick={() => setMonth(m => subMonths(m, 1))}
+          className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 transition-colors" aria-label="Previous month">
+          <ChevronLeft className="w-5 h-5" />
+        </button>
+        <div className="text-center min-w-0">
+          <div className="font-bold text-slate-900 leading-tight">{format(month, 'MMMM yyyy')}</div>
+          <div className="text-[11px] text-slate-400">
+            {isThisMonth ? `1–${format(new Date(), 'd MMM')} · so far` : 'full month'}
+          </div>
         </div>
-        <div className="flex gap-2 mb-3">
-          {quickRanges.map(({ label, days }) => (
-            <button key={label} onClick={() => setRangeStart(format(subDays(new Date(), days), 'yyyy-MM-dd'))}
-              className={`flex-1 py-2 rounded-xl text-xs font-semibold transition-colors ${
-                rangeStart === format(subDays(new Date(), days), 'yyyy-MM-dd') ? 'bg-brand-700 text-white' : 'bg-slate-100 text-slate-600'}`}>
-              Last {label}
-            </button>
-          ))}
-        </div>
-        <div className="flex gap-2">
-          <input type="date" value={rangeStart} onChange={e => setRangeStart(e.target.value)} className="input text-sm py-2 flex-1" />
-          <span className="self-center text-slate-400 text-sm">→</span>
-          <input type="date" value={rangeEnd} readOnly className="input text-sm py-2 flex-1 bg-slate-50" />
-        </div>
+        <button onClick={() => setMonth(m => startOfMonth(addMonths(m, 1)))}
+          disabled={isThisMonth}
+          className="p-2 rounded-xl text-slate-500 hover:bg-slate-100 disabled:opacity-30 disabled:hover:bg-transparent transition-colors"
+          aria-label="Next month">
+          <ChevronRight className="w-5 h-5" />
+        </button>
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
@@ -350,7 +256,12 @@ function WeeklyView() {
       {/* Desktop: two-column layout */}
       <div className="lg:grid lg:grid-cols-2 lg:gap-6 space-y-6 lg:space-y-0">
         <div className="lg:col-span-2">
-          <TeamCards team={stats.leaderboard} onOpen={(name) => drillInto(`${name} — All Cases`, cases.filter(c => c.staff === name))} />
+          <TeamCards
+            team={stats.leaderboard}
+            attendanceBy={stats.attendanceBy}
+            onOpen={(name) => drillInto(`${name} — All Cases`, cases.filter(c => c.staff === name))}
+            onSheet={(name) => setSheetFor(name)}
+          />
         </div>
 
         {stats.lostReasons.length > 0 && (
@@ -441,6 +352,13 @@ function WeeklyView() {
           onItemClick={drillInto} />
       </div>
 
+      {sheetFor && (
+        <AttendanceSheet
+          name={sheetFor} month={month} rows={attendance} leave={leave}
+          onClose={() => setSheetFor(null)}
+        />
+      )}
+
       {drillDown && (
         <DrillDownModal drillDown={drillDown} onClose={() => setDrillDown(null)} />
       )}
@@ -450,8 +368,12 @@ function WeeklyView() {
 
 
 /** The manager's main view of his team: one card per salesperson. */
-function TeamCards({ team, onOpen, subtitle }: {
-  team: TeamMember[]; onOpen: (name: string) => void; subtitle?: string;
+function TeamCards({ team, onOpen, onSheet, attendanceBy, subtitle }: {
+  team: TeamMember[];
+  onOpen: (name: string) => void;
+  onSheet: (name: string) => void;
+  attendanceBy: Record<string, AttendanceSummary>;
+  subtitle?: string;
 }) {
   const top = team[0]?.kd ?? 0;
   return (
@@ -497,16 +419,175 @@ function TeamCards({ team, onOpen, subtitle }: {
                   sub={s.overdueFU > 0 ? `${s.overdueFU} overdue` : undefined} />
               </div>
 
-              {s.topBrand && (
-                <div className="mt-3 pt-2 border-t border-slate-100 text-[11px] text-slate-500">
-                  Best brand <span className="font-semibold text-slate-700">{s.topBrand}</span>
-                </div>
-              )}
+              {/* Attendance for the same month, from the clock-in records */}
+              {(() => {
+                const a = attendanceBy[s.name];
+                return (
+                  <div className="mt-3 pt-2.5 border-t border-slate-100">
+                    <div className="flex items-center gap-3 text-[11px]">
+                      <span className="flex items-center gap-1 text-slate-600">
+                        <Clock className="w-3 h-3 text-slate-400 shrink-0" />
+                        {a && a.days > 0
+                          ? <><span className="font-semibold">{Math.round(a.hours)}h</span> over {a.days} day{a.days === 1 ? '' : 's'}</>
+                          : <span className="text-slate-400">No clock-ins</span>}
+                      </span>
+                      {a && a.late > 0 && <span className="text-amber-600 font-medium">{a.late} late</span>}
+                      {a && a.leaveDays > 0 && <span className="text-blue-600">{a.leaveDays}d leave</span>}
+                    </div>
+                    {a && a.openShifts > 0 && (
+                      <div className="text-[10px] text-slate-400 mt-0.5">
+                        {a.openShifts} shift{a.openShifts === 1 ? '' : 's'} never clocked out
+                      </div>
+                    )}
+                    <div className="flex items-center justify-between gap-2 mt-2">
+                      {s.topBrand
+                        ? <span className="text-[11px] text-slate-500 truncate">Best brand <span className="font-semibold text-slate-700">{s.topBrand}</span></span>
+                        : <span />}
+                      <span
+                        role="button" tabIndex={0}
+                        onClick={(e) => { e.stopPropagation(); onSheet(s.name); }}
+                        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onSheet(s.name); } }}
+                        className="shrink-0 inline-flex items-center gap-1 text-[11px] font-semibold text-brand-700 bg-brand-50 px-2 py-1 rounded-lg hover:bg-brand-100 transition-colors cursor-pointer">
+                        <CalendarDays className="w-3 h-3" /> Attendance
+                      </span>
+                    </div>
+                  </div>
+                );
+              })()}
             </button>
           ))}
         </div>
       )}
     </>
+  );
+}
+
+
+/**
+ * Clock times, always in the shops' timezone.
+ *
+ * date-fns `format` uses the viewer's device clock, so an owner opening this
+ * from another country would read a salesperson's 08:55 start as 05:55. The
+ * date these rows are grouped by is already pinned to Kuwait in `db`; the time
+ * has to be pinned the same way.
+ */
+const kuwaitTime = (ts: string) =>
+  new Date(ts).toLocaleTimeString('en-GB', {
+    timeZone: 'Asia/Kuwait', hour: '2-digit', minute: '2-digit',
+  });
+
+/**
+ * One person's month of attendance as a calendar.
+ *
+ * Every day in the month gets a square so the gaps are as visible as the
+ * presence: worked (with the hours), late, on leave, Friday, or absent. Days
+ * that have not happened yet are left blank rather than marked absent.
+ */
+function AttendanceSheet({ name, month, rows, leave, onClose }: {
+  name: string; month: Date; rows: AttendanceDay[]; leave: LeaveDay[]; onClose: () => void;
+}) {
+  const days = eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) });
+  const today = format(new Date(), 'yyyy-MM-dd');
+  const mine = rows.filter(r => r.rosterName === name);
+  const byDate = new Map(mine.map(r => [r.date, r]));
+  const onLeave = (iso: string) =>
+    leave.find(l => l.rosterName === name && l.start <= iso && l.end >= iso);
+
+  const worked = mine.length;
+  const hours = mine.reduce((t, r) => t + (r.hours ?? 0), 0);
+  const lates = mine.filter(r => r.isLate && !r.justified).length;
+  // the week starts on Saturday in Kuwait, so shift the first column accordingly
+  const pad = (days[0].getDay() + 1) % 7;
+
+  return (
+    <Modal open onClose={onClose} title={`${name} — ${format(month, 'MMMM yyyy')}`} size="lg">
+      <div className="space-y-4">
+        <div className="grid grid-cols-3 gap-2 text-center">
+          <div className="bg-slate-50 rounded-xl py-2">
+            <div className="text-lg font-bold text-slate-800 leading-none">{worked}</div>
+            <div className="text-[11px] text-slate-400 mt-1">Days worked</div>
+          </div>
+          <div className="bg-slate-50 rounded-xl py-2">
+            <div className="text-lg font-bold text-slate-800 leading-none">{Math.round(hours)}h</div>
+            <div className="text-[11px] text-slate-400 mt-1">Total hours</div>
+          </div>
+          <div className="bg-slate-50 rounded-xl py-2">
+            <div className={`text-lg font-bold leading-none ${lates > 0 ? 'text-amber-600' : 'text-slate-800'}`}>{lates}</div>
+            <div className="text-[11px] text-slate-400 mt-1">Late</div>
+          </div>
+        </div>
+
+        <div>
+          <div className="grid grid-cols-7 gap-1 mb-1">
+            {['Sa', 'Su', 'Mo', 'Tu', 'We', 'Th', 'Fr'].map(d => (
+              <div key={d} className="text-[10px] font-semibold text-slate-400 text-center">{d}</div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {Array.from({ length: pad }, (_, i) => <div key={`pad${i}`} />)}
+            {days.map(d => {
+              const iso = format(d, 'yyyy-MM-dd');
+              const rec = byDate.get(iso);
+              const lv = onLeave(iso);
+              const future = iso > today;
+              const friday = isFriday(d);
+
+              let cls = 'bg-slate-50 text-slate-300';
+              let note = '';
+              if (rec) {
+                cls = rec.isLate && !rec.justified
+                  ? 'bg-amber-100 text-amber-800 border border-amber-200'
+                  : 'bg-emerald-100 text-emerald-800 border border-emerald-200';
+                note = rec.hours !== null ? `${rec.hours.toFixed(1)}h` : 'open';
+              } else if (lv) {
+                cls = 'bg-blue-100 text-blue-700 border border-blue-200';
+                // a blind slice turned "Annual" into "Annu"
+                note = lv.type === 'WFH' ? 'WFH' : lv.type === 'Sick' ? 'Sick' : 'Leave';
+              } else if (friday) {
+                cls = 'bg-slate-100 text-slate-400';
+                note = '—';
+              } else if (!future) {
+                cls = 'bg-rose-50 text-rose-400 border border-rose-100';
+                note = 'absent';
+              }
+
+              return (
+                <div key={iso} className={`rounded-lg px-1 py-1.5 text-center ${cls}`}
+                  title={rec ? `${kuwaitTime(rec.clockIn!)}${rec.clockOut ? ` → ${kuwaitTime(rec.clockOut)}` : ' → still in'}${rec.location ? ` · ${rec.location}` : ''}` : undefined}>
+                  <div className="text-[11px] font-semibold leading-none">{format(d, 'd')}</div>
+                  <div className="text-[9px] leading-tight mt-0.5 truncate">{note}</div>
+                </div>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-3 mt-3 text-[10px] text-slate-400">
+            <span><span className="inline-block w-2 h-2 rounded bg-emerald-200 mr-1" />On time</span>
+            <span><span className="inline-block w-2 h-2 rounded bg-amber-200 mr-1" />Late</span>
+            <span><span className="inline-block w-2 h-2 rounded bg-blue-200 mr-1" />Leave</span>
+            <span><span className="inline-block w-2 h-2 rounded bg-rose-100 mr-1" />Absent</span>
+            <span><span className="inline-block w-2 h-2 rounded bg-slate-200 mr-1" />Friday</span>
+          </div>
+        </div>
+
+        {mine.length > 0 && (
+          <div>
+            <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Clock-ins</p>
+            <div className="space-y-1 max-h-56 overflow-y-auto">
+              {[...mine].sort((a, b) => b.date.localeCompare(a.date)).map(r => (
+                <div key={r.date + r.clockIn} className="flex items-center gap-2 text-xs py-1 border-b border-slate-50 last:border-0">
+                  <span className="w-20 shrink-0 text-slate-500">{format(new Date(r.date + 'T12:00:00'), 'EEE d MMM')}</span>
+                  <span className="font-medium text-slate-700">{kuwaitTime(r.clockIn!)}</span>
+                  <span className="text-slate-300">→</span>
+                  <span className="font-medium text-slate-700">{r.clockOut ? kuwaitTime(r.clockOut) : <span className="text-amber-600">still in</span>}</span>
+                  {r.hours !== null && <span className="text-slate-400">({r.hours.toFixed(1)}h)</span>}
+                  {r.isLate && !r.justified && <span className="text-amber-600 ml-auto">late</span>}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </Modal>
   );
 }
 

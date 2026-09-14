@@ -640,3 +640,108 @@ export async function deleteFullDayReport(date: string, outlet = ''): Promise<vo
   const { error: delErr } = await delQ;
   if (delErr) throw delErr;
 }
+
+// ── Team attendance (store manager's dashboard) ───────────────────────────────
+// The DSR keys sales on a short roster name (cases.staff) while HR and
+// attendance use the full legal name, so employees.dsr_staff_name joins them.
+// A manager may read every attendance row (RLS `managers_read`); a salesperson
+// may not, so these are only ever called from the manager dashboard.
+
+export interface TeamMemberHR {
+  employeeId: string;
+  fullName: string;
+  rosterName: string;   // cases.staff
+  location: string | null;
+}
+
+export interface AttendanceDay {
+  rosterName: string;
+  date: string;         // yyyy-mm-dd, Kuwait time
+  clockIn: string | null;
+  clockOut: string | null;
+  isLate: boolean;
+  justified: boolean;
+  location: string | null;
+  hours: number | null; // null while someone is still clocked in
+}
+
+export interface LeaveDay {
+  rosterName: string;
+  start: string;
+  end: string;
+  type: string;
+}
+
+/** Everyone on the shop roster who has an HR record. */
+export async function getTeamDirectory(): Promise<TeamMemberHR[]> {
+  const { data } = await supabase
+    .from('employees')
+    .select('id, full_name, dsr_staff_name, location')
+    .not('dsr_staff_name', 'is', null);
+  return (data ?? []).map(r => ({
+    employeeId: r.id as string,
+    fullName: r.full_name as string,
+    rosterName: r.dsr_staff_name as string,
+    location: (r.location as string) ?? null,
+  }));
+}
+
+/** Kuwait-local yyyy-mm-dd for a timestamp. The shops are all in one timezone. */
+function kuwaitDay(ts: string): string {
+  return new Date(ts).toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
+}
+
+/** Attendance for one month, keyed by roster name. `to` is exclusive. */
+export async function getTeamAttendance(from: string, to: string): Promise<AttendanceDay[]> {
+  const [{ data: rows }, team] = await Promise.all([
+    supabase.from('attendance_records')
+      .select('employee_name, user_id, clock_in, clock_out, is_late, justified, location')
+      .gte('clock_in', `${from}T00:00:00+03:00`)
+      .lt('clock_in', `${to}T00:00:00+03:00`),
+    getTeamDirectory(),
+  ]);
+  const byFullName = new Map(team.map(t => [t.fullName.trim().toLowerCase(), t.rosterName]));
+  const out: AttendanceDay[] = [];
+  for (const r of rows ?? []) {
+    const roster = byFullName.get(String(r.employee_name ?? '').trim().toLowerCase());
+    if (!roster) continue; // office staff and anyone not on the shop roster
+    const inTs = r.clock_in as string;
+    const outTs = (r.clock_out as string) ?? null;
+    out.push({
+      rosterName: roster,
+      date: kuwaitDay(inTs),
+      clockIn: inTs,
+      clockOut: outTs,
+      isLate: !!r.is_late,
+      justified: !!r.justified,
+      location: (r.location as string) ?? null,
+      hours: outTs ? (new Date(outTs).getTime() - new Date(inTs).getTime()) / 3600000 : null,
+    });
+  }
+  return out;
+}
+
+/** Approved leave overlapping a month, so absences on the calendar are explained. */
+export async function getTeamLeave(from: string, to: string): Promise<LeaveDay[]> {
+  const [{ data: rows }, team] = await Promise.all([
+    supabase.from('leave_records')
+      .select('employee_id, leave_start, leave_end, leave_type, approval_status')
+      .eq('approval_status', 'Approved')
+      .lte('leave_start', to)
+      .gte('leave_end', from),
+    getTeamDirectory(),
+  ]);
+  const byId = new Map(team.map(t => [t.employeeId, t.rosterName]));
+  const out: LeaveDay[] = [];
+  for (const r of rows ?? []) {
+    const roster = byId.get(r.employee_id as string);
+    if (!roster) continue;
+    out.push({
+      rosterName: roster,
+      start: r.leave_start as string,
+      end: r.leave_end as string,
+      type: (r.leave_type as string) ?? 'Annual',
+    });
+  }
+  return out;
+}
