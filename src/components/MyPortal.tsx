@@ -36,6 +36,11 @@ const fmtDur = (aIso: string, bIso: string | null, now: number) => {
   const mins = Math.max(0, Math.floor(((bIso ? new Date(bIso).getTime() : now) - new Date(aIso).getTime()) / 60000));
   return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`;
 };
+/** A span of milliseconds as "7h 45m" — a day can now be several shifts added up. */
+const fmtHrs = (ms: number) => {
+  const mins = Math.max(0, Math.floor(ms / 60000));
+  return `${Math.floor(mins / 60)}h ${String(mins % 60).padStart(2, '0')}m`;
+};
 const dayLabel = (ymd?: string | null) => (ymd ? new Date(`${ymd}T12:00:00Z`).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' }) : '');
 const stamp = (iso?: string | null) => (iso ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'Asia/Kuwait' }) : '');
 const weekdayLabel = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', timeZone: 'Asia/Kuwait' });
@@ -69,7 +74,10 @@ export function MyPortal() {
   const [emp, setEmp] = useState<EmpRecord | null>(null);
   const [leaves, setLeaves] = useState<LeaveRec[]>([]);
   const [requests, setRequests] = useState<EmpRequest[]>([]);
-  const [todayRec, setTodayRec] = useState<AttRec | null>(null);
+  // Every clock-in for today, oldest first. A day can hold more than one shift
+  // — a morning and an evening — so the page works from the list, never from
+  // "the" record.
+  const [todayRecs, setTodayRecs] = useState<AttRec[]>([]);
   const [monthRecs, setMonthRecs] = useState<AttRec[]>([]);
   const [geofences, setGeofences] = useState<Geofence[]>([]);
   const [workStart, setWorkStart] = useState('09:00');
@@ -116,7 +124,7 @@ export function MyPortal() {
         supabase.from('settings').select('work_start_time').single(),
         supabase.from('attendance_records').select('id, clock_in, clock_out, is_late, justified, location, correction_reason')
           .eq('user_id', user.id).gte('clock_in', `${today}T00:00:00+03:00`).lte('clock_in', `${today}T23:59:59+03:00`)
-          .order('clock_in', { ascending: false }).limit(1),
+          .order('clock_in', { ascending: true }),
         supabase.from('employee_requests').select('*').eq('user_id', user.id).order('created_at', { ascending: false }),
         supabase.from('attendance_records').select('id, clock_in, clock_out, is_late, justified, location, correction_reason')
           .eq('user_id', user.id).gte('clock_in', `${monthStart}T00:00:00+03:00`),
@@ -127,7 +135,7 @@ export function MyPortal() {
       setEmp(mine);
       setGeofences((geoQ.data as Geofence[]) ?? []);
       if (setQ.data?.work_start_time) setWorkStart(setQ.data.work_start_time as string);
-      setTodayRec((attQ.data?.[0] as AttRec) ?? null);
+      setTodayRecs((attQ.data as AttRec[]) ?? []);
       setRequests((reqQ.data as EmpRequest[]) ?? []);
       if (mine) {
         const { data: lv } = await supabase.from('leave_records').select('*').eq('employee_id', mine.id).order('created_at', { ascending: false });
@@ -180,7 +188,10 @@ export function MyPortal() {
       const { error } = await supabase.from('attendance_records').insert({
         user_id: user!.id, employee_name: profile!.full_name,
         clock_in: now.toISOString(), clock_in_lat: latitude, clock_in_lng: longitude,
-        is_late: lateClassOf(now.toISOString(), workStart) !== 'On time', location: matched.name,
+        // Lateness is about when the day started. A second shift that begins in
+        // the evening is not "late" — only the first clock-in is judged.
+        is_late: todayRecs.length === 0 && lateClassOf(now.toISOString(), workStart) !== 'On time',
+        location: matched.name,
       });
       if (error) setGeoError(error.message);
       else { showToast(`Clocked in at ${matched.name}`, 'success'); await load(); }
@@ -194,13 +205,14 @@ export function MyPortal() {
   }
 
   async function clockOut() {
-    if (!todayRec) return;
+    const open = todayRecs.find(r => !r.clock_out);
+    if (!open) return;
     setGeoError(null); setGeoLoading(true);
     try {
       const { coords } = await getPosition();
       const { error } = await supabase.from('attendance_records').update({
         clock_out: new Date().toISOString(), clock_out_lat: coords.latitude, clock_out_lng: coords.longitude,
-      }).eq('id', todayRec.id);
+      }).eq('id', open.id);
       if (error) setGeoError(error.message);
       else { showToast('Clocked out', 'success'); await load(); }
     } catch (err) {
@@ -295,24 +307,42 @@ export function MyPortal() {
   const monthStats = useMemo(() => {
     const [wh, wm] = workStart.split(':').map(Number);
     const graceMin = wh * 60 + wm + 60;
+    // Group first: a split shift is one day worked, and the hours add up.
+    // Counting per record would call a morning-plus-evening day two days, and
+    // charge missing hours against each half of it.
     const byDay = new Map<string, number>();
-    let lateHours = 0, missingHours = 0;
+    const firstOfDay = new Map<string, AttRec>();
     for (const r of monthRecs) {
-      byDay.set(kwDate(r.clock_in), (byDay.get(kwDate(r.clock_in)) ?? 0) + hoursBetween(r.clock_in, r.clock_out));
+      const d = kwDate(r.clock_in);
+      byDay.set(d, (byDay.get(d) ?? 0) + hoursBetween(r.clock_in, r.clock_out));
+      const seen = firstOfDay.get(d);
+      if (!seen || r.clock_in < seen.clock_in) firstOfDay.set(d, r);
+    }
+    let lateHours = 0, missingHours = 0;
+    for (const r of firstOfDay.values()) {
+      // only the clock-in that opened the day can be late
       if (!r.justified) { const a = kuwaitMinutes(r.clock_in); if (a > graceMin) lateHours += (a - graceMin) / 60; }
-      if (r.clock_out) { const w = hoursBetween(r.clock_in, r.clock_out); if (w < STANDARD_DAY_HOURS) missingHours += STANDARD_DAY_HOURS - w; }
+    }
+    for (const worked of byDay.values()) {
+      if (worked > 0 && worked < STANDARD_DAY_HOURS) missingHours += STANDARD_DAY_HOURS - worked;
     }
     const days = byDay.size;
-    const late = monthRecs.filter(r => r.is_late && !r.justified).length;
+    const late = [...firstOfDay.values()].filter(r => r.is_late && !r.justified).length;
     return { days, late, onTime: Math.max(0, days - late), lateHours, missingHours };
   }, [monthRecs, workStart]);
 
   const histStats = useMemo(() => {
     const byDay = new Map<string, number>();
-    for (const r of histRecs) byDay.set(kwDate(r.clock_in), (byDay.get(kwDate(r.clock_in)) ?? 0) + hoursBetween(r.clock_in, r.clock_out));
+    const firstOfDay = new Map<string, AttRec>();
+    for (const r of histRecs) {
+      const d = kwDate(r.clock_in);
+      byDay.set(d, (byDay.get(d) ?? 0) + hoursBetween(r.clock_in, r.clock_out));
+      const seen = firstOfDay.get(d);
+      if (!seen || r.clock_in < seen.clock_in) firstOfDay.set(d, r);
+    }
     const days = byDay.size;
     const hours = [...byDay.values()].reduce((s, h) => s + h, 0);
-    const late = histRecs.filter(r => r.is_late && !r.justified).length;
+    const late = [...firstOfDay.values()].filter(r => r.is_late && !r.justified).length;
     return { days, hours, late, onTime: Math.max(0, days - late) };
   }, [histRecs]);
 
@@ -362,10 +392,21 @@ export function MyPortal() {
     );
   }
 
-  const clockedIn = !!todayRec;
-  const clockedOut = !!todayRec?.clock_out;
-  const lateClass = todayRec ? lateClassOf(todayRec.clock_in, workStart) : null;
-  const lateLabel = lateClass && lateClass !== 'On time' && !todayRec?.justified ? lateClass : null;
+  // The shift that is still running, if any, and the one that opened the day.
+  const openRec = todayRecs.find(r => !r.clock_out) ?? null;
+  const firstRec = todayRecs[0] ?? null;
+  const lastRec = todayRecs[todayRecs.length - 1] ?? null;
+  const clockedIn = !!openRec;                    // currently at work
+  const startedToday = todayRecs.length > 0;      // has worked at some point today
+  const shiftsToday = todayRecs.length;
+  // Total across every shift, with the open one still counting up.
+  const workedTodayMs = todayRecs.reduce(
+    (t, r) => t + (new Date(r.clock_out ?? new Date(nowMs).toISOString()).getTime() - new Date(r.clock_in).getTime()),
+    0,
+  );
+  // Only the first clock-in of the day carries the lateness.
+  const lateClass = firstRec ? lateClassOf(firstRec.clock_in, workStart) : null;
+  const lateLabel = lateClass && lateClass !== 'On time' && !firstRec?.justified ? lateClass : null;
   const portalReady = !!emp && emp.portal_enabled !== false;
   const onPaidLeaveToday = !!todayLeave && todayLeave.leave_type !== 'WFH';
   const wfhToday = todayLeave?.leave_type === 'WFH';
@@ -378,12 +419,12 @@ export function MyPortal() {
   })();
   const headerStatus = onPaidLeaveToday ? `On ${todayLeave!.leave_type.toLowerCase()} leave today`
     : wfhToday ? 'Working from home today'
-    : clockedIn && !clockedOut ? `Clocked in since ${fmtTime(todayRec!.clock_in)}${lateLabel ? ` · ${lateLabel}` : ''}`
-    : clockedOut ? `Clocked out · ${fmtTime(todayRec!.clock_out!)}`
+    : clockedIn ? `Clocked in since ${fmtTime(openRec!.clock_in)}${lateLabel ? ` · ${lateLabel}` : ''}`
+    : startedToday ? `Clocked out · ${fmtTime(lastRec!.clock_out!)}${shiftsToday > 1 ? ` · ${shiftsToday} shifts` : ''}`
     : 'Not clocked in';
   const headerDot = onPaidLeaveToday ? 'bg-sky-500' : wfhToday ? 'bg-violet-500'
-    : clockedIn && !clockedOut ? (lateLabel ? 'bg-amber-500' : 'bg-emerald-500')
-    : clockedOut ? 'bg-slate-400' : 'bg-slate-300';
+    : clockedIn ? (lateLabel ? 'bg-amber-500' : 'bg-emerald-500')
+    : startedToday ? 'bg-slate-400' : 'bg-slate-300';
 
   return (
     <div className="px-4 pt-6 pb-32 max-w-lg mx-auto lg:max-w-4xl lg:px-8 space-y-4">
@@ -401,30 +442,36 @@ export function MyPortal() {
           <div>
             <h2 className="text-base font-bold text-slate-800">Today</h2>
             <div className="mt-0.5 text-sm text-slate-500">
-              {emp?.location ?? todayRec?.location ?? '—'}
+              {emp?.location ?? lastRec?.location ?? '—'}
               {lateLabel && <><span className="text-slate-300 mx-1.5">·</span><span className="text-amber-700">{lateLabel}</span></>}
-              {todayRec?.justified && <><span className="text-slate-300 mx-1.5">·</span><span className="text-emerald-600">Justified</span></>}
+              {firstRec?.justified && <><span className="text-slate-300 mx-1.5">·</span><span className="text-emerald-600">Justified</span></>}
             </div>
           </div>
           <div className="shrink-0">
-            {clockedOut ? (
-              <span className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-700 font-semibold text-sm">
-                <CheckCircle size={17} aria-hidden /> Done · {fmtDur(todayRec!.clock_in, todayRec!.clock_out, nowMs)}
-              </span>
-            ) : onPaidLeaveToday ? (
-              <span className="inline-flex items-center px-4 py-2.5 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 font-semibold text-sm">
-                On {todayLeave!.leave_type.toLowerCase()} leave
-              </span>
-            ) : !clockedIn ? (
-              <button onClick={clockIn} disabled={geoLoading || geofences.length === 0}
-                className="btn-primary inline-flex items-center gap-2 disabled:opacity-50">
-                {geoLoading ? <Spin /> : <LogIn size={18} aria-hidden />}{geoLoading ? 'Locating…' : 'Clock In'}
-              </button>
-            ) : (
+            {clockedIn ? (
               <button onClick={clockOut} disabled={geoLoading}
                 className="inline-flex items-center gap-2 bg-slate-900 text-white font-semibold px-5 py-3 rounded-xl active:scale-95 transition-all disabled:opacity-50">
                 {geoLoading ? <Spin /> : <LogOut size={18} aria-hidden />}{geoLoading ? 'Locating…' : 'Clock Out'}
               </button>
+            ) : onPaidLeaveToday ? (
+              <span className="inline-flex items-center px-4 py-2.5 rounded-xl bg-sky-50 border border-sky-200 text-sky-700 font-semibold text-sm">
+                On {todayLeave!.leave_type.toLowerCase()} leave
+              </span>
+            ) : (
+              /* Clocking out is never the end of the day: a split shift comes
+                 back in the evening, so the button always returns. */
+              <div className="text-right">
+                <button onClick={clockIn} disabled={geoLoading || geofences.length === 0}
+                  className="btn-primary inline-flex items-center gap-2 disabled:opacity-50">
+                  {geoLoading ? <Spin /> : <LogIn size={18} aria-hidden />}
+                  {geoLoading ? 'Locating…' : startedToday ? 'Clock In Again' : 'Clock In'}
+                </button>
+                {startedToday && (
+                  <div className="text-[11px] text-emerald-600 mt-1 flex items-center gap-1 justify-end">
+                    <CheckCircle size={12} aria-hidden /> {fmtHrs(workedTodayMs)} so far today
+                  </div>
+                )}
+              </div>
             )}
           </div>
         </div>
@@ -438,15 +485,15 @@ export function MyPortal() {
         <p className="mt-1 text-[11px] text-slate-400">this month</p>
 
         <div className="mt-3 flex flex-wrap items-center gap-x-7 gap-y-2">
-          <div className="flex items-baseline gap-2"><span className="text-[11px] font-semibold text-slate-400 uppercase">In</span><span className="text-base font-semibold text-slate-800">{clockedIn ? fmtTime(todayRec!.clock_in) : '—'}</span></div>
-          <div className="flex items-baseline gap-2"><span className="text-[11px] font-semibold text-slate-400 uppercase">Out</span><span className="text-base font-semibold text-slate-800">{clockedOut ? fmtTime(todayRec!.clock_out!) : '—'}</span></div>
-          <div className="flex items-baseline gap-2"><span className="text-[11px] font-semibold text-slate-400 uppercase">Total</span><span className="text-base font-semibold text-slate-800">{clockedIn ? fmtDur(todayRec!.clock_in, todayRec!.clock_out, nowMs) : '—'}</span></div>
+          <div className="flex items-baseline gap-2"><span className="text-[11px] font-semibold text-slate-400 uppercase">First in</span><span className="text-base font-semibold text-slate-800">{firstRec ? fmtTime(firstRec.clock_in) : '—'}</span></div>
+          <div className="flex items-baseline gap-2"><span className="text-[11px] font-semibold text-slate-400 uppercase">Last out</span><span className="text-base font-semibold text-slate-800">{lastRec?.clock_out ? fmtTime(lastRec.clock_out) : '—'}</span></div>
+          <div className="flex items-baseline gap-2"><span className="text-[11px] font-semibold text-slate-400 uppercase">Total</span><span className="text-base font-semibold text-slate-800">{startedToday ? fmtHrs(workedTodayMs) : '—'}</span></div>
         </div>
 
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
           <span className="text-slate-400">Expected by {graceEnd}</span>
-          {clockedOut && isEarlyLeave(todayRec!.clock_out) && <span className="text-amber-600">Left before 5:00 PM — counts as early leave unless approved.</span>}
-          {todayRec?.correction_reason && <span className="text-blue-600">Corrected by manager: {todayRec.correction_reason}</span>}
+          {!clockedIn && lastRec?.clock_out && isEarlyLeave(lastRec.clock_out) && <span className="text-amber-600">Left before 5:00 PM — counts as early leave unless approved.</span>}
+          {firstRec?.correction_reason && <span className="text-blue-600">Corrected by manager: {firstRec.correction_reason}</span>}
         </div>
 
         {geoError && (
@@ -455,7 +502,9 @@ export function MyPortal() {
           </div>
         )}
 
-        {!clockedOut && !onPaidLeaveToday && (
+        {/* Asking for a correction should not depend on where you are in the
+            day — a forgotten clock-in is noticed at any point. */}
+        {!onPaidLeaveToday && (
           <button onClick={() => { setShowReqForm(showReqForm === 'Attendance correction' ? null : 'Attendance correction'); setShowLeaveForm(false); }}
             className="mt-3 inline-flex items-center gap-1 text-sm text-slate-500 hover:text-slate-800">
             <Pencil size={13} aria-hidden /> Ask for a correction

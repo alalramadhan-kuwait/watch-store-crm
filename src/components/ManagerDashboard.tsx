@@ -41,17 +41,31 @@ export interface AttendanceSummary {
   late: number;
   openShifts: number;  // clocked in and never out — hours are understated by these
   leaveDays: number;
+  shifts: number;      // clock-ins; more than one a day means a split shift
 }
 
 /** Roll a month of attendance up per roster name. */
 function summariseAttendance(rows: AttendanceDay[], leave: LeaveDay[], monthStart: string, monthEnd: string) {
   const out: Record<string, AttendanceSummary> = {};
-  const blank = (): AttendanceSummary => ({ days: 0, hours: 0, late: 0, openShifts: 0, leaveDays: 0 });
+  const blank = (): AttendanceSummary => ({ days: 0, hours: 0, late: 0, openShifts: 0, leaveDays: 0, shifts: 0 });
+  // A day can hold several shifts — a morning and an evening — so days are
+  // counted per date and only the clock-in that opened the date can be late.
+  const seenDays = new Map<string, AttendanceDay>();   // "roster|date" -> earliest row
   for (const r of rows) {
     const a = (out[r.rosterName] ??= blank());
-    a.days++;
+    a.shifts++;
     if (r.hours === null) a.openShifts++; else a.hours += r.hours;
-    if (r.isLate && !r.justified) a.late++;
+    const key = `${r.rosterName}|${r.date}`;
+    const first = seenDays.get(key);
+    if (!first) {
+      a.days++;
+      seenDays.set(key, r);
+    } else if (r.clockIn && first.clockIn && r.clockIn < first.clockIn) {
+      seenDays.set(key, r);
+    }
+  }
+  for (const r of seenDays.values()) {
+    if (r.isLate && !r.justified) out[r.rosterName].late++;
   }
   for (const l of leave) {
     const a = (out[l.rosterName] ??= blank());
@@ -428,7 +442,7 @@ function TeamCards({ team, onOpen, onSheet, attendanceBy, subtitle }: {
                       <span className="flex items-center gap-1 text-slate-600">
                         <Clock className="w-3 h-3 text-slate-400 shrink-0" />
                         {a && a.days > 0
-                          ? <><span className="font-semibold">{Math.round(a.hours)}h</span> over {a.days} day{a.days === 1 ? '' : 's'}</>
+                          ? <><span className="font-semibold">{Math.round(a.hours)}h</span> over {a.days} day{a.days === 1 ? '' : 's'}{a.shifts > a.days ? ` · ${a.shifts} shifts` : ''}</>
                           : <span className="text-slate-400">No clock-ins</span>}
                       </span>
                       {a && a.late > 0 && <span className="text-amber-600 font-medium">{a.late} late</span>}
@@ -488,14 +502,22 @@ function AttendanceSheet({ name, month, rows, leave, onClose }: {
 }) {
   const days = eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) });
   const today = format(new Date(), 'yyyy-MM-dd');
-  const mine = rows.filter(r => r.rosterName === name);
-  const byDate = new Map(mine.map(r => [r.date, r]));
+  const mine = rows.filter(r => r.rosterName === name).sort((a, b) => (a.clockIn ?? '').localeCompare(b.clockIn ?? ''));
+  // Several shifts can share a date, so a square summarises the whole day
+  // rather than showing whichever record happened to be last in the list.
+  const byDate = new Map<string, AttendanceDay[]>();
+  for (const r of mine) {
+    const list = byDate.get(r.date) ?? [];
+    list.push(r);
+    byDate.set(r.date, list);
+  }
   const onLeave = (iso: string) =>
     leave.find(l => l.rosterName === name && l.start <= iso && l.end >= iso);
 
-  const worked = mine.length;
+  const worked = byDate.size;                                   // days, not clock-ins
   const hours = mine.reduce((t, r) => t + (r.hours ?? 0), 0);
-  const lates = mine.filter(r => r.isLate && !r.justified).length;
+  // only the shift that opened a day can make that day late
+  const lates = [...byDate.values()].filter(day => day[0].isLate && !day[0].justified).length;
   // the week starts on Saturday in Kuwait, so shift the first column accordingly
   const pad = (days[0].getDay() + 1) % 7;
 
@@ -527,18 +549,20 @@ function AttendanceSheet({ name, month, rows, leave, onClose }: {
             {Array.from({ length: pad }, (_, i) => <div key={`pad${i}`} />)}
             {days.map(d => {
               const iso = format(d, 'yyyy-MM-dd');
-              const rec = byDate.get(iso);
+              const day = byDate.get(iso);
               const lv = onLeave(iso);
               const future = iso > today;
               const friday = isFriday(d);
 
               let cls = 'bg-slate-50 text-slate-300';
               let note = '';
-              if (rec) {
-                cls = rec.isLate && !rec.justified
+              if (day) {
+                const dayHours = day.reduce((t, r) => t + (r.hours ?? 0), 0);
+                const stillIn = day.some(r => r.hours === null);
+                cls = day[0].isLate && !day[0].justified
                   ? 'bg-amber-100 text-amber-800 border border-amber-200'
                   : 'bg-emerald-100 text-emerald-800 border border-emerald-200';
-                note = rec.hours !== null ? `${rec.hours.toFixed(1)}h` : 'open';
+                note = stillIn && dayHours === 0 ? 'open' : `${dayHours.toFixed(1)}h`;
               } else if (lv) {
                 cls = 'bg-blue-100 text-blue-700 border border-blue-200';
                 // a blind slice turned "Annual" into "Annu"
@@ -553,9 +577,16 @@ function AttendanceSheet({ name, month, rows, leave, onClose }: {
 
               return (
                 <div key={iso} className={`rounded-lg px-1 py-1.5 text-center ${cls}`}
-                  title={rec ? `${kuwaitTime(rec.clockIn!)}${rec.clockOut ? ` → ${kuwaitTime(rec.clockOut)}` : ' → still in'}${rec.location ? ` · ${rec.location}` : ''}` : undefined}>
+                  title={day
+                    ? day.map(r => `${kuwaitTime(r.clockIn!)}${r.clockOut ? ` → ${kuwaitTime(r.clockOut)}` : ' → still in'}`).join('\n')
+                      + (day[0].location ? `\n${day[0].location}` : '')
+                    : undefined}>
                   <div className="text-[11px] font-semibold leading-none">{format(d, 'd')}</div>
                   <div className="text-[9px] leading-tight mt-0.5 truncate">{note}</div>
+                  {/* two dots means the day was split into two shifts */}
+                  {day && day.length > 1 && (
+                    <div className="text-[8px] leading-none mt-0.5 opacity-70">{'•'.repeat(Math.min(day.length, 3))}</div>
+                  )}
                 </div>
               );
             })}
@@ -573,7 +604,7 @@ function AttendanceSheet({ name, month, rows, leave, onClose }: {
           <div>
             <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-2">Clock-ins</p>
             <div className="space-y-1 max-h-56 overflow-y-auto">
-              {[...mine].sort((a, b) => b.date.localeCompare(a.date)).map(r => (
+              {[...mine].sort((a, b) => (b.clockIn ?? '').localeCompare(a.clockIn ?? '')).map(r => (
                 <div key={r.date + r.clockIn} className="flex items-center gap-2 text-xs py-1 border-b border-slate-50 last:border-0">
                   <span className="w-20 shrink-0 text-slate-500">{format(new Date(r.date + 'T12:00:00'), 'EEE d MMM')}</span>
                   <span className="font-medium text-slate-700">{kuwaitTime(r.clockIn!)}</span>
