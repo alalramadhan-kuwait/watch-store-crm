@@ -3,6 +3,7 @@ import { PlusCircle, ClipboardList, Bell, BarChart2, FileText, Settings, LogOut,
 import { useAuth, canSeePerformance } from '../../context/AuthContext';
 import { useAppStore } from '../../store';
 import pkg from '../../../package.json';
+import { roleLabel } from '../../utils/roles';
 
 export function Sidebar() {
   const { profile, role, signOut } = useAuth();
@@ -33,7 +34,7 @@ export function Sidebar() {
       {!sidebarCollapsed && (
         <div className="px-4 py-4 border-b border-slate-100 shrink-0">
           <p className="text-sm font-semibold text-slate-800 truncate">{profile?.full_name ?? '—'}</p>
-          <p className="text-xs text-slate-400 capitalize">{role ?? ''}</p>
+          <p className="text-xs text-slate-400">{roleLabel(role)}</p>
         </div>
       )}
 

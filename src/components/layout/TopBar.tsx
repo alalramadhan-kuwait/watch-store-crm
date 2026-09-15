@@ -2,6 +2,7 @@ import { LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAppStore } from '../../store';
 import pkg from '../../../package.json';
+import { roleLabel } from '../../utils/roles';
 
 export function TopBar() {
   const { profile, role, signOut } = useAuth();
@@ -55,7 +56,7 @@ export function TopBar() {
           <div className="hidden lg:flex items-center gap-4 pr-6">
             <span className="text-xs text-slate-500">
               {profile.full_name}
-              <span className="ml-1.5 px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 capitalize text-[10px] font-medium">{role}</span>
+              <span className="ml-1.5 px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[10px] font-medium">{roleLabel(role)}</span>
             </span>
             <button
               onClick={signOut}
