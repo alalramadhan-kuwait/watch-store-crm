@@ -268,7 +268,7 @@ export function FollowUps() {
           lastContactDate: actionClosedDate || todayStr,
           auditLog: [...actionCase.auditLog, { timestamp: nowStr, action: 'converted', by: salesName ?? actionCase.staff, note: `Closed — Won on ${actionClosedDate || todayStr}` }],
         });
-        showToast("Converted to sale! Entry added to today's log.", 'success');
+        showToast('Converted to sale. It counts on the follow-up, not in today\u2019s figures.', 'success');
       }
 
       if (actionType === 'lost') {

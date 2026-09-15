@@ -72,10 +72,23 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
     return true;
   });
 
-  const sales = filteredCases.filter(c => c.caseType === 'Sale');
-  const followups = filteredCases.filter(c => c.caseType === 'Follow-up');
-  const lost = filteredCases.filter(c => c.caseType === 'Lost Sale');
-  const noInteraction = filteredCases.filter(c => c.caseType === 'No Interaction');
+  /* Closing an earlier follow-up writes a new Sale dated today, carrying
+     linkedCaseId back to the follow-up. It is not this day's trade: the
+     customer was already logged as a case on the day they came in, so counting
+     the win here bills the same person to two days and flatters today's
+     conversion rate.
+     The day-close summary and the PDF have always left it out — the PDF gives
+     it its own Follow-up Conversions log — so this screen was the one place
+     that disagreed with the report it prints. */
+  const isFollowUpWin = (c: Case) => c.caseType === 'Sale' && !!c.linkedCaseId;
+  const dayCases = filteredCases.filter(c => !isFollowUpWin(c));
+  const followUpWins = filteredCases.filter(isFollowUpWin);
+  const followUpWinRevenue = followUpWins.reduce((s, c) => s + (c.amountKD || 0), 0);
+
+  const sales = dayCases.filter(c => c.caseType === 'Sale');
+  const followups = dayCases.filter(c => c.caseType === 'Follow-up');
+  const lost = dayCases.filter(c => c.caseType === 'Lost Sale');
+  const noInteraction = dayCases.filter(c => c.caseType === 'No Interaction');
   const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
   // Real browsing headcount (visitor_count sums groups logged in one entry)
   const browsingHeadcount = noInteraction.reduce((s, c) => s + (c.visitorCount ?? 1), 0);
@@ -84,7 +97,9 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
 
   // Outlet for PDF: staff always use their outlet; manager uses filter if set
   const pdfOutlet = onFloor ? (activeOutlet ?? '') : outletFilter;
-  // Cases for PDF: match what is shown on screen (already outlet-filtered)
+  /* The PDF gets the FULL outlet-filtered set, follow-up wins included:
+     buildDailyStats splits them out itself and prints them in their own log.
+     Handing it dayCases would silently drop that section from the report. */
   const pdfCases = filteredCases;
 
   // Signature that changes when any case is added, removed, or its amount/status/type changes
@@ -234,7 +249,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
     }
   }
 
-  const sortedCases = [...filteredCases].reverse();
+  const sortedCases = [...dayCases].reverse();
   const canEditHelper = (_c: Case) => !isClosed || role === 'admin';
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   function toggleExpand(id: string) {
@@ -443,6 +458,32 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
             ))}
           </div>
         </>
+      )}
+
+      {/* Follow-ups closed today. Deliberately outside the log and its figures —
+          the trade happened on the day the customer first came in — but shown,
+          because the money is real and whoever closed it should see it land. */}
+      {followUpWins.length > 0 && (
+        <div className="mb-6 rounded-2xl border border-slate-200 bg-slate-50 overflow-hidden">
+          <div className="px-4 py-2.5 flex items-center justify-between gap-3 border-b border-slate-200">
+            <span className="text-xs font-semibold text-slate-600">
+              Follow-ups won today
+              <span className="ml-1.5 font-normal text-slate-400">· not counted in today's figures</span>
+            </span>
+            <span className="text-xs font-bold text-slate-700 whitespace-nowrap">{formatKD(followUpWinRevenue)}</span>
+          </div>
+          <ul className="divide-y divide-slate-200">
+            {[...followUpWins].reverse().map(c => (
+              <li key={c.id} className="px-4 py-2.5 flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm text-slate-700 truncate">{c.customerName || 'Customer'}</p>
+                  <p className="text-[11px] text-slate-400 truncate">{c.staff}{c.linkedCaseId ? ` · from ${c.linkedCaseId}` : ''}</p>
+                </div>
+                <span className="text-sm font-semibold text-slate-600 whitespace-nowrap">{formatKD(c.amountKD || 0)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
 
       {/* Close Day */}
