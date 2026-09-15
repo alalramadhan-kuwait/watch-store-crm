@@ -1,8 +1,8 @@
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { canActForOtherStaff } from '../utils/roles';
-import { format, isToday, isBefore, differenceInDays, startOfDay } from 'date-fns';
+import { format, isToday, isBefore, differenceInDays, startOfDay, startOfMonth } from 'date-fns';
 import { Phone, MessageCircle, CheckCircle, XCircle, UserX, ChevronDown, Filter, BarChart2, TrendingUp, Pencil, Plus, ShieldAlert} from 'lucide-react';
-import { getOpenFollowUps, getSettings, updateCase, insertCase, nextCaseId, getBrands } from '../db';
+import { getOpenFollowUps, getSettings, updateCase, insertCase, nextCaseId, getBrands, getCasesForRange } from '../db';
 import { supabase } from '../lib/supabase';
 import { useAppStore } from '../store';
 import { useAuth } from '../context/AuthContext';
@@ -10,6 +10,7 @@ import { Modal } from './shared/Modal';
 import { QuickEntryEdit } from './QuickEntryEdit';
 import type { Case, AppSettings, Brand, ProductType } from '../types';
 import { PRODUCT_TYPES } from '../types';
+import { formatKDCompact } from '../utils/formatKD';
 
 function followUpUrgency(c: Case): 'overdue' | 'today' | 'upcoming' | 'stale' {
   if (!c.promisedCallback) return 'upcoming';
@@ -38,6 +39,12 @@ export function FollowUps() {
   const [followUps, setFollowUps] = useState<Case[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [staffFilter, setStaffFilter] = useState('');
+  /* Month to date, so someone chasing a list can see what it has been worth.
+     Counted from the sale entries themselves, which is why a follow-up closed
+     as Won appears here: it writes a real Sale under the same person. The
+     follow-up row it came from is still typed Follow-up, so nothing is counted
+     twice. */
+  const [monthSales, setMonthSales] = useState<{ count: number; kd: number } | null>(null);
   const [brandFilter, setBrandFilter] = useState('');
   const [productTypeFilter, setProductTypeFilter] = useState('');
   const [urgencyFilter, setUrgencyFilter] = useState('');
@@ -96,6 +103,22 @@ export function FollowUps() {
      empty. Say why: silence reads as "no follow-ups" and someone would work a
      day believing they had none. */
   const missingDsrName = !canSeeEveryone && !salesName;
+
+  // Whose figure this is: a salesperson always sees their own. An account that
+  // speaks for the shop sees the colleague it is filtered to, or the shop.
+  const salesFor = canSeeEveryone ? (staffFilter || null) : salesName;
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const now = new Date();
+      const rows = await getCasesForRange(format(startOfMonth(now), 'yyyy-MM-dd'), format(now, 'yyyy-MM-dd'));
+      if (cancelled) return;
+      const mine = rows.filter(c => c.caseType === 'Sale' && (!salesFor || c.staff === salesFor));
+      setMonthSales({ count: mine.length, kd: mine.reduce((sum, c) => sum + (c.amountKD || 0), 0) });
+    })();
+    return () => { cancelled = true; };
+  }, [salesFor]);
 
   // Analytics computed from the scoped list (regardless of the other filters)
   const overdue = useMemo(() => scoped.filter(c => followUpUrgency(c) === 'overdue').length, [scoped]);
@@ -322,6 +345,30 @@ export function FollowUps() {
           <Plus className="w-4 h-4" /> New
         </button>
       </div>
+
+      {/* Sales so far this month — the reason the board is worth working.
+          Deliberately not a sixth KPI tile: those count the follow-up list,
+          this counts what has actually been sold. */}
+      {monthSales && (
+        <div className="mb-4 rounded-2xl bg-brand-700 text-white px-4 py-3 flex items-center justify-between gap-4">
+          <div className="min-w-0">
+            <p className="text-[11px] uppercase tracking-wider text-white/60 leading-none">
+              {format(new Date(), 'MMMM')} so far
+            </p>
+            <p className="text-sm font-medium mt-1 truncate">
+              {canSeeEveryone ? (staffFilter || 'All staff') : 'Your sales'}
+            </p>
+          </div>
+          <div className="text-right shrink-0">
+            <p className="text-2xl font-bold leading-none tabular-nums">
+              {formatKDCompact(monthSales.kd)} <span className="text-sm font-semibold text-white/70">KD</span>
+            </p>
+            <p className="text-[11px] text-white/60 mt-1">
+              {monthSales.count} {monthSales.count === 1 ? 'sale' : 'sales'}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* KPI tiles */}
       <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 lg:mx-0 lg:px-0 mb-4 scrollbar-none">
