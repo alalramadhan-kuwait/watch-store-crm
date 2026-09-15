@@ -69,7 +69,7 @@ const HrInfo = ({ label, value }: { label: string; value?: React.ReactNode }) =>
 const Spin = () => <span className="inline-block w-4 h-4 border-2 border-white/60 border-t-transparent rounded-full animate-spin" aria-hidden />;
 
 export function MyPortal() {
-  const { user, profile } = useAuth();
+  const { user, profile, role } = useAuth();
   const { showToast } = useAppStore();
   const [emp, setEmp] = useState<EmpRecord | null>(null);
   const [leaves, setLeaves] = useState<LeaveRec[]>([]);
@@ -91,6 +91,10 @@ export function MyPortal() {
   // forms
   const [showLeaveForm, setShowLeaveForm] = useState(false);
   const [lvType, setLvType] = useState<'Annual' | 'Sick' | 'WFH'>('Annual');
+  /* Working from home is not a thing a shop floor can do: the job is being in
+     the shop with the customers. Offering it to a salesperson invites a request
+     that can only ever be refused. Head office keeps it. */
+  const canWorkFromHome = !(role === 'sales' || role === 'staff');
   const [lvStart, setLvStart] = useState('');
   const [lvEnd, setLvEnd] = useState('');
   const [lvNotes, setLvNotes] = useState('');
@@ -571,7 +575,7 @@ export function MyPortal() {
                   <select value={lvType} onChange={e => setLvType(e.target.value as typeof lvType)} className="input">
                     <option value="Annual">Annual leave</option>
                     <option value="Sick">Sick leave</option>
-                    <option value="WFH">Work from home</option>
+                    {canWorkFromHome && <option value="WFH">Work from home</option>}
                   </select>
                 </div>
                 <div className="grid grid-cols-2 gap-2">

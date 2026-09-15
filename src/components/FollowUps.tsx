@@ -1,6 +1,6 @@
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { format, isToday, isBefore, differenceInDays, startOfDay } from 'date-fns';
-import { Phone, MessageCircle, CheckCircle, XCircle, UserX, ChevronDown, Filter, BarChart2, TrendingUp, Pencil, Plus } from 'lucide-react';
+import { Phone, MessageCircle, CheckCircle, XCircle, UserX, ChevronDown, Filter, BarChart2, TrendingUp, Pencil, Plus, ShieldAlert} from 'lucide-react';
 import { getOpenFollowUps, getSettings, updateCase, insertCase, nextCaseId, getBrands } from '../db';
 import { supabase } from '../lib/supabase';
 import { useAppStore } from '../store';
@@ -30,7 +30,14 @@ type FollowUpAction = 'contacted' | 'won' | 'lost' | 'no_response' | 'edit';
 
 export function FollowUps() {
   const { showToast, activeOutlet } = useAppStore();
-  const { salesName } = useAuth(); // audit entries name who acted, not who owns the case
+  const { salesName, role } = useAuth(); // audit entries name who acted, not who owns the case
+  /* Who may see the whole shop's pipeline. Owners and the store manager, and
+     the one shared shop account that several salespeople work from — nobody
+     else. This used to be decided by "does this login have a DSR name", which
+     described the shared account only by accident: a personal login created
+     without one matched it too, and two salespeople were handed the entire
+     board that way. */
+  const canSeeEveryone = role === 'admin' || role === 'manager' || role === 'staff';
   const [followUps, setFollowUps] = useState<Case[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [staffFilter, setStaffFilter] = useState('');
@@ -85,9 +92,13 @@ export function FollowUps() {
   // logged under the shared account before they had their own login still
   // belong to them.
   const scoped = useMemo(
-    () => (salesName ? followUps.filter(c => c.staff === salesName) : followUps),
-    [followUps, salesName],
+    () => (canSeeEveryone ? followUps : followUps.filter(c => c.staff === salesName)),
+    [followUps, salesName, canSeeEveryone],
   );
+  /* A salesperson whose DSR name was never set matches no case, so the board is
+     empty. Say why: silence reads as "no follow-ups" and someone would work a
+     day believing they had none. */
+  const missingDsrName = !canSeeEveryone && !salesName;
 
   // Analytics computed from the scoped list (regardless of the other filters)
   const overdue = useMemo(() => scoped.filter(c => followUpUrgency(c) === 'overdue').length, [scoped]);
@@ -333,7 +344,7 @@ export function FollowUps() {
 
       {/* Filters */}
       <div className="flex flex-wrap gap-2 mb-4">
-        {!salesName && (
+        {canSeeEveryone && (
           <div className="flex items-center gap-2 flex-1 min-w-[130px]">
             <Filter className="w-3.5 h-3.5 text-slate-400 shrink-0" />
             <select value={staffFilter} onChange={e => setStaffFilter(e.target.value)} className="input py-1.5 text-sm flex-1 min-w-0">
@@ -440,7 +451,16 @@ export function FollowUps() {
       )}
 
       {/* List */}
-      {filtered.length === 0 ? (
+      {missingDsrName ? (
+        <div className="text-center py-16 px-6 text-slate-500">
+          <ShieldAlert className="w-12 h-12 mx-auto mb-3 text-amber-400" />
+          <p className="font-medium text-slate-700">Your DSR name isn&rsquo;t set yet.</p>
+          <p className="text-sm mt-1 max-w-xs mx-auto">
+            Until it is, this account can&rsquo;t be matched to your follow-ups. Ask an
+            owner to set it on your account under Settings &rarr; Team Access.
+          </p>
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="text-center py-16 text-slate-400">
           <CheckCircle className="w-12 h-12 mx-auto mb-3 opacity-30" />
           <p className="font-medium">No open follow-ups.</p>
@@ -581,7 +601,7 @@ export function FollowUps() {
         }
       >
         <div className="space-y-4">
-          {!salesName && (
+          {canSeeEveryone && (
             <div>
               <label className="label">Staff</label>
               <select value={nf.staff} onChange={e => setField('staff', e.target.value)} className="input">

@@ -38,6 +38,18 @@ export function TopBar() {
             <span className="tk-sub text-[8px] text-slate-400 leading-none">Daily Store Report</span>
             <span className="text-[8px] font-semibold text-slate-300 leading-none">v{pkg.version}{__BUILD_SHA__ && ` · ${__BUILD_SHA__}`}</span>
           </div>
+          {/* Which account is signed in. The desktop bar has always said so on
+              the right; on a phone there was nothing, and these are shared
+              devices — someone could log a sale under a colleague still signed
+              in and never see it. */}
+          {profile && (
+            <div className="lg:hidden flex items-center gap-1.5 mt-1.5 max-w-full px-4">
+              <span className="text-[11px] font-medium text-slate-600 truncate">{profile.full_name}</span>
+              <span className="shrink-0 px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[9px] font-medium leading-none">
+                {roleLabel(role)}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Mobile: sign out icon */}
