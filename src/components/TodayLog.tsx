@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { canActForOtherStaff } from '../utils/roles';
 import { format } from 'date-fns';
 import { Edit2, Trash2, Lock, Share2, FileText, ShieldAlert, ChevronDown, ChevronUp, Layers, MapPin, UserRound } from 'lucide-react';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
@@ -638,7 +639,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
           )}
           <div>
             <label className="label">Closing staff name</label>
-            {salesName ? (
+            {!canActForOtherStaff(role) ? (
               <div className="input bg-slate-50 text-slate-700">{salesName}</div>
             ) : (
               <select value={closerName} onChange={e => setCloserName(e.target.value)} className="input">

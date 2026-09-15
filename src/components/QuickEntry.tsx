@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef } from 'react';
+import { canActForOtherStaff } from '../utils/roles';
 import { readDraft, writeDraft, clearDraft } from '../lib/drafts';
 import { format, addDays } from 'date-fns';
-import { ShoppingBag, Clock, TrendingDown, Users, ChevronDown, CheckCircle, Plus, Store, Trash2 } from 'lucide-react';
+import { ShoppingBag, Clock, TrendingDown, Users, ChevronDown, CheckCircle, Plus, Store, Trash2, ShieldAlert} from 'lucide-react';
 import { getSettings, getBrands, insertCase, insertSaleItems, nextCaseId } from '../db';
 import { useAppStore } from '../store';
 import { useAuth } from '../context/AuthContext';
@@ -247,12 +248,20 @@ const DRAFT = 'quick-entry';
 export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
   const { lastStaff, setLastStaff, showToast, bumpRefreshLog, activeOutlet, setActiveOutlet } = useAppStore();
   const { role, salesName, onFloor } = useAuth();
+  /* A personal login logs under its own name and nobody else's. The staff
+     dropdown belongs to the accounts that speak for the shop. */
+  const canPickStaff = canActForOtherStaff(role);
   const [showOutletPicker, setShowOutletPicker] = useState(false);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [brands, setBrands] = useState<Brand[]>([]);
 
   // a personal login always logs as itself; the shared login remembers its last pick
-  const [staff, setStaff] = useState(salesName || lastStaff || '');
+  const [staff, setStaff] = useState(canPickStaff ? (lastStaff || '') : (salesName || ''));
+  // the profile can arrive after the first render; a personal login must never
+  // be left holding a name that is not its own
+  useEffect(() => {
+    if (!canPickStaff) setStaff(salesName || '');
+  }, [canPickStaff, salesName]);
   const [entryType, setEntryType] = useState<CaseType | ''>('');
 
   // ── Sale items state (multi-item) ────────────────────────────────────────
@@ -332,7 +341,11 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
   useEffect(() => {
     getSettings().then(s => {
       setSettings(s);
-      if (!staff && !salesName && s.staffRoster[0]) setStaff(s.staffRoster[0]);
+      /* Seed a name only for the accounts allowed to choose one. Seeding the
+          first name in the roster for everyone meant a salesperson whose DSR
+          name was missing would silently log sales under whichever colleague
+          happened to sort first. */
+      if (!staff && canPickStaff && s.staffRoster[0]) setStaff(s.staffRoster[0]);
     });
     getBrands().then(setBrands);
   }, []);
@@ -473,7 +486,7 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
         });
       }
 
-      if (!salesName) setLastStaff(staff);
+      if (canPickStaff) setLastStaff(staff);
       getBrands().then(setBrands);
       bumpRefreshLog();
       showToast('Logged!', 'success');
@@ -495,6 +508,22 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
   }
 
   if (!settings) return <div className="flex-1 flex items-center justify-center text-slate-400">Loading…</div>;
+
+  /* A personal login with no DSR name matches no roster entry, so there is no
+     honest name to log under. Stop, and say what to fix: the alternative is an
+     entry attributed to the wrong person, which is worse than no entry. */
+  if (!canPickStaff && !salesName) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center text-center px-6 py-16">
+        <ShieldAlert className="w-12 h-12 mb-3 text-amber-400" />
+        <p className="font-medium text-slate-700">Your DSR name isn&rsquo;t set yet.</p>
+        <p className="text-sm text-slate-500 mt-1 max-w-xs">
+          Sales have to be logged under a name from the staff roster, and this account
+          has none. Ask an owner to set it under Settings &rarr; Team Access.
+        </p>
+      </div>
+    );
+  }
 
   const isNoInteraction = entryType === 'No Interaction';
   const isSale = entryType === 'Sale';
@@ -556,10 +585,10 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
         {/* Staff */}
         <div>
           <label className="label">Staff <span className="text-rose-500">*</span></label>
-          {salesName ? (
-            <div className="input bg-slate-50 text-slate-700 flex items-center justify-between">
-              <span>{salesName}</span>
-              <span className="text-xs text-slate-400">Logged under your account</span>
+          {!canPickStaff ? (
+            <div className="input bg-slate-50 text-slate-700 flex items-center justify-between gap-3">
+              <span className="font-medium truncate">{salesName}</span>
+              <span className="text-[11px] text-slate-400 shrink-0 whitespace-nowrap">your account</span>
             </div>
           ) : (
             <select value={staff} onChange={e => setStaff(e.target.value)}

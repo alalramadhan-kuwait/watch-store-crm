@@ -23,3 +23,20 @@ export const ROLE_LABEL: Record<string, string> = {
 
 export const roleLabel = (role: string | null | undefined): string =>
   (role && ROLE_LABEL[role]) || role || '';
+
+/**
+ * May this account act under someone else's name?
+ *
+ * True for the owners, the store manager, and the one shared shop login that
+ * several salespeople work from — accounts that are not one identified
+ * salesperson. A personal login is only ever itself: it logs sales under its
+ * own roster name, edits its own cases, and closes the day as itself.
+ *
+ * Deliberately a question about the ROLE. This used to be decided by "does the
+ * login have a DSR name", which described the shared account by accident: two
+ * salespeople were given personal logins with the name left blank, and both
+ * got the full staff dropdown on the entry page and the whole shop's follow-up
+ * board.
+ */
+export const canActForOtherStaff = (role: string | null | undefined): boolean =>
+  role === 'admin' || role === 'manager' || role === 'staff';

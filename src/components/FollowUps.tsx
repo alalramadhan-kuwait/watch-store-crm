@@ -1,4 +1,5 @@
 import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { canActForOtherStaff } from '../utils/roles';
 import { format, isToday, isBefore, differenceInDays, startOfDay } from 'date-fns';
 import { Phone, MessageCircle, CheckCircle, XCircle, UserX, ChevronDown, Filter, BarChart2, TrendingUp, Pencil, Plus, ShieldAlert} from 'lucide-react';
 import { getOpenFollowUps, getSettings, updateCase, insertCase, nextCaseId, getBrands } from '../db';
@@ -31,13 +32,9 @@ type FollowUpAction = 'contacted' | 'won' | 'lost' | 'no_response' | 'edit';
 export function FollowUps() {
   const { showToast, activeOutlet } = useAppStore();
   const { salesName, role } = useAuth(); // audit entries name who acted, not who owns the case
-  /* Who may see the whole shop's pipeline. Owners and the store manager, and
-     the one shared shop account that several salespeople work from — nobody
-     else. This used to be decided by "does this login have a DSR name", which
-     described the shared account only by accident: a personal login created
-     without one matched it too, and two salespeople were handed the entire
-     board that way. */
-  const canSeeEveryone = role === 'admin' || role === 'manager' || role === 'staff';
+  // Same question the entry page asks: is this account one identified
+  // salesperson, or one that speaks for the shop?
+  const canSeeEveryone = canActForOtherStaff(role);
   const [followUps, setFollowUps] = useState<Case[]>([]);
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [staffFilter, setStaffFilter] = useState('');

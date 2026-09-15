@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { canActForOtherStaff } from '../utils/roles';
 import { format, addDays } from 'date-fns';
 import { Plus, Trash2 } from 'lucide-react';
 import { getSettings, updateCase, updateSaleItems } from '../db';
@@ -32,7 +33,7 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
   onCancel: () => void;
 }) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
-  const { salesName } = useAuth();
+  const { salesName, role } = useAuth();
   const { showToast } = useAppStore();
 
   // the case owner; a personal login may fix its own entry but not hand it to someone else
@@ -181,7 +182,7 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
 
       <div>
         <label className="label">Staff</label>
-        {salesName ? (
+        {!canActForOtherStaff(role) ? (
           <div className="input bg-slate-50 text-slate-700">{staff}</div>
         ) : (
           <select value={staff} onChange={e => setStaff(e.target.value)} className="input">
