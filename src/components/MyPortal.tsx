@@ -30,6 +30,12 @@ const STANDARD_DAY_HOURS = 8;
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('en-KW', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kuwait' });
 const todayKuwait = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
 const kwDate = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
+/** A Kuwait wall-clock time on a given day, as an instant. Kuwait is UTC+3 all
+ *  year — no daylight saving — so the offset can be written down. */
+const kuwaitISO = (date: string, time: string) => new Date(`${date}T${time}:00+03:00`).toISOString();
+/** The HH:MM an instant reads as in Kuwait, for prefilling a time input. */
+const kuwaitHM = (iso: string) => new Intl.DateTimeFormat('en-GB',
+  { timeZone: 'Asia/Kuwait', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
 const hoursBetween = (a: string, b: string | null) => (b ? (new Date(b).getTime() - new Date(a).getTime()) / 3600000 : 0);
 const hm = (hours: number) => { const m = Math.max(0, Math.round(hours * 60)); return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`; };
 const fmtDur = (aIso: string, bIso: string | null, now: number) => {
@@ -101,6 +107,15 @@ export function MyPortal() {
   const [lvFile, setLvFile] = useState<File | null>(null);
   const [showReqForm, setShowReqForm] = useState<null | 'HR update' | 'Attendance correction'>(null);
   const [reqDetails, setReqDetails] = useState('');
+  /* A correction is about a specific day and specific times. Asked for as
+     fields rather than left to a sentence: a paragraph can describe a problem
+     without ever naming the time that fixes it, and then somebody has to write
+     back and ask. */
+  const [corDate, setCorDate] = useState(() => todayKuwait());
+  const [corIn, setCorIn] = useState('');
+  const [corOut, setCorOut] = useState('');
+  const [corExisting, setCorExisting] = useState<AttRec[] | null>(null);
+  const [corLoading, setCorLoading] = useState(false);
   const [openReqId, setOpenReqId] = useState<string | null>(null);
   const [showAllReq, setShowAllReq] = useState(false);
   const [editLeaveId, setEditLeaveId] = useState<string | null>(null);
@@ -115,6 +130,32 @@ export function MyPortal() {
 
   // keeps the live shift duration ticking while clocked in
   useEffect(() => { const t = setInterval(() => setNowMs(Date.now()), 30_000); return () => clearInterval(t); }, []);
+
+  /* What the day being corrected currently says, fetched as the date changes.
+     Shown and prefilled rather than left blank: most corrections move one end
+     of a shift, and retyping the end that was already right is how the right
+     end gets broken. A day with no record at all is the other common case — a
+     shift nobody clocked in for — and it has to be askable too. */
+  useEffect(() => {
+    if (showReqForm !== 'Attendance correction' || !user || !corDate) return;
+    let live = true;
+    setCorLoading(true);
+    supabase.from('attendance_records')
+      .select('id, clock_in, clock_out, is_late, justified, location, correction_reason')
+      .eq('user_id', user.id)
+      .gte('clock_in', `${corDate}T00:00:00+03:00`).lte('clock_in', `${corDate}T23:59:59+03:00`)
+      .order('clock_in', { ascending: true })
+      .then(({ data }) => {
+        if (!live) return;
+        const recs = (data ?? []) as AttRec[];
+        setCorExisting(recs);
+        setCorIn(recs[0] ? kuwaitHM(recs[0].clock_in) : '');
+        const out = recs[recs.length - 1]?.clock_out;
+        setCorOut(out ? kuwaitHM(out) : '');
+        setCorLoading(false);
+      }, () => { if (live) { setCorExisting([]); setCorLoading(false); } });
+    return () => { live = false; };
+  }, [showReqForm, corDate, user]);
 
   async function load() {
     if (!user) { setLoading(false); return; }
@@ -256,15 +297,41 @@ export function MyPortal() {
   }
 
   async function submitRequest() {
-    if (!showReqForm || !reqDetails.trim()) { showToast('Describe what you need', 'error'); return; }
-    setBusy(true);
-    const { error } = await supabase.from('employee_requests').insert({
+    if (!showReqForm || !reqDetails.trim()) { showToast('Say why the change is needed', 'error'); return; }
+
+    const payload: Record<string, unknown> = {
       user_id: user!.id, employee_id: emp?.id ?? null, request_type: showReqForm, details: reqDetails.trim(),
-    });
+    };
+
+    if (showReqForm === 'Attendance correction') {
+      if (!corDate) { showToast('Pick the day to correct', 'error'); return; }
+      if (corDate > todayKuwait()) { showToast('That day has not happened yet', 'error'); return; }
+      if (!corIn && !corOut) { showToast('Give the time you arrived, the time you left, or both', 'error'); return; }
+      if (corIn && corOut && corOut <= corIn) {
+        // A shift crossing midnight is real, but it is rare enough that a
+        // backwards pair is far more likely to be a slip. Say so rather than
+        // sending the manager a request to leave before arriving.
+        showToast('The leaving time is before the arrival time — check both', 'error'); return;
+      }
+      const first = corExisting?.[0] ?? null;
+      payload.attendance_date = corDate;
+      payload.proposed_clock_in = corIn ? kuwaitISO(corDate, corIn) : null;
+      payload.proposed_clock_out = corOut ? kuwaitISO(corDate, corOut) : null;
+      payload.attendance_record_id = first?.id ?? null;
+      /* details stays a readable sentence as well as structured fields: it is
+         what the notification and the older screens show, and a manager reading
+         on a phone should not need the form to understand the ask. */
+      const asks = [corIn && `in ${corIn}`, corOut && `out ${corOut}`].filter(Boolean).join(', ');
+      payload.details = `${corDate} — ${asks}${first ? '' : ' (no record for that day)'}: ${reqDetails.trim()}`;
+    }
+
+    setBusy(true);
+    const { error } = await supabase.from('employee_requests').insert(payload);
     setBusy(false);
     if (error) { showToast(`Could not submit: ${error.message}`, 'error'); return; }
     showToast('Sent to your manager', 'success');
-    setShowReqForm(null); setReqDetails('');
+    setShowReqForm(null); setReqDetails(''); setCorIn(''); setCorOut(''); setCorExisting(null);
+    setCorDate(todayKuwait());
     load();
   }
 
@@ -522,8 +589,56 @@ export function MyPortal() {
           <h2 className="text-sm font-bold text-slate-700 mb-2">
             {showReqForm === 'HR update' ? 'Ask to update my details' : 'Ask for an attendance correction'}
           </h2>
+
+          {showReqForm === 'Attendance correction' && (
+            <div className="mb-3 space-y-3">
+              <label className="block">
+                <span className="block text-xs font-semibold text-slate-500 mb-1">Which day</span>
+                {/* Any past day. A missed clock-out is usually noticed when the
+                    month's hours are read, not on the day it happened. */}
+                <input type="date" value={corDate} max={todayKuwait()}
+                  onChange={e => setCorDate(e.target.value)} className="input" />
+              </label>
+
+              <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-xs">
+                <span className="font-semibold text-slate-500">Recorded now: </span>
+                {corLoading ? <span className="text-slate-400">checking…</span>
+                  : !corExisting?.length ? <span className="text-amber-700">nothing — no clock-in for that day</span>
+                  : <span className="text-slate-600">
+                      {corExisting.map((r, i) => (
+                        <span key={r.id}>
+                          {i > 0 && ' · '}
+                          {fmtTime(r.clock_in)} → {r.clock_out ? fmtTime(r.clock_out) : 'never clocked out'}
+                        </span>
+                      ))}
+                    </span>}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block">
+                  <span className="block text-xs font-semibold text-slate-500 mb-1">I arrived at</span>
+                  <input type="time" value={corIn} onChange={e => setCorIn(e.target.value)} className="input" />
+                </label>
+                <label className="block">
+                  <span className="block text-xs font-semibold text-slate-500 mb-1">I left at</span>
+                  <input type="time" value={corOut} onChange={e => setCorOut(e.target.value)} className="input" />
+                </label>
+              </div>
+              {/* Clearing a field is a real answer — "this end is already
+                  right" — so it has to be said, or somebody retypes a correct
+                  time and gets it wrong. */}
+              <p className="text-[11px] text-slate-400 -mt-1">
+                Leave a box empty to keep what is recorded. Your manager sees both, and approving
+                writes the times straight onto the record.
+              </p>
+            </div>
+          )}
+
+          <span className="block text-xs font-semibold text-slate-500 mb-1">
+            {showReqForm === 'HR update' ? 'What needs changing' : 'Why the change is needed'}
+          </span>
           <textarea value={reqDetails} onChange={e => setReqDetails(e.target.value)} rows={3} autoFocus
-            placeholder={showReqForm === 'HR update' ? 'e.g. My phone number changed to 9xxxxxxx' : 'e.g. I forgot to clock out yesterday — I left at 5:30 PM'}
+            placeholder={showReqForm === 'HR update' ? 'e.g. My phone number changed to 9xxxxxxx' : 'e.g. Phone died at the end of the shift, Hussain saw me leave'}
             className="input resize-none mb-3" />
           <div className="flex items-center gap-2">
             <button onClick={submitRequest} disabled={busy} className="btn-primary inline-flex items-center gap-1.5 disabled:opacity-60">
