@@ -11,21 +11,9 @@ import { QuickEntryEdit } from './QuickEntryEdit';
 import type { Case, AppSettings, Brand, ProductType } from '../types';
 import { PRODUCT_TYPES } from '../types';
 import { formatKDCompact } from '../utils/formatKD';
+import { followUpUrgency, urgencyOrder } from '../utils/followUps';
 
-function followUpUrgency(c: Case): 'overdue' | 'today' | 'upcoming' | 'stale' {
-  if (!c.promisedCallback) return 'upcoming';
-  const cb = new Date(c.promisedCallback + 'T00:00:00');
-  const now = startOfDay(new Date());
-  if (isBefore(cb, now)) return 'overdue';
-  if (isToday(cb)) return 'today';
-  const daysSince = c.lastContactDate
-    ? differenceInDays(now, new Date(c.lastContactDate + 'T00:00:00'))
-    : differenceInDays(now, new Date(c.dateLogged + 'T00:00:00'));
-  if (daysSince > 7) return 'stale';
-  return 'upcoming';
-}
 
-const urgencyOrder = { overdue: 0, stale: 1, today: 2, upcoming: 3 };
 
 /** What a row's Actions menu can start. 'edit' opens the editor, the rest confirm. */
 type FollowUpAction = 'contacted' | 'won' | 'lost' | 'no_response' | 'edit';
@@ -413,7 +401,7 @@ export function FollowUps() {
           <option value="">All status</option>
           <option value="overdue">Overdue</option>
           <option value="today">Due today</option>
-          <option value="stale">Stale</option>
+          <option value="stale">No next date</option>
           <option value="upcoming">Upcoming</option>
         </select>
         {scoped.length > 0 && (
@@ -767,7 +755,7 @@ function FollowUpTableRow({ case_: c, onAction }: { case_: Case; onAction: (c: C
     overdue: { text: 'Overdue', class: 'text-rose-700 bg-rose-100' },
     today: { text: 'Due Today', class: 'text-amber-700 bg-amber-100' },
     upcoming: { text: c.promisedCallback ? format(new Date(c.promisedCallback + 'T12:00:00'), 'd MMM') : 'No date', class: 'text-slate-500 bg-slate-100' },
-    stale: { text: 'Stale >7d', class: 'text-rose-700 bg-rose-100' },
+    stale: { text: 'No next date', class: 'text-violet-700 bg-violet-100' },
   };
   const label = urgencyLabel[urgency];
 
@@ -845,12 +833,14 @@ function FollowUpTableRow({ case_: c, onAction }: { case_: Case; onAction: (c: C
 function FollowUpRow({ case_: c, onAction }: { case_: Case; onAction: (c: Case, type: FollowUpAction) => void }) {
   const urgency = followUpUrgency(c);
   const [sheetOpen, setSheetOpen] = useState(false);
-  const urgencyStyles = { overdue: 'border-rose-200 bg-rose-50', today: 'border-amber-200 bg-amber-50', upcoming: 'border-slate-100 bg-white', stale: 'border-rose-200 bg-rose-50' };
+  /* Red means late. An undated follow-up needs a decision, not an alarm, so
+     it gets its own colour rather than borrowing the alarm. */
+  const urgencyStyles = { overdue: 'border-rose-200 bg-rose-50', today: 'border-amber-200 bg-amber-50', upcoming: 'border-slate-100 bg-white', stale: 'border-violet-200 bg-violet-50' };
   const urgencyLabel = {
     overdue: { text: 'Overdue', class: 'text-rose-600 bg-rose-100' },
     today: { text: 'Due today', class: 'text-amber-700 bg-amber-100' },
     upcoming: { text: c.promisedCallback ? format(new Date(c.promisedCallback + 'T12:00:00'), 'd MMM') : 'No date', class: 'text-slate-500 bg-slate-100' },
-    stale: { text: 'Stale >7d', class: 'text-rose-600 bg-rose-100' },
+    stale: { text: 'No next date', class: 'text-violet-700 bg-violet-100' },
   };
   const label = urgencyLabel[urgency];
 
