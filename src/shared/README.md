@@ -14,6 +14,7 @@ one schedule reading, one store open/close rule.
 | `storeDay.ts` | When did the shop open and close? |
 | `portal.ts` | What My Portal asks the database, and what a valid answer is. |
 | `workload.ts` | Over a period, who carried how much — and is that fair? |
+| `punctuality.ts` | How late, and how early away — against *their own* shift. |
 | `portalRules.ts` | The portal rules that need nothing plugged in. |
 | `live.ts` | Keeping a current-day screen up to date without polling. |
 
@@ -46,6 +47,11 @@ next to one that cannot: `portalRules.ts` holds the portal's rules and
 - **A shift open longer than 16 hours was never clocked out.** Its length is
   unknown (`null`), not enormous. Ten such records existed when this was written,
   the oldest running for six weeks.
+- **Lateness is measured against the person's own shift**, from the dated
+  schedule in force on that date. The old fixed 09:00–17:00 scored an afternoon
+  shop shift as six hours late every day somebody turned up on time, and a
+  manager finishing at 15:30 as leaving early thirteen days out of fourteen.
+  A day with no shift set anywhere is `null` — unknown, never "on time".
 - **Nobody is absent just because they are not here.** Only flag a person on a
   day the schedule in force *on that date* says they were expected.
 - **Digital channels are not shops.** Online and WhatsApp sell, but have no

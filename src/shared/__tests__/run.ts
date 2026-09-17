@@ -8,3 +8,4 @@
 import './foundation.test';
 import './portal.test';
 import './workload.test';
+import './punctuality.test';

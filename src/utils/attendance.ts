@@ -25,9 +25,18 @@ export function lateClassOf(clockInIso: string, workStart = '09:00', graceMin = 
   return 'Serious late';
 }
 
-export function isEarlyLeave(clockOutIso: string | null, workEnd = '17:00'): boolean {
-  if (!clockOutIso) return false;
+/**
+ * Did they leave before their shift ended?
+ *
+ * The shift end is passed in rather than assumed: it used to default to the
+ * office's 17:00 for everybody, which told a manager who finishes at 15:30 that
+ * she had left early every day she worked. False when nobody has said when the
+ * day ends — unknown, not "left early".
+ */
+export function isEarlyLeave(clockOutIso: string | null, workEnd: string | null = '17:00'): boolean {
+  if (!clockOutIso || !workEnd) return false;
   const [eh, em] = workEnd.split(':').map(Number);
+  if (!Number.isFinite(eh) || !Number.isFinite(em)) return false;
   return kuwaitMinutes(clockOutIso) < eh * 60 + em;
 }
 
