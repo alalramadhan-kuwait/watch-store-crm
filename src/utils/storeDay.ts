@@ -12,6 +12,9 @@
  * team list without any of them re-querying.
  */
 import { sameOutlet } from './outlet';
+import { shiftHours as sharedShiftHours, dayHours } from '../shared/workedHours';
+import { standing as sharedStanding, type AttendanceStatus } from '../shared/attendanceStatus';
+import { KUWAIT_WEEK, type Schedule, type Weekday } from '../shared/schedule';
 
 export interface Shift {
   rosterName: string;
@@ -47,16 +50,24 @@ const ms = (t: string) => new Date(t).getTime();
 /**
  * Hours on a shift, counting an open one up to now.
  *
- * `hours` is null while somebody is still clocked in, so summing it treated
- * anyone on the floor as having worked nothing: a shop with one person there
- * since nine read "0h worked today" at lunchtime. A shift in progress has been
- * worked; it simply has not finished.
+ * `hours` arrives null while somebody is still clocked in, so summing it
+ * treated anyone on the floor as having worked nothing: a shop with one person
+ * there since nine read "0h worked today" at lunchtime. A shift in progress has
+ * been worked; it simply has not finished.
+ *
+ * The rule itself lives in src/shared/workedHours.ts, so the shop floor, the
+ * back office and the database all answer this the same way — including for a
+ * record nobody ever clocked out of, which is worth nothing here rather than
+ * the weeks it has technically been open.
  */
 export const shiftHours = (s: Shift, now = new Date()): number => {
-  if (s.hours != null) return s.hours;
   if (!s.clockIn) return 0;
-  return Math.max(0, (now.getTime() - ms(s.clockIn)) / 3600000);
+  return sharedShiftHours({ clockIn: s.clockIn, clockOut: s.clockOut }, now).hours ?? 0;
 };
+
+/** The shared shape, for handing a set of shifts to the engines. */
+const asInputs = (shifts: Shift[]) =>
+  shifts.filter((s) => s.clockIn).map((s) => ({ clockIn: s.clockIn as string, clockOut: s.clockOut }));
 
 /**
  * @param now  Passed in rather than read, so "is it open" is testable and so a
@@ -72,20 +83,24 @@ export function storeDay(all: Shift[], outlet: string, date: string, now = new D
              onFloor: [], finished: [], shifts: [], hours: 0 };
   }
 
-  const onFloor = shifts.filter((s) => !s.clockOut);
-  const finished = shifts.filter((s) => s.clockOut);
+  /* Open while anybody is still clocked in. A clock-in nobody ever closed would
+     otherwise keep a shop "open" for ever — one in this database had been
+     running for six weeks — so a shift open past the shared threshold does not
+     count as somebody on the floor. It is a correction to make, not a shop
+     still trading. */
+  const live = (s: Shift) => {
+    const state = sharedShiftHours({ clockIn: s.clockIn as string, clockOut: s.clockOut }, now);
+    return state.isOpen && !state.isAbandoned;
+  };
+  const onFloor = shifts.filter(live);
+  const finished = shifts.filter((s) => !live(s));
   const first = shifts[0];
+  const open = onFloor.length > 0;
 
-  /* Open while anybody is still clocked in. A shift left open overnight would
-     otherwise keep a shop "open" for ever, so a day that is not today is closed
-     by its last clock-out whatever the records say — an unclosed shift is a
-     correction to make, not a shop still trading. */
-  const isToday = date === now.toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
-  const open = isToday && onFloor.length > 0;
-
-  // The last person out closes it. With shifts still open there is no close yet.
-  const lastOut = finished.length && (!open || !isToday)
-    ? finished.reduce((a, b) => (ms(a.clockOut as string) > ms(b.clockOut as string) ? a : b))
+  // The last person out closes it. With somebody still in there is no close yet.
+  const closings = finished.filter((s) => s.clockOut);
+  const lastOut = !open && closings.length
+    ? closings.reduce((a, b) => (ms(a.clockOut as string) > ms(b.clockOut as string) ? a : b))
     : null;
 
   return {
@@ -95,7 +110,7 @@ export function storeDay(all: Shift[], outlet: string, date: string, now = new D
     closedAt: open ? null : lastOut?.clockOut ?? null,
     closedBy: open ? null : (lastOut ? lastOut.fullName ?? lastOut.rosterName : null),
     onFloor, finished, shifts,
-    hours: shifts.reduce((t, s) => t + shiftHours(s, now), 0),
+    hours: dayHours(asInputs(shifts), now).hours ?? 0,
   };
 }
 
@@ -109,22 +124,48 @@ export interface RosterMember {
   expectedDays: number[];
   shiftStart: string | null;
   shiftEnd: string | null;
+  /** Dated schedules, when they have been loaded. A schedule that changes next
+   *  month must not change what last month looked like, so a day is judged
+   *  against the row covering that date. Falls back to the columns above. */
+  schedules?: Schedule[];
 }
 
-export type Standing =
-  | 'on_floor'      // clocked in, still here
-  | 'finished'      // clocked in and out
-  | 'late'          // here, but after the grace period
-  | 'leave'         // approved leave today
-  | 'missing'       // due in, nothing recorded, and their start time has passed
-  | 'due_later'     // due in, but their day has not started yet
-  | 'off';          // not due in today
+/**
+ * The schedules to judge a date against.
+ *
+ * `expected_days` and the shift columns on the employee record are a mirror of
+ * whichever dated schedule is in force today. Using them for a past date would
+ * re-judge that date against today's roster, so the dated rows are preferred
+ * whenever they have been loaded.
+ */
+const schedulesFor = (m: RosterMember): Schedule[] => {
+  if (m.schedules?.length) return m.schedules;
+  return [{
+    employeeId: m.employeeId,
+    effectiveFrom: '1970-01-01',
+    effectiveTo: null,
+    workingDays: (m.expectedDays.length ? m.expectedDays : KUWAIT_WEEK) as Weekday[],
+    shiftStart: m.shiftStart,
+    shiftEnd: m.shiftEnd,
+  }];
+};
+
+/**
+ * The shop floor and the back office name these the same things now — the words
+ * come from src/shared/attendanceStatus.ts so a person cannot read as present on
+ * one screen and absent on the other.
+ */
+export type Standing = AttendanceStatus;
 
 export interface TeamStanding {
   member: RosterMember;
   standing: Standing;
   shifts: Shift[];
   hoursToday: number;
+  /** null when a record needs a correction before the total means anything. */
+  hoursKnown: number | null;
+  /** They did clock in, just after their shift had started. */
+  arrivedLate: boolean;
   firstIn: string | null;
   lastOut: string | null;
 }
@@ -132,8 +173,12 @@ export interface TeamStanding {
 /** Postgres/JS weekday of a yyyy-mm-dd, Kuwait: 0 = Sunday … 6 = Saturday. */
 export const weekdayOf = (date: string) => new Date(`${date}T12:00:00+03:00`).getUTCDay();
 
-export const isExpectedOn = (m: RosterMember, date: string) =>
-  m.expectedDays.includes(weekdayOf(date));
+export const isExpectedOn = (m: RosterMember, date: string): boolean => {
+  const covering = schedulesFor(m).find(
+    (sc) => date >= sc.effectiveFrom && (sc.effectiveTo === null || date <= sc.effectiveTo),
+  );
+  return covering ? covering.workingDays.includes(weekdayOf(date) as Weekday) : false;
+};
 
 /**
  * Where each person stands today.
@@ -151,45 +196,47 @@ export function standings(
   opts: { workStart: string; graceMinutes: number; now?: Date },
 ): TeamStanding[] {
   const now = opts.now ?? new Date();
-  // Minutes since midnight in Kuwait, whatever the phone's own clock is set to.
-  const [nowH, nowM] = new Intl.DateTimeFormat('en-GB',
-    { timeZone: 'Asia/Kuwait', hour: '2-digit', minute: '2-digit', hour12: false })
-    .format(now).split(':').map(Number);
-  const nowMinutes = nowH * 60 + nowM;
-  const isToday = date === now.toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
 
   return roster.map((member) => {
     const mine = shifts
       .filter((s) => s.rosterName === member.rosterName && s.date === date && s.clockIn)
       .sort((a, b) => ms(a.clockIn as string) - ms(b.clockIn as string));
-    const hoursToday = mine.reduce((t, s) => t + shiftHours(s, now), 0);
     const firstIn = mine[0]?.clockIn ?? null;
     const lastOut = mine.length && mine.every((s) => s.clockOut)
       ? mine.reduce((a, b) => (ms(a.clockOut as string) > ms(b.clockOut as string) ? a : b)).clockOut
       : null;
 
-    let standing: Standing;
-    if (mine.some((s) => !s.clockOut)) {
-      standing = 'on_floor';
-    } else if (mine.length) {
-      // Lateness belongs to the clock-in that opened the day, and an excused
-      // one is a decision somebody made.
-      standing = mine[0].isLate && !mine[0].justified ? 'late' : 'finished';
-    } else if (onLeave(member.rosterName, date)) {
-      standing = 'leave';
-    } else if (!isExpectedOn(member, date)) {
-      standing = 'off';
-    } else {
-      const [h, m] = (member.shiftStart ?? opts.workStart).split(':').map(Number);
-      const dueBy = h * 60 + m + opts.graceMinutes;
-      // A past day is judged whole; today is judged against the clock.
-      standing = !isToday || nowMinutes > dueBy ? 'missing' : 'due_later';
-    }
-    return { member, standing, shifts: mine, hoursToday, firstIn, lastOut };
+    const verdict = sharedStanding({
+      records: asInputs(mine),
+      schedules: schedulesFor(member),
+      date,
+      onLeave: !!onLeave(member.rosterName, date),
+      defaultStart: opts.workStart,
+    }, now);
+
+    return {
+      member,
+      standing: verdict.status,
+      shifts: mine,
+      hoursToday: verdict.hours.hours ?? 0,
+      hoursKnown: verdict.hours.hours,
+      // An excused late arrival is a decision somebody already made.
+      arrivedLate: verdict.arrivedLate && !(mine[0]?.justified ?? false),
+      firstIn,
+      lastOut,
+    };
   });
 }
 
+/** The shop floor's shorter wording for the shared statuses. */
 export const STANDING_WORD: Record<Standing, string> = {
-  on_floor: 'In now', finished: 'Done', late: 'Late', leave: 'On leave',
-  missing: 'Not in', due_later: 'Due later', off: 'Off',
+  working: 'In now',
+  completed: 'Done',
+  late: 'Late',
+  on_leave: 'On leave',
+  missing: 'Not in',
+  due_later: 'Due later',
+  off: 'Off',
+  needs_correction: 'Needs clock-out',
+  no_schedule: 'No schedule',
 };

@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc && vite build",
+    "build": "npm run shared:check && tsc && vite build",
+    "shared:check": "node scripts/shared-check.mjs",
+    "shared:hash": "node scripts/shared-check.mjs --write",
     "preview": "vite preview",
     "deploy": "echo 'Deploys are automatic: push to main and GitHub Actions builds and publishes it. Deploying from a laptop once overwrote the live site with an older build, so this is disabled on purpose.' && exit 1"
   },

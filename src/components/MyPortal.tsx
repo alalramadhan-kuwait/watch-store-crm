@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAppStore } from '../store';
 import { lateClassOf, isEarlyLeave, workingDaysBetween, haversineMeters, kuwaitMinutes } from '../utils/attendance';
 import { locationBlockedMessage, locationAlreadyDenied, CORRECTION_FALLBACK } from '../utils/locationHelp';
+import { dayHours, totalHours, type DayHours } from '../shared/workedHours';
 
 /**
  * The salesperson's own page: attendance, leave and HR record.
@@ -31,13 +32,27 @@ const STANDARD_DAY_HOURS = 8;
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('en-KW', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kuwait' });
 const todayKuwait = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
 const kwDate = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
+
+/** A month of records folded into one entry per Kuwait day, hours and all. The
+ *  rule is in src/shared/workedHours.ts, so this agrees with the back office. */
+const groupByDay = (records: Array<{ clock_in: string; clock_out: string | null }>) => {
+  const raw = new Map<string, Array<{ clockIn: string; clockOut: string | null }>>();
+  for (const r of records) {
+    const d = kwDate(r.clock_in);
+    if (!raw.has(d)) raw.set(d, []);
+    raw.get(d)!.push({ clockIn: r.clock_in, clockOut: r.clock_out });
+  }
+  const out = new Map<string, DayHours>();
+  for (const [d, shifts] of raw) out.set(d, dayHours(shifts));
+  return out;
+};
+
 /** A Kuwait wall-clock time on a given day, as an instant. Kuwait is UTC+3 all
  *  year — no daylight saving — so the offset can be written down. */
 const kuwaitISO = (date: string, time: string) => new Date(`${date}T${time}:00+03:00`).toISOString();
 /** The HH:MM an instant reads as in Kuwait, for prefilling a time input. */
 const kuwaitHM = (iso: string) => new Intl.DateTimeFormat('en-GB',
   { timeZone: 'Asia/Kuwait', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
-const hoursBetween = (a: string, b: string | null) => (b ? (new Date(b).getTime() - new Date(a).getTime()) / 3600000 : 0);
 const hm = (hours: number) => { const m = Math.max(0, Math.round(hours * 60)); return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`; };
 const fmtDur = (aIso: string, bIso: string | null, now: number) => {
   const mins = Math.max(0, Math.floor(((bIso ? new Date(bIso).getTime() : now) - new Date(aIso).getTime()) / 60000));
@@ -398,11 +413,10 @@ export function MyPortal() {
     // Group first: a split shift is one day worked, and the hours add up.
     // Counting per record would call a morning-plus-evening day two days, and
     // charge missing hours against each half of it.
-    const byDay = new Map<string, number>();
+    const byDay = groupByDay(monthRecs);
     const firstOfDay = new Map<string, AttRec>();
     for (const r of monthRecs) {
       const d = kwDate(r.clock_in);
-      byDay.set(d, (byDay.get(d) ?? 0) + hoursBetween(r.clock_in, r.clock_out));
       const seen = firstOfDay.get(d);
       if (!seen || r.clock_in < seen.clock_in) firstOfDay.set(d, r);
     }
@@ -411,8 +425,11 @@ export function MyPortal() {
       // only the clock-in that opened the day can be late
       if (!r.justified) { const a = kuwaitMinutes(r.clock_in); if (a > graceMin) lateHours += (a - graceMin) / 60; }
     }
-    for (const worked of byDay.values()) {
-      if (worked > 0 && worked < STANDARD_DAY_HOURS) missingHours += STANDARD_DAY_HOURS - worked;
+    for (const day of byDay.values()) {
+      // A day still being worked is not short of anything yet, and a day nobody
+      // clocked out of needs a correction before it can be judged at all.
+      if (day.onTheFloor || day.unusableShifts > 0 || day.hours === null) continue;
+      if (day.hours > 0 && day.hours < STANDARD_DAY_HOURS) missingHours += STANDARD_DAY_HOURS - day.hours;
     }
     const days = byDay.size;
     const late = [...firstOfDay.values()].filter(r => r.is_late && !r.justified).length;
@@ -420,16 +437,15 @@ export function MyPortal() {
   }, [monthRecs, workStart]);
 
   const histStats = useMemo(() => {
-    const byDay = new Map<string, number>();
+    const byDay = groupByDay(histRecs);
     const firstOfDay = new Map<string, AttRec>();
     for (const r of histRecs) {
       const d = kwDate(r.clock_in);
-      byDay.set(d, (byDay.get(d) ?? 0) + hoursBetween(r.clock_in, r.clock_out));
       const seen = firstOfDay.get(d);
       if (!seen || r.clock_in < seen.clock_in) firstOfDay.set(d, r);
     }
     const days = byDay.size;
-    const hours = [...byDay.values()].reduce((s, h) => s + h, 0);
+    const hours = totalHours([...byDay.values()]);
     const late = [...firstOfDay.values()].filter(r => r.is_late && !r.justified).length;
     return { days, hours, late, onTime: Math.max(0, days - late) };
   }, [histRecs]);

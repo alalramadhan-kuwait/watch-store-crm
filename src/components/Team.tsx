@@ -21,10 +21,12 @@ const ymdAdd = (ymd: string, n: number) => {
 const satOfWeek = (ymd: string) => ymdAdd(ymd, -((new Date(`${ymd}T12:00:00Z`).getUTCDay() + 1) % 7));
 
 const TONE: Record<string, string> = {
-  on_floor: 'bg-emerald-100 text-emerald-700', finished: 'bg-slate-100 text-slate-600',
-  late: 'bg-amber-100 text-amber-700', leave: 'bg-sky-100 text-sky-700',
+  working: 'bg-emerald-100 text-emerald-700', completed: 'bg-slate-100 text-slate-600',
+  late: 'bg-amber-100 text-amber-700', on_leave: 'bg-sky-100 text-sky-700',
   missing: 'bg-rose-100 text-rose-700', due_later: 'bg-slate-100 text-slate-500',
   off: 'bg-slate-50 text-slate-400',
+  needs_correction: 'bg-amber-100 text-amber-700',
+  no_schedule: 'bg-slate-50 text-slate-400',
 };
 
 /**
@@ -108,7 +110,7 @@ export function Team() {
   useEffect(() => { void load(); }, [load]);
 
   const ordered = useMemo(() => {
-    const rank: Record<string, number> = { missing: 0, on_floor: 1, late: 2, due_later: 3, finished: 4, leave: 5, off: 6 };
+    const rank: Record<string, number> = { needs_correction: 0, missing: 1, late: 2, working: 3, due_later: 4, completed: 5, on_leave: 6, off: 7, no_schedule: 8 };
     return [...rows].sort((a, b) => (rank[a.standing] - rank[b.standing])
       || a.member.fullName.localeCompare(b.member.fullName));
   }, [rows]);
@@ -170,15 +172,16 @@ export function Team() {
                 ))}</span>
               ) : (
                 <span>{t.standing === 'off' ? 'Not due in today'
-                  : t.standing === 'leave' ? 'On approved leave'
+                  : t.standing === 'on_leave' ? 'On approved leave'
                   : t.standing === 'due_later' ? `Due at ${t.member.shiftStart ?? workStart}`
+                  : t.standing === 'no_schedule' ? 'No working days set'
                   : 'No clock-in'}</span>
               )}
             </div>
 
             <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-3 gap-2 text-center">
               <div>
-                <p className="text-base font-bold text-slate-900 leading-none">{hm(t.hoursToday)}</p>
+                <p className="text-base font-bold text-slate-900 leading-none">{t.hoursKnown === null ? '—' : hm(t.hoursToday)}</p>
                 <p className="text-[10px] text-slate-400 mt-1">today</p>
               </div>
               <div>

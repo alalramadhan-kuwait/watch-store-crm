@@ -15,10 +15,12 @@ const hhmm = (iso: string | null) => (!iso ? '—' : new Date(iso)
 const hm = (hours: number) => `${Math.floor(hours)}h ${String(Math.round((hours % 1) * 60)).padStart(2, '0')}m`;
 
 const TONE: Record<string, string> = {
-  on_floor: 'bg-emerald-100 text-emerald-700', finished: 'bg-slate-100 text-slate-600',
-  late: 'bg-amber-100 text-amber-700', leave: 'bg-sky-100 text-sky-700',
+  working: 'bg-emerald-100 text-emerald-700', completed: 'bg-slate-100 text-slate-600',
+  late: 'bg-amber-100 text-amber-700', on_leave: 'bg-sky-100 text-sky-700',
   missing: 'bg-rose-100 text-rose-700', due_later: 'bg-slate-100 text-slate-500',
   off: 'bg-slate-50 text-slate-400',
+  needs_correction: 'bg-amber-100 text-amber-700',
+  no_schedule: 'bg-slate-50 text-slate-400',
 };
 
 /**
@@ -124,7 +126,7 @@ export function StoreDayDetail({ outlet, workStart, role, startDate }: {
                   <div key={t.member.employeeId} className="flex items-center gap-2 text-sm">
                     <span className="flex-1 min-w-0 truncate text-slate-600">{t.member.fullName}</span>
                     <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${TONE[t.standing]}`}>
-                      {t.standing === 'leave' ? (data?.onLeave(t.member.rosterName, date) ?? 'On leave') : STANDING_WORD[t.standing]}
+                      {t.standing === 'on_leave' ? (data?.onLeave(t.member.rosterName, date) ?? 'On leave') : STANDING_WORD[t.standing]}
                     </span>
                   </div>
                 ))}

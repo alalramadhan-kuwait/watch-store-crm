@@ -3,6 +3,8 @@ import { format } from 'date-fns';
 import type { Case, DayClose, AppSettings, CaseType, CaseStatus, AuditEntry, Brand, ProductType, SaleItem } from '../types';
 import { STAFF_DEFAULT, LOST_REASONS_DEFAULT, FOLLOWUP_ACTIONS_DEFAULT, CHANNELS_DEFAULT } from '../types';
 import { formatKD } from '../utils/formatKD';
+import { shiftHours } from '../shared/workedHours';
+import { scheduleFromRow, type Schedule, type ScheduleRow } from '../shared/schedule';
 
 // ── DB row types ──────────────────────────────────────────────────────────────
 
@@ -652,10 +654,13 @@ export interface TeamMemberHR {
   fullName: string;
   rosterName: string;   // cases.staff
   location: string | null;
-  /** Weekdays they are due in, 0 = Sunday … 6 = Saturday. */
+  /** Weekdays they are due in, 0 = Sunday … 6 = Saturday. Mirrors whichever
+   *  dated schedule is in force today. */
   expectedDays: number[];
   shiftStart: string | null;
   shiftEnd: string | null;
+  /** Every dated schedule they have had, so a past day is judged on its own terms. */
+  schedules: Schedule[];
 }
 
 export interface AttendanceDay {
@@ -678,11 +683,28 @@ export interface LeaveDay {
 
 /** Everyone on the shop roster who has an HR record. */
 export async function getTeamDirectory(): Promise<TeamMemberHR[]> {
-  const { data } = await supabase
-    .from('employees')
-    .select('id, full_name, dsr_staff_name, location, expected_days, shift_start, shift_end')
-    .eq('status', 'Active')
-    .not('dsr_staff_name', 'is', null);
+  /* Schedules are fetched alongside the roster because a past day must be
+     judged against the schedule in force on that day. The columns on the
+     employee row only ever mirror today's, so on their own they would re-judge
+     last month against this month's roster. */
+  const [{ data }, { data: schedRows }] = await Promise.all([
+    supabase
+      .from('employees')
+      .select('id, full_name, dsr_staff_name, location, expected_days, shift_start, shift_end')
+      .eq('status', 'Active')
+      .not('dsr_staff_name', 'is', null),
+    supabase
+      .from('employee_schedules')
+      .select('id, employee_id, effective_from, effective_to, working_days, shift_start, shift_end, note'),
+  ]);
+
+  const byEmployee = new Map<string, Schedule[]>();
+  for (const row of (schedRows ?? []) as ScheduleRow[]) {
+    const list = byEmployee.get(row.employee_id) ?? [];
+    list.push(scheduleFromRow(row));
+    byEmployee.set(row.employee_id, list);
+  }
+
   return (data ?? []).map(r => ({
     employeeId: r.id as string,
     fullName: r.full_name as string,
@@ -692,6 +714,7 @@ export async function getTeamDirectory(): Promise<TeamMemberHR[]> {
     expectedDays: ((r as { expected_days?: number[] }).expected_days ?? [0, 1, 2, 3, 4, 6]).map(Number),
     shiftStart: ((r as { shift_start?: string }).shift_start ?? null),
     shiftEnd: ((r as { shift_end?: string }).shift_end ?? null),
+    schedules: byEmployee.get(r.id as string) ?? [],
   }));
 }
 
@@ -724,7 +747,7 @@ export async function getTeamAttendance(from: string, to: string): Promise<Atten
       isLate: !!r.is_late,
       justified: !!r.justified,
       location: (r.location as string) ?? null,
-      hours: outTs ? (new Date(outTs).getTime() - new Date(inTs).getTime()) / 3600000 : null,
+      hours: shiftHours({ clockIn: inTs, clockOut: outTs }).hours,
     });
   }
   return out;

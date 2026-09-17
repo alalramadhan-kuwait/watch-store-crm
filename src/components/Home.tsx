@@ -238,10 +238,10 @@ export function Home() {
         </div>
         <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
           {([
-            ['In now', team.filter((t) => t.standing === 'on_floor').length, 'text-emerald-600'],
-            ['Done', team.filter((t) => t.standing === 'finished' || t.standing === 'late').length, 'text-slate-700'],
+            ['In now', team.filter((t) => t.standing === 'working').length, 'text-emerald-600'],
+            ['Done', team.filter((t) => t.standing === 'completed').length, 'text-slate-700'],
             ['Not in', missing.length, 'text-rose-600'],
-            ['Leave / off', team.filter((t) => t.standing === 'leave' || t.standing === 'off').length, 'text-slate-400'],
+            ['Leave / off', team.filter((t) => t.standing === 'on_leave' || t.standing === 'off').length, 'text-slate-400'],
           ] as const).map(([label, n, tone]) => (
             <span key={label} className="flex items-baseline gap-1.5">
               <span className={`text-lg font-bold ${tone}`}>{n}</span>
@@ -262,14 +262,14 @@ export function Home() {
             <p className="font-bold text-slate-900 text-sm">You</p>
             <p className="text-xs text-slate-500">
               {!me ? 'Your clock-in is in My Portal.'
-                : me.standing === 'on_floor' ? `Clocked in ${hhmm(me.firstIn)} · ${hm(me.hoursToday)} so far`
+                : me.standing === 'working' ? `Clocked in ${hhmm(me.firstIn)} · ${hm(me.hoursToday)} so far`
                 : me.shifts.length ? `${hm(me.hoursToday)} today · last out ${hhmm(me.lastOut)}`
                 : STANDING_WORD[me.standing]}
             </p>
           </div>
           <button onClick={() => navigate('/portal')}
             className="shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-xl border-2 border-slate-200 text-sm font-semibold">
-            {me?.standing === 'on_floor' ? <><LogOut className="w-4 h-4" /> Clock out</> : <><LogIn className="w-4 h-4" /> Clock in</>}
+            {me?.standing === 'working' ? <><LogOut className="w-4 h-4" /> Clock out</> : <><LogIn className="w-4 h-4" /> Clock in</>}
           </button>
         </div>
       </div>

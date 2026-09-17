@@ -1,0 +1,10 @@
+{
+  "foundation": "18b34055fc2e55c5",
+  "files": {
+    "attendanceStatus.ts": "2c2b8dc08ee07609",
+    "outlets.ts": "45b2e3d4d3aaeacf",
+    "schedule.ts": "63233c82ff408ffc",
+    "storeDay.ts": "3d6c851090aedaa4",
+    "workedHours.ts": "2f92e91ae6ef20b4"
+  }
+}
