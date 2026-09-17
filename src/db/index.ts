@@ -652,6 +652,10 @@ export interface TeamMemberHR {
   fullName: string;
   rosterName: string;   // cases.staff
   location: string | null;
+  /** Weekdays they are due in, 0 = Sunday … 6 = Saturday. */
+  expectedDays: number[];
+  shiftStart: string | null;
+  shiftEnd: string | null;
 }
 
 export interface AttendanceDay {
@@ -676,13 +680,18 @@ export interface LeaveDay {
 export async function getTeamDirectory(): Promise<TeamMemberHR[]> {
   const { data } = await supabase
     .from('employees')
-    .select('id, full_name, dsr_staff_name, location')
+    .select('id, full_name, dsr_staff_name, location, expected_days, shift_start, shift_end')
+    .eq('status', 'Active')
     .not('dsr_staff_name', 'is', null);
   return (data ?? []).map(r => ({
     employeeId: r.id as string,
     fullName: r.full_name as string,
     rosterName: r.dsr_staff_name as string,
     location: (r.location as string) ?? null,
+    // Sat–Thu when the column has never been touched, which is the shops' week.
+    expectedDays: ((r as { expected_days?: number[] }).expected_days ?? [0, 1, 2, 3, 4, 6]).map(Number),
+    shiftStart: ((r as { shift_start?: string }).shift_start ?? null),
+    shiftEnd: ((r as { shift_end?: string }).shift_end ?? null),
   }));
 }
 

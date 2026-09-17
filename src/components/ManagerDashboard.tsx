@@ -497,7 +497,10 @@ const kuwaitTime = (ts: string) =>
  * presence: worked (with the hours), late, on leave, Friday, or absent. Days
  * that have not happened yet are left blank rather than marked absent.
  */
-function AttendanceSheet({ name, month, rows, leave, onClose }: {
+/* Exported so the Team tab opens this month sheet rather than growing a second
+   one. It renders its own modal and takes the month's rows, which is why the
+   caller fetches them. */
+export function AttendanceSheet({ name, month, rows, leave, onClose }: {
   name: string; month: Date; rows: AttendanceDay[]; leave: LeaveDay[]; onClose: () => void;
 }) {
   const days = eachDayOfInterval({ start: startOfMonth(month), end: endOfMonth(month) });

@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { PlusCircle, ClipboardList, Bell, BarChart2, FileText, Settings, LogOut, Users, UserRound } from 'lucide-react';
+import { PlusCircle, ClipboardList, Bell, BarChart2, FileText, Settings, LogOut, Users, UserRound, Home, Users2 } from 'lucide-react';
 import { useAuth, canSeePerformance } from '../../context/AuthContext';
 import { useAppStore } from '../../store';
 import pkg from '../../../package.json';
@@ -9,13 +9,21 @@ export function Sidebar() {
   const { profile, role, signOut } = useAuth();
   const { sidebarCollapsed } = useAppStore();
 
+  /* A desk has room the phone does not, so nothing is hidden behind More here.
+     The order still matches the bottom bar, and `/` means the same thing in
+     both: whichever page this role opens on. */
+  const perf = canSeePerformance(role);
   const items = [
-    { to: '/',          icon: PlusCircle,    label: 'Quick Entry' },
+    ...(perf
+      ? [{ to: '/',       icon: Home,        label: 'Home'        },
+         { to: '/entry',  icon: PlusCircle,  label: 'Quick Entry' }]
+      : [{ to: '/',       icon: PlusCircle,  label: 'Quick Entry' }]),
     { to: '/today',     icon: ClipboardList, label: "Today's Log" },
+    ...(perf ? [{ to: '/team', icon: Users2, label: 'Team' }] : []),
     { to: '/followups', icon: Bell,          label: 'Follow-ups'  },
     { to: '/portal',    icon: UserRound,     label: 'My Portal'   },
     // the store manager runs both shops: the numbers yes, CRM and Settings no
-    ...(canSeePerformance(role) ? [
+    ...(perf ? [
       { to: '/manager',  icon: BarChart2,  label: 'Dashboard' },
       { to: '/reports',  icon: FileText,   label: 'Reports'   },
     ] : []),
