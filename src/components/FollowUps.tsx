@@ -102,11 +102,19 @@ export function FollowUps() {
       const now = new Date();
       const rows = await getCasesForRange(format(startOfMonth(now), 'yyyy-MM-dd'), format(now, 'yyyy-MM-dd'));
       if (cancelled) return;
+      /* `!salesFor` means two different things and only one of them is "show
+         everything". For somebody who may see the whole shop it is "no colleague
+         filter chosen"; for a salesperson it means their own name is missing —
+         and the card then totalled the entire shop's month under the words
+         "Your sales". One salesperson saw 27,450 KD of other people's takings
+         that way. Without a name there is no personal figure, so there is no
+         card. */
+      if (!canSeeEveryone && !salesFor) { setMonthSales(null); return; }
       const mine = rows.filter(c => c.caseType === 'Sale' && (!salesFor || c.staff === salesFor));
       setMonthSales({ count: mine.length, kd: mine.reduce((sum, c) => sum + (c.amountKD || 0), 0) });
     })();
     return () => { cancelled = true; };
-  }, [salesFor]);
+  }, [salesFor, canSeeEveryone]);
 
   // Analytics computed from the scoped list (regardless of the other filters)
   const overdue = useMemo(() => scoped.filter(c => followUpUrgency(c) === 'overdue').length, [scoped]);

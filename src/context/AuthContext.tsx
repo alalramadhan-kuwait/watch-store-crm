@@ -61,6 +61,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
 
+  /* The roster name a login sells under is stored twice — profiles.sales_name,
+     which the DSR reads, and employees.dsr_staff_name on the HR record. A
+     salesperson was set up with the HR one filled in and the login one left
+     blank, and spent a morning looking at "Your DSR name isn't set yet" while
+     the answer sat in the next table.
+     So the HR record is the fallback. Only for a salesperson: the shared shop
+     login and a manager are deliberately nameless — that is what makes their
+     board show the whole shop — and inheriting a name would quietly narrow it. */
+  const [rosterFallback, setRosterFallback] = useState<string | null>(null);
+
   async function loadProfile(userId: string) {
     // per-user device memory (last staff picked) is keyed by the login
     useAppStore.getState().hydrateForUser(userId);
@@ -70,6 +80,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .eq('id', userId)
       .single();
     if (data) setProfile(data as Profile);
+
+    const p = data as Profile | null;
+    if (p && p.role === 'sales' && !p.sales_name) {
+      const { data: emp } = await supabase
+        .from('employees').select('dsr_staff_name').eq('user_id', userId).maybeSingle();
+      setRosterFallback((emp as { dsr_staff_name?: string } | null)?.dsr_staff_name ?? null);
+    } else {
+      setRosterFallback(null);
+    }
   }
 
   useEffect(() => {
@@ -107,7 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, profile, role: profile?.role ?? null,
-      salesName: profile?.sales_name ?? null,
+      salesName: profile?.sales_name ?? rosterFallback,
       onFloor: isFloorRole(profile?.role ?? null),
       loading, signIn, signOut,
     }}>
