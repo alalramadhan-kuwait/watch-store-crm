@@ -13,6 +13,7 @@ one schedule reading, one store open/close rule.
 | `attendanceStatus.ts` | Where do they stand today? |
 | `storeDay.ts` | When did the shop open and close? |
 | `portal.ts` | What My Portal asks the database, and what a valid answer is. |
+| `workload.ts` | Over a period, who carried how much — and is that fair? |
 
 `portal.ts` is the one file here that talks to the network. It imports the
 `supabase` client from `../lib/supabase`, which exists at that path in both

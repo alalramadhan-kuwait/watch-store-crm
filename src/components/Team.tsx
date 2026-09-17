@@ -4,7 +4,8 @@ import { useAppStore } from '../store';
 import { supabase } from '../lib/supabase';
 import { getSettings, getTeamAttendance, getTeamDirectory, getTeamLeave } from '../db';
 import { loadStoreDay } from '../db/storeToday';
-import { standings, shiftHours, STANDING_WORD, type Shift, type TeamStanding, isExpectedOn } from '../utils/storeDay';
+import { standings, STANDING_WORD, type Shift, type TeamStanding, isExpectedOn } from '../utils/storeDay';
+import { workload, fairness, type Fairness } from '../shared/workload';
 import { shopsFrom, sameOutlet } from '../utils/outlet';
 import { AttendanceSheet } from './ManagerDashboard';
 import type { AttendanceDay, LeaveDay } from '../db';
@@ -49,6 +50,7 @@ export function Team() {
   const [rows, setRows] = useState<TeamStanding[]>([]);
   const [weekHours, setWeekHours] = useState<Map<string, number>>(new Map());
   const [weekDue, setWeekDue] = useState<Map<string, number>>(new Map());
+  const [balance, setBalance] = useState<Fairness | null>(null);
   const [sales, setSales] = useState<Map<string, { count: number; kd: number }>>(new Map());
   const [sheetFor, setSheetFor] = useState<string | null>(null);
   const [month, setMonth] = useState<{ rows: AttendanceDay[]; leave: LeaveDay[] } | null>(null);
@@ -78,15 +80,8 @@ export function Team() {
 
       /* Hours worked so far this week, and how many days they were due — the two
          together are what makes an imbalance visible. A person due four days
-         and working four is not behind somebody due six. */
-      const hrs = new Map<string, number>();
-      for (const a of weekAtt as unknown as Shift[]) {
-        if (!sameOutlet(a.location, outlet)) continue;
-        // A shift still running counts the hours worked so far, same as today's.
-        hrs.set(a.rosterName, (hrs.get(a.rosterName) ?? 0) + shiftHours(a));
-      }
-      setWeekHours(hrs);
-
+         and working four is not behind somebody due six.
+         The counting is src/shared/workload.ts, the same code HR reports with. */
       const due = new Map<string, number>();
       for (const m of here) {
         let n = 0;
@@ -96,6 +91,18 @@ export function Team() {
         due.set(m.rosterName, n);
       }
       setWeekDue(due);
+
+      const loads = workload(
+        (weekAtt as unknown as Shift[])
+          .filter((a) => a.clockIn)
+          .map((a) => ({
+            who: a.rosterName, date: a.date, outlet: a.location,
+            clockIn: a.clockIn as string, clockOut: a.clockOut,
+          })),
+        { outlet, from: weekStart, to: today, daysDue: due },
+      );
+      setWeekHours(new Map(loads.map((l) => [l.who, l.hours ?? 0])));
+      setBalance(fairness(loads));
 
       const byStaff = new Map<string, { count: number; kd: number }>();
       for (const c of day.cases) {
@@ -145,6 +152,12 @@ export function Team() {
         <h1 className="text-lg font-bold text-slate-900">Team today</h1>
         {weekTotal > 0 && <span className="ml-auto text-xs text-slate-500">{hm(weekTotal)} this week</span>}
       </div>
+
+      {balance?.uneven && balance.busiest && balance.quietest && (
+        <p className="text-xs text-amber-700 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2">
+          {balance.busiest.who} is working about {hm(balance.spread ?? 0)} more per day due than {balance.quietest.who} this week.
+        </p>
+      )}
 
       {loading && !rows.length ? (
         <div className="space-y-2">{[0, 1, 2].map((i) => <div key={i} className="h-24 rounded-2xl bg-slate-100 animate-pulse" />)}</div>

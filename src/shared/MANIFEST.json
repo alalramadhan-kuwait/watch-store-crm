@@ -1,11 +1,12 @@
 {
-  "foundation": "d3e049e2090a54ee",
+  "foundation": "000f10dcccf77925",
   "files": {
     "attendanceStatus.ts": "2c2b8dc08ee07609",
     "outlets.ts": "45b2e3d4d3aaeacf",
     "portal.ts": "1f9aed5be5bdf2f6",
     "schedule.ts": "63233c82ff408ffc",
     "storeDay.ts": "3d6c851090aedaa4",
-    "workedHours.ts": "2f92e91ae6ef20b4"
+    "workedHours.ts": "2f92e91ae6ef20b4",
+    "workload.ts": "1ba6c19212b6f504"
   }
 }
