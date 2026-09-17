@@ -17,6 +17,14 @@
 import { supabase } from '../lib/supabase';
 import { dayHours, type DayHours, type ShiftInput } from './workedHours';
 import { resolveOutlet } from './outlets';
+import { todayKuwait, kuwaitISO, type Geofence, type Position } from './portalRules';
+
+/* The rules that need nothing plugged in live next door, so the build can test
+   them. Re-exported so callers have one place to import from. */
+export {
+  todayKuwait, kuwaitISO, metresBetween, fencesNear, leaveBalance,
+  type Geofence, type Position, type NearFence, type LeaveBalance,
+} from './portalRules';
 
 /* ── shapes ──────────────────────────────────────────────────────────────── */
 
@@ -74,15 +82,6 @@ export interface PortalRequest {
   attendance_record_id?: string | null;
 }
 
-export interface Geofence {
-  id: string;
-  name: string;
-  lat: number;
-  lng: number;
-  radius_m: number;
-  active: boolean;
-}
-
 export interface PortalSettings {
   workStart: string;
   maxAccuracyM: number | null;
@@ -97,14 +96,6 @@ export interface PortalState {
   geofences: Geofence[];
   settings: PortalSettings;
 }
-
-/** yyyy-mm-dd as Kuwait reads the calendar. UTC+3 all year, no daylight saving. */
-export const todayKuwait = (at: Date = new Date()): string =>
-  new Date(at.getTime() + 3 * 3_600_000).toISOString().slice(0, 10);
-
-/** A Kuwait date and HH:mm as an instant. */
-export const kuwaitISO = (date: string, time: string): string =>
-  new Date(`${date}T${time}:00+03:00`).toISOString();
 
 const dayStart = (d: string) => `${d}T00:00:00+03:00`;
 const dayEnd = (d: string) => `${d}T23:59:59+03:00`;
@@ -182,46 +173,6 @@ export const openShift = (shifts: PortalShift[]): PortalShift | null =>
   shifts.find((s) => !s.clock_out) ?? null;
 
 /* ── clocking in and out ─────────────────────────────────────────────────── */
-
-export interface Position {
-  latitude: number;
-  longitude: number;
-  accuracy: number;
-}
-
-export interface NearFence {
-  fence: Geofence;
-  metres: number;
-  inside: boolean;
-}
-
-/** Straight-line metres between two points. */
-export function metresBetween(aLat: number, aLng: number, bLat: number, bLng: number): number {
-  const R = 6371000;
-  const rad = (d: number) => (d * Math.PI) / 180;
-  const dLat = rad(bLat - aLat);
-  const dLng = rad(bLng - aLng);
-  const h = Math.sin(dLat / 2) ** 2 +
-    Math.cos(rad(aLat)) * Math.cos(rad(bLat)) * Math.sin(dLng / 2) ** 2;
-  return 2 * R * Math.asin(Math.sqrt(h));
-}
-
-/**
- * Every workplace, nearest first.
- *
- * All of them, not the one on the employee's HR record: a manager covering the
- * other shop is standing in a real workplace and should be able to clock in to
- * it. Which one they are in is a question about where they are, not about which
- * row somebody typed.
- */
-export function fencesNear(fences: Geofence[], at: Position): NearFence[] {
-  return fences
-    .map((fence) => {
-      const metres = metresBetween(at.latitude, at.longitude, Number(fence.lat), Number(fence.lng));
-      return { fence, metres, inside: metres <= Number(fence.radius_m) };
-    })
-    .sort((a, b) => a.metres - b.metres);
-}
 
 export interface ClockInAt {
   userId: string;
@@ -326,35 +277,6 @@ export async function cancelLeave(id: string): Promise<string | null> {
 export async function leaveDocumentUrl(path: string): Promise<string | null> {
   const { data, error } = await supabase.storage.from('leave-docs').createSignedUrl(path, 300);
   return error || !data?.signedUrl ? null : data.signedUrl;
-}
-
-export interface LeaveBalance {
-  entitlement: number;
-  taken: number;
-  booked: number;
-  remaining: number;
-}
-
-/**
- * Where their annual leave stands.
- *
- * Approved days in the past are taken; approved days still to come are booked.
- * Pending requests are neither — nobody has agreed to them yet. Only annual
- * leave counts against the entitlement; sick leave is not a holiday.
- */
-export function leaveBalance(
-  leaves: PortalLeave[],
-  entitlement: number | null,
-  at: Date = new Date(),
-): LeaveBalance {
-  const today = todayKuwait(at);
-  const annual = leaves.filter(
-    (l) => l.approval_status === 'Approved' && (l.leave_type ?? 'Annual') === 'Annual',
-  );
-  const taken = annual.filter((l) => l.leave_end < today).reduce((t, l) => t + Number(l.days ?? 0), 0);
-  const booked = annual.filter((l) => l.leave_end >= today).reduce((t, l) => t + Number(l.days ?? 0), 0);
-  const total = Number(entitlement ?? 0);
-  return { entitlement: total, taken, booked, remaining: Math.max(0, total - taken - booked) };
 }
 
 /* ── corrections and other requests ──────────────────────────────────────── */

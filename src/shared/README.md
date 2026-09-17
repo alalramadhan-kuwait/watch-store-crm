@@ -14,6 +14,7 @@ one schedule reading, one store open/close rule.
 | `storeDay.ts` | When did the shop open and close? |
 | `portal.ts` | What My Portal asks the database, and what a valid answer is. |
 | `workload.ts` | Over a period, who carried how much — and is that fair? |
+| `portalRules.ts` | The portal rules that need nothing plugged in. |
 | `live.ts` | Keeping a current-day screen up to date without polling. |
 
 `portal.ts` and `live.ts` are the two files here that talk to the network. It imports the
@@ -30,9 +31,14 @@ reports and exports. If you change a rule here, change it there too.
 2. Run `npm run shared:hash` and commit the updated `MANIFEST.json`.
 3. Copy the changed files and `MANIFEST.json` into the other repo.
 
-`npm test` fails if a file here does not match `MANIFEST.json`, which catches an
-edit made in one app and forgotten in the other. The two repos agree when their
-`foundation` hashes match — both print it.
+`npm run build` fails if a file here does not match `MANIFEST.json`, which
+catches an edit made in one app and forgotten in the other. The two repos agree
+when their `foundation` hashes match — both print it.
+
+`npm test` runs the checks in `__tests__/`, which are part of the build. They
+need no database, so a rule that can only be exercised against live data belongs
+next to one that cannot: `portalRules.ts` holds the portal's rules and
+`portal.ts` the queries, for exactly that reason.
 
 ## Rules worth not rediscovering
 

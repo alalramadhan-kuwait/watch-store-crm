@@ -78,11 +78,54 @@ Two access layers, both enforced:
 1. **UI** — nav `roles` + `canAccessPath` (with per-user `profiles.page_access` override) gate page visibility; `CrudConfig.canWrite(role)` gates the edit/add controls.
 2. **Database RLS** — the real guard. Typical pattern: read = `auth.role() = 'authenticated'`; write = `get_my_role() = any(array[...])`.
 
-`profiles` columns: `id, full_name, role, page_access (text[]|null), sales_name (text|null), created_at, updated_at`. There is **no username column** — login identity is the auth email. `page_access = null` means default role-based access; **`page_access = '{}'` (empty list) means the always-on pages only** (Dashboard, My Portal, Inbox, Notifications) — used for salespeople. **`sales_name`** is the DSR staff-roster name this login logs sales under (`cases.staff`); it must equal an entry of `settings.staff_roster`, is unique per login (`profiles_sales_name_key`), and is set in Settings → Team Access ("DSR name", via `admin-users` `update`). `null` = shared login / not a salesperson.
+`profiles` columns: `id, full_name, role, page_access (text[]|null), sales_name (text|null), created_at, updated_at`. There is **no username column** — login identity is the auth email. `page_access = null` means default role-based access; **`page_access = '{}'` (empty list) means the always-on pages only** (Dashboard, My Portal, Inbox, Notifications) — used for salespeople. **The DSR roster name** — the name this login's sales are logged under (`cases.staff`) — lives on **`employees.dsr_staff_name`**, not on the profile. `profiles.sales_name` is a deprecated mirror kept in step by the `employees_sync_sales_name` trigger, read only for an account with no employee record linked. `get_my_sales_name()` prefers the employee record and falls back to the mirror. It must equal an entry of `settings.staff_roster` and is set in Settings → Team Access ("DSR name", via `admin-users` `update`), which writes the employee record. `null` = shared login / not a salesperson.
 
 **Floor roles: `staff` and `sales` are interchangeable** (since 2026-09-13). `staff` is the shared shop login, `sales` a personal one; both may insert cases and close a day (`cases` INSERT/UPDATE + `day_closes` INSERT admit `admin|staff|sales`, migration `20260913180000_sales_role_can_log_cases.sql`), and the DSR gates on `isFloorRole()` / `useAuth().onFloor`, never on the literal `'staff'`. Before that, an account created with the obvious role `sales` could open the app and be refused on save — and, because the outlet gate also keyed on `'staff'`, it was never asked for an outlet and wrote `outlet = null`.
 
 **A salesperson with their own login = four things**, all set from the UI (repeat per person): (1) Team Access → Add account, role **`staff` or `sales`** (both work); (2) Team Access → edit → **DSR name** = their roster name (keeps history continuous when the login name differs, e.g. login "Fadi Hussain" logs as "Fadi"); (3) Team Access → access → Custom with nothing ticked = portal only; (4) HR → Employees → **Linked user account** + Location — My Portal, leave and attendance all hang off this link (RLS `own_read_emp`); the outlet is *not* taken from it, everyone picks their outlet at each login. Clock-in additionally needs a **geofence** named exactly like the HR location (`Time Gallery`, `Avenues`; `Timekeeper HQ` exists).
+
+### Effective permissions
+
+What each role can actually do, after both layers. The UI can only ever be
+*stricter* than RLS — anything in this table is what the database allows, so a
+page hidden from somebody is not a security boundary on its own.
+
+| | admin (Owner) | manager | hr | sales / staff | operations / marketing | viewer |
+| --- | --- | --- | --- | --- | --- | --- |
+| Every page | yes | all but admin-only bits | HR pages | portal only, by default | their own module | read-only pages |
+| Settings → Team Access | yes | yes, but cannot touch an admin | no | no | no | no |
+| See all employees | yes | yes | yes | own record only | own record only | own record only |
+| Edit an employee / schedule | yes | yes | yes | no | no | no |
+| See all attendance | yes | yes | yes | own only | own only | own only |
+| Correct an attendance record | yes | yes | yes | request it | request it | no |
+| Approve leave | yes | first approval, in their `manager_scopes` locations, not their own | final approval | apply and cancel own | apply and cancel own | no |
+| Log a DSR sale | yes | yes | no | yes | no | no |
+| Edit a DSR case | any | any | no | own, same day, unlocked; or any open follow-up | no | no |
+| Change an outlet in the registry | yes | yes | no | no | no | no |
+| Financials on the Dashboard | yes | yes | no | no | no | no |
+
+Notes that are easy to get wrong:
+
+- **`page_access = null`** means role defaults; **`page_access = '{}'`** (an
+  explicit empty list) means the always-on pages only — Dashboard, My Portal,
+  Inbox, Notifications. An empty list is a real answer, not "unset".
+- **`/settings` is never grantable through `page_access`.** It stays role-gated
+  to admin and manager, because it is where accounts are made.
+- **Leave approval is two steps** and a manager cannot give the first approval
+  on their own leave (`can_give_first_approval` excludes `e.user_id = auth.uid()`).
+- **Five tables have RLS on and no policy at all** — `app_config`,
+  `apify_config`, `push_config`, `instagram_auth`, `lightspeed_auth`. That is
+  deliberate: they hold credentials and are reachable only by the service role,
+  from edge functions and cron.
+- **Realtime respects RLS**, so a salesperson subscribed to `attendance_records`
+  receives their own rows and nobody else's.
+
+`profiles` columns: `id, full_name, role, page_access (text[]|null), sales_name (text|null), created_at, updated_at`. There is **no username column** — login identity is the auth email. `page_access = null` means default role-based access; **`page_access = '{}'` (empty list) means the always-on pages only** (Dashboard, My Portal, Inbox, Notifications) — used for salespeople. **The DSR roster name** — the name this login's sales are logged under (`cases.staff`) — lives on **`employees.dsr_staff_name`**, not on the profile. `profiles.sales_name` is a deprecated mirror kept in step by the `employees_sync_sales_name` trigger, read only for an account with no employee record linked. `get_my_sales_name()` prefers the employee record and falls back to the mirror. It must equal an entry of `settings.staff_roster` and is set in Settings → Team Access ("DSR name", via `admin-users` `update`), which writes the employee record. `null` = shared login / not a salesperson. It was stored in two places with nothing syncing them, which locked a salesperson out of the DSR when only one was filled.
+
+**Floor roles: `staff` and `sales` are interchangeable** (since 2026-09-13). `staff` is the shared shop login, `sales` a personal one; both may insert cases and close a day (`cases` INSERT/UPDATE + `day_closes` INSERT admit `admin|staff|sales`, migration `20260913180000_sales_role_can_log_cases.sql`), and the DSR gates on `isFloorRole()` / `useAuth().onFloor`, never on the literal `'staff'`. Before that, an account created with the obvious role `sales` could open the app and be refused on save — and, because the outlet gate also keyed on `'staff'`, it was never asked for an outlet and wrote `outlet = null`.
+
+**A salesperson with their own login = four things**, all set from the UI (repeat per person): (1) Team Access → Add account, role **`staff` or `sales`** (both work); (2) Team Access → edit → **DSR name** = their roster name (keeps history continuous when the login name differs, e.g. login "Fadi Hussain" logs as "Fadi"); (3) Team Access → access → Custom with nothing ticked = portal only; (4) HR → Employees → **Linked user account** + Location — My Portal, leave and attendance all hang off this link (RLS `own_read_emp`); the outlet is *not* taken from it, everyone picks their outlet at each login. Clock-in additionally needs a **geofence** named exactly like the HR location (`Time Gallery`, `Avenues`; `Timekeeper HQ` exists).
+
 
 ---
 
@@ -192,13 +235,70 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 
 ---
 
+## 10a. The shared foundation (`src/shared/`)
+
+Mirrored **byte-for-byte** between `timekeeper-online` and `watch-store-crm`.
+`npm run build` runs `shared:check`, which fails if a file no longer matches
+`src/shared/MANIFEST.json`; the two repos are in step when both print the same
+`foundation` hash. To change a rule: edit it in one repo, `npm run shared:hash`,
+copy `src/shared/` into the other.
+
+| File | Answers | Database counterpart |
+| --- | --- | --- |
+| `outlets.ts` | Which outlet is this, shop or channel? | `outlets`, `resolve_outlet()`, `outlet_key()` |
+| `workedHours.ts` | How many hours did this person work? | `attendance_shifts`, `attendance_day_hours` |
+| `schedule.ts` | When were they expected to work, **on that date**? | `employee_schedules`, `schedule_on()` |
+| `attendanceStatus.ts` | Where do they stand today? | — |
+| `storeDay.ts` | When did the shop open and close? | `store_day()` |
+| `workload.ts` | Over a period, who carried how much, and is it fair? | — |
+| `portalRules.ts` | Kuwait dates, distance, leave balance. | — |
+| `portal.ts` | What My Portal asks the database. | — |
+| `live.ts` | Keeping a current-day screen up to date. | `supabase_realtime` publication |
+
+`npm test` runs `src/shared/__tests__` (47 checks, no database needed) and is
+part of the build.
+
+### The four outlets
+
+| code | display | kind | sells | attendance | geofence | opens/closes | POS name | DSR name |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| `avenues` | Time Keeper - Avenues | physical | yes | yes | yes | yes | `Time Keeper - Avenues` | `Avenues` |
+| `time_gallery` | Time Gallery | physical | yes | yes | yes | yes | `Time Gallery` | `TimeGallery` |
+| `whatsapp` | Time Keeper WhatsApp | digital | yes | no | no | **no** | `Time Keeper` | `WhatsApp` |
+| `online` | Time Keeper Online | digital | yes | no | no | **no** | *(none yet)* | *(none yet)* |
+| `hq` | Timekeeper HQ | physical | **no** | yes | yes | **no** | — | — |
+
+The till's register called **`Time Keeper`** is the WhatsApp channel's takings
+(Eman's), not a third shop. Eman's own attendance is at HQ; her *sales channel*
+being WhatsApp must never make WhatsApp behave like a shop.
+
+**Never compare outlet text with `===`.** Four systems spell these four outlets
+four different ways. Use `resolveOutlet` / `sameOutlet`, or `resolve_outlet()`
+in SQL.
+
+### Rules worth not rediscovering
+
+- **An open shift is the hours so far, never zero.** Three screens reported 0.
+- **A shift open more than 16 hours was never clocked out.** Its length is
+  `null` — unknown, not enormous — and it shows as needing a correction. Ten such
+  records existed when this was written, the oldest running since 6 August.
+- **Nobody is absent just because they are not here.** Only flag a person on a
+  day the schedule *in force on that date* expected them. An unknown schedule is
+  `no_schedule`, never `missing`.
+- **Schedules are dated.** Changing a shift next month must not re-judge last
+  month. `set_schedule()` does the splitting in one transaction.
+- **Realtime is for today only**, and a table delivers nothing unless it is in
+  the `supabase_realtime` publication.
+
+---
+
 ## 11. DSR (watch-store-crm) notes
 
 - `src/utils/report.ts` — `buildDailyStats`; **follow-up conversions are separated** from the normal daily report (`followUpWins`, `followUpWinRevenue`, `dayCases`). Brand and product-type revenue are attributed **per line item** via `utils/saleItems.ts#getEffectiveItems` (same as the manager dashboard) — never read `case.brand` for money, it only names the first item. Brand Analytics PDF has **no Lost column**. The PDF paginates itself: header + footer on every page, section headings never orphaned from their table (`heading()`/`ensureSpace()`), tables carry `TABLE_MARGIN` so continuation pages clear the header. `shareReport` → `'shared'|'downloaded'|'cancelled'`.
 - **Three "conversion" formulas coexist** (known, not yet unified): PDF + TodayLog = `sales ÷ (sales + lost)`; `closeDay`/`rebuildDaySummary` stored summary = `sales ÷ (sales + follow-ups + lost)` plus a visitors variant. Same day can show different percentages in the PDF and in the stored WhatsApp text.
 - `src/components/TodayLog.tsx` — close day, PDF share; staff can pull only **yesterday's** report, admin any past day.
 - `src/components/Reports.tsx` — admin "report for any day + outlet" builder (`day_closes` are per-outlet).
-- **Personal logins** (2026-09-13): `AuthContext` exposes `salesName` (= `profiles.sales_name`). When it is set: Quick Entry's Staff field is read-only and logs as that name (`lastStaff` ignored), Edit keeps the case owner and forbids reassignment, Close Day's closer defaults to it, and audit `by:` records the actor (`salesName ?? owner`). **The outlet picker stays for every staff login** — the day's report is per-outlet and people cover between the two shops, so nobody is pinned to one. `outletChosen` is derived (`role !== 'staff' || !!activeOutlet`), and `signOut` clears `activeOutlet` + `lastStaff` (now keyed `lastStaff:<uid>`) so the next login on the same phone starts clean. `db.updateCase` **throws** on error (it used to swallow it): with personal `created_by`, a colleague's edit of your same-day Sale is refused by RLS and now shows as an error toast.
+- **Personal logins** (2026-09-13): `AuthContext` exposes `salesName` (= `employees.dsr_staff_name`, falling back to the deprecated `profiles.sales_name` mirror). When it is set: Quick Entry's Staff field is read-only and logs as that name (`lastStaff` ignored), Edit keeps the case owner and forbids reassignment, Close Day's closer defaults to it, and audit `by:` records the actor (`salesName ?? owner`). **The outlet picker stays for every staff login** — the day's report is per-outlet and people cover between the two shops, so nobody is pinned to one. `outletChosen` is derived (`role !== 'staff' || !!activeOutlet`), and `signOut` clears `activeOutlet` + `lastStaff` (now keyed `lastStaff:<uid>`) so the next login on the same phone starts clean. `db.updateCase` **throws** on error (it used to swallow it): with personal `created_by`, a colleague's edit of your same-day Sale is refused by RLS and now shows as an error toast.
 - **`/portal` — My Portal, inside the DSR** (`src/components/MyPortal.tsx`, tab "Me" on mobile / "My Portal" on desktop): a salesperson's own page — clock in/out (geofenced), month attendance summary, attendance history by month, annual/sick balance, apply for leave or WFH, edit or cancel their own pending request, ask for an HR update or attendance correction, and their HR record. It reads the same tables as Timekeeper Online's `/me`; RLS already limits each to the signed-in person's own rows, so **a salesperson never has to open the other app**. Shared helpers in `src/utils/attendance.ts` (`lateClassOf`, `isEarlyLeave`, `workingDaysBetween` — Fridays never consume leave — and `haversineMeters`). Needs the HR link (`employees.user_id`) and a geofence named like `employees.location`; without the link the page says so instead of failing.
 - **Today's Log header names the scope** (2026-09-13): under the date, a location chip and an account chip say which outlet's day is on screen and which login is looking at it (`Fadi Hussain · Fadi` when the roster name differs; `Staff` on the shared login). The outlet chip is hidden for admin, whose outlet dropdown sits beside it and already says `All Outlets`. Several people share one phone and the report is per-outlet, so neither fact should need a menu.
 - **Follow-ups can be created and edited from their own page** (2026-09-13): a **New** button in the header opens a modal asking the same required fields Quick Entry does (brand, action, contact, callback date, notes) so both doors produce follow-ups the shop can act on; Staff is asked only on the shared login (a personal login files under its own roster name) and Outlet only when the session has not pinned one — an entry with no outlet is invisible to every per-outlet report. **Edit Details** in each row's Actions menu reuses `QuickEntryEdit`, the same editor Today's Log opens, so a case is corrected identically wherever it is reached from; it stays available after the day is closed because a follow-up outlives the day it was logged on, and the RLS UPDATE branch for open follow-ups has no `day_locked` test. Field errors clear as each field is filled.
@@ -222,6 +322,18 @@ Cron calls use `net.http_post` with the `x-sync-key` header and `timeout_millise
 ---
 
 ## 13. Changelog
+
+- **2026-09-17** (later 4) — **One foundation under both apps.** See §10a. The shop floor's share of it: `utils/outlet.ts` and `utils/storeDay.ts` are now thin layers over `src/shared/`, so hours, status and store open/close are decided by the same code the back office runs.
+
+  *My Portal* counted an open shift as zero hours, so a day in progress showed nothing worked and was then charged a full shortfall against it. Its clock-out never recorded how accurate the phone's fix was, so half the clock-outs could not be checked against the geofence afterwards. Both come from `shared/portal.ts` now.
+
+  *storeDay* kept a shop open by checking the date was today, which mislabelled an overnight shift and let a clock-in nobody ever closed hold the shop open indefinitely. Abandoned records are excluded by age instead.
+
+  *Team's* own status words are gone in favour of the shared ones, so "in now" and "not in" mean the same on both apps, and its hours-per-person loop is now `shared/workload.ts` — the same count HR reports with. A genuinely lopsided week is called out, compared as hours per day due so a part-timer is measured against their own roster.
+
+  *Realtime worked for the first time.* Today's Log and the follow-up board had been subscribing to `cases` and `day_closes` since they were written and receiving nothing: no table was in the `supabase_realtime` publication. Home also stops polling every minute and hears about a clock-in as it happens.
+
+  *The roster name* now comes from `employees.dsr_staff_name` first. Reading `profiles.sales_name` first, with a fallback only for one role, is what told a salesperson her DSR name was not set when it had been filled in on the other row.
 
 - **2026-09-14** (later 6) — **Both apps are installed applications now, and the DSR keeps what you were typing.** The same work across `timekeeper-online` and `watch-store-crm`.
 
