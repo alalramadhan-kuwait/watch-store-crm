@@ -6,6 +6,7 @@ import { getSettings, getTeamAttendance, getTeamDirectory, getTeamLeave } from '
 import { loadStoreDay } from '../db/storeToday';
 import { standings, STANDING_WORD, type Shift, type TeamStanding, isExpectedOn } from '../utils/storeDay';
 import { workload, fairness, type Fairness } from '../shared/workload';
+import { useLive } from '../shared/live';
 import { shopsFrom, sameOutlet } from '../utils/outlet';
 import { AttendanceSheet } from './ManagerDashboard';
 import type { AttendanceDay, LeaveDay } from '../db';
@@ -115,6 +116,10 @@ export function Team() {
   }, [outlet, today, workStart]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Who is on the floor changes while this is open; the week's totals do not
+  // need to, so only attendance is subscribed to.
+  useLive('team-today', [{ table: 'attendance_records' }], () => { void load(); });
 
   const ordered = useMemo(() => {
     const rank: Record<string, number> = { needs_correction: 0, missing: 1, late: 2, working: 3, due_later: 4, completed: 5, on_leave: 6, off: 7, no_schedule: 8 };

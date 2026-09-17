@@ -4,6 +4,7 @@ import { format, isToday, isBefore, differenceInDays, startOfDay, startOfMonth }
 import { Phone, MessageCircle, CheckCircle, XCircle, UserX, ChevronDown, Filter, BarChart2, TrendingUp, Pencil, Plus, ShieldAlert} from 'lucide-react';
 import { getOpenFollowUps, getSettings, updateCase, insertCase, nextCaseId, getBrands, getCasesForRange } from '../db';
 import { supabase } from '../lib/supabase';
+import { useLive } from '../shared/live';
 import { useAppStore } from '../store';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from './shared/Modal';
@@ -71,13 +72,9 @@ export function FollowUps() {
     setBrands(b);
   }, []);
 
-  useEffect(() => {
-    load();
-    const channel = supabase.channel('followups')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cases' }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
+
+  useLive('followups', [{ table: 'cases' }], load);
 
   // A personal login sees only the customers they are chasing; a manager sees
   // the whole board. Matched on the roster name, not created_by, so follow-ups

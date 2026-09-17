@@ -14,8 +14,9 @@ one schedule reading, one store open/close rule.
 | `storeDay.ts` | When did the shop open and close? |
 | `portal.ts` | What My Portal asks the database, and what a valid answer is. |
 | `workload.ts` | Over a period, who carried how much — and is that fair? |
+| `live.ts` | Keeping a current-day screen up to date without polling. |
 
-`portal.ts` is the one file here that talks to the network. It imports the
+`portal.ts` and `live.ts` are the two files here that talk to the network. It imports the
 `supabase` client from `../lib/supabase`, which exists at that path in both
 apps. Everything else is pure and can be tested without a database.
 
@@ -45,3 +46,7 @@ edit made in one app and forgotten in the other. The two repos agree when their
   attendance, no geofence and no opening time.
 - **Never compare outlet text with `===`.** Four systems spell these four
   outlets four different ways.
+- **Realtime is for today only.** A subscription on a historical report is
+  traffic nobody benefits from. And a table delivers nothing at all unless it is
+  in the `supabase_realtime` publication — two screens subscribed for months
+  without it and quietly received nothing.

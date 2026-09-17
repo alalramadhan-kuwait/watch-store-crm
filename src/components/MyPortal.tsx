@@ -12,6 +12,7 @@ import {
   fencesNear, clockIn as portalClockIn, clockOut as portalClockOut,
   applyForLeave, reviseLeave, cancelLeave as portalCancelLeave,
 } from '../shared/portal';
+import { useLive } from '../shared/live';
 
 /**
  * The salesperson's own page: attendance, leave and HR record.
@@ -220,7 +221,16 @@ export function MyPortal() {
     } catch { setLoadError(true); }
     setLoading(false);
   }
-  useEffect(() => { load(); }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [user?.id]);
+
+  /* Their own day, kept current: a correction approved by HR, or a shift closed
+     from another device, shows up without them reloading. Row-level security
+     means only their own rows reach this. */
+  useLive('my-portal', [
+    { table: 'attendance_records', filter: user ? `user_id=eq.${user.id}` : undefined },
+    { table: 'employee_requests', filter: user ? `user_id=eq.${user.id}` : undefined },
+    { table: 'leave_records' },
+  ], () => { void load(); }, { enabled: !!user }); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!showHistory || !user) return;

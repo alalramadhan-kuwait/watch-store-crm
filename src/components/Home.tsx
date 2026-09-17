@@ -8,6 +8,7 @@ import { useAppStore } from '../store';
 import { supabase } from '../lib/supabase';
 import { getSettings, getOpenFollowUps } from '../db';
 import { loadStoreDay, loadMonthToDate, loadMonthlyTarget, type StoreDayData } from '../db/storeToday';
+import { useLive } from '../shared/live';
 import { storeDay, standings, STANDING_WORD, type TeamStanding } from '../utils/storeDay';
 import { shopsFrom, sameOutlet } from '../utils/outlet';
 import { followUpUrgency } from '../utils/followUps';
@@ -89,8 +90,18 @@ export function Home() {
   }, [outlet, today]);
 
   useEffect(() => { void load(); }, [load]);
-  // The floor keeps moving while this is open; a minute is often enough.
-  useEffect(() => { const t = setInterval(() => void load(), 60_000); return () => clearInterval(t); }, [load]);
+
+  /* The floor keeps moving while this is open. Somebody clocking in or a sale
+     being logged arrives on its own now, rather than up to a minute late. */
+  useLive('store-today', [
+    { table: 'attendance_records' },
+    { table: 'cases', filter: `date_logged=eq.${today}` },
+    { table: 'day_closes', filter: `date=eq.${today}` },
+  ], () => { void load(); });
+
+  /* A slow refresh underneath, because a dropped websocket on mall wifi should
+     cost a manager a few minutes of staleness, not the rest of the day. */
+  useEffect(() => { const t = setInterval(() => void load(), 300_000); return () => clearInterval(t); }, [load]);
 
   const shop = useMemo(
     () => (data ? storeDay(data.shifts, outlet, today) : null), [data, outlet, today]);

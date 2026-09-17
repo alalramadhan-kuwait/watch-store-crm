@@ -8,6 +8,7 @@ import { generatePDF, shareReport, downloadReport, buildDailyStats } from '../ut
 import { useAppStore } from '../store';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { useLive } from '../shared/live';
 import { CaseTypeBadge, DayStatusBadge } from './shared/Badge';
 import { Modal, ConfirmModal } from './shared/Modal';
 import type { Case, AppSettings, DayClose, CaseStatus } from '../types';
@@ -48,14 +49,12 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
     setSettings(s);
   }, [onFloor, activeOutlet]);
 
-  useEffect(() => {
-    load();
-    const channel = supabase.channel('today-log')
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'cases', filter: `date_logged=eq.${today}` }, load)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'day_closes', filter: `date=eq.${today}` }, load)
-      .subscribe();
-    return () => { supabase.removeChannel(channel); };
-  }, [load]);
+  useEffect(() => { load(); }, [load]);
+
+  useLive('today-log', [
+    { table: 'cases', filter: `date_logged=eq.${today}` },
+    { table: 'day_closes', filter: `date=eq.${today}` },
+  ], load);
 
   // Re-load immediately when QuickEntry saves (split-view sync)
   useEffect(() => {
