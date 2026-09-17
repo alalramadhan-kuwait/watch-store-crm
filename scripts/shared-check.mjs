@@ -11,7 +11,7 @@
  */
 import { createHash } from 'node:crypto';
 import { readdirSync, readFileSync, writeFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'shared');
@@ -19,7 +19,19 @@ const manifestPath = join(root, 'MANIFEST.json');
 const write = process.argv.includes('--write');
 
 const sha = (s) => createHash('sha256').update(s).digest('hex').slice(0, 16);
-const files = readdirSync(root).filter((f) => f.endsWith('.ts')).sort();
+
+/* Every .ts under src/shared, __tests__ included. It used to be a flat listing,
+   which quietly left the checks out of the very guard meant to stop the two
+   copies drifting — a rule could be proved in one app and not the other and
+   nothing would say so. */
+function everyFile(dir) {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+    const full = join(dir, e.name);
+    if (e.isDirectory()) return everyFile(full);
+    return e.name.endsWith('.ts') ? [relative(root, full).split(sep).join('/')] : [];
+  });
+}
+const files = everyFile(root).sort();
 const hashes = Object.fromEntries(files.map((f) => [f, sha(readFileSync(join(root, f)))]));
 const foundation = sha(JSON.stringify(hashes));
 

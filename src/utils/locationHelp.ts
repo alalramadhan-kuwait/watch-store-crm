@@ -35,11 +35,15 @@ export const isInstalled = () =>
  */
 export const isKnownInAppBrowser = () => /FBAN|FBAV|Instagram|Line\/|MicroMessenger/.test(ua());
 
+/** What somebody is trying to do when location fails. The advice differs: a
+ *  clock-in genuinely cannot proceed without a position, a clock-out can. */
+export type ClockAction = 'clock in' | 'clock out';
+
 /** The refusal, written for the device holding it. */
-export function locationBlockedMessage(): string {
+export function locationBlockedMessage(action: ClockAction = 'clock in'): string {
   if (isKnownInAppBrowser()) {
     return 'This page is open inside another app, which is not allowed to use location. '
-      + 'Open it in your browser — or add it to your home screen — and clock in from there.';
+      + `Open it in your browser — or add it to your home screen — and ${action} from there.`;
   }
   if (isIOS() && !isInstalled()) {
     return 'iPhone: location is blocked for this page.\n'
@@ -59,11 +63,23 @@ export function locationBlockedMessage(): string {
   return 'Location is blocked. Allow location for this site in your browser settings, then try again.';
 }
 
-/** The way out when none of that works today. Appended wherever the refusal is
- *  shown, because somebody standing in the shop needs their day recorded now,
- *  not a support ticket. */
-export const CORRECTION_FALLBACK =
-  'If you cannot fix it now, tap “Ask for a correction” below and your manager will record today for you.';
+/**
+ * The way out when none of that works today, because somebody standing in the
+ * shop needs their day recorded now, not a support ticket.
+ *
+ * The two halves differ. A clock-in cannot proceed — the database refuses an
+ * insert with no coordinates — so a correction really is the only route. A
+ * clock-out can: it is recorded and marked as unconfirmed, which beats leaving
+ * the shift open. Telling somebody to ask for a correction when they can simply
+ * finish their day is how a day ends up open for six weeks.
+ */
+export const fallbackAdvice = (action: ClockAction = 'clock in'): string =>
+  action === 'clock out'
+    ? 'You can still clock out. Tap “Clock out without location” below — your leaving time is recorded now, and your manager will see that the location could not be confirmed.'
+    : 'If you cannot fix it now, tap “Ask for a correction” below and your manager will record today for you.';
+
+/** @deprecated Use fallbackAdvice(action) — the advice is not the same for both. */
+export const CORRECTION_FALLBACK = fallbackAdvice('clock in');
 
 /**
  * Whether the browser has already made up its mind, asked before the tap.

@@ -17,13 +17,15 @@
 import { supabase } from '../lib/supabase';
 import { dayHours, type DayHours, type ShiftInput } from './workedHours';
 import { resolveOutlet } from './outlets';
-import { todayKuwait, kuwaitISO, type Geofence, type Position } from './portalRules';
+import { todayKuwait, planCorrection, type CorrectionInput, type Geofence, type Position } from './portalRules';
 
 /* The rules that need nothing plugged in live next door, so the build can test
    them. Re-exported so callers have one place to import from. */
 export {
-  todayKuwait, kuwaitISO, metresBetween, fencesNear, leaveBalance,
+  todayKuwait, kuwaitISO, kuwaitHM, nextKuwaitDay, metresBetween, fencesNear,
+  leaveBalance, planCorrection,
   type Geofence, type Position, type NearFence, type LeaveBalance,
+  type RecordedShift, type CorrectionInput, type CorrectionPlan,
 } from './portalRules';
 
 /* ── shapes ──────────────────────────────────────────────────────────────── */
@@ -202,12 +204,24 @@ export async function clockIn(input: ClockInAt): Promise<string | null> {
   return error?.message ?? null;
 }
 
-export async function clockOut(recordId: string, position: Position): Promise<string | null> {
+/**
+ * Close a shift.
+ *
+ * A null position closes it anyway. The database has never required one — there
+ * is no geofence test on leaving, only a flag — so refusing to write without a
+ * GPS fix enforced a rule that does not exist and left shifts open for weeks
+ * instead. The trigger marks the record `no_clock_out_location`, which is the
+ * honest thing to record: the leaving time is true, and nothing confirmed where
+ * they were.
+ */
+export async function clockOut(recordId: string, position: Position | null): Promise<string | null> {
   const { error } = await supabase.from('attendance_records').update({
     clock_out: new Date().toISOString(),
-    clock_out_lat: position.latitude,
-    clock_out_lng: position.longitude,
-    clock_out_accuracy_m: Math.round(position.accuracy),
+    ...(position ? {
+      clock_out_lat: position.latitude,
+      clock_out_lng: position.longitude,
+      clock_out_accuracy_m: Math.round(position.accuracy),
+    } : {}),
   }).eq('id', recordId);
   return error?.message ?? null;
 }
@@ -281,45 +295,33 @@ export async function leaveDocumentUrl(path: string): Promise<string | null> {
 
 /* ── corrections and other requests ──────────────────────────────────────── */
 
-export interface CorrectionRequest {
+export interface CorrectionRequest extends CorrectionInput {
   userId: string;
   employeeId: string | null;
-  date: string;
-  /** HH:mm in Kuwait, or blank to leave that end of the day alone. */
-  arrivedAt?: string;
-  leftAt?: string;
-  reason: string;
-  /** The record being corrected, when there is one. */
-  recordId?: string | null;
 }
 
 /**
  * Ask for a day to be corrected.
  *
- * Both times are optional because the two halves fail separately: people forget
- * to clock out far more often than they forget to clock in. What is not
- * optional is the reason — a correction is a claim about a day that the record
- * disagrees with, and whoever approves it needs to know what is being claimed.
+ * What is actually being asked is decided by planCorrection in portalRules,
+ * which is testable without a database. All this does is send it. A time equal
+ * to what is recorded is not a change and is never sent — the form used to
+ * prefill the arrival and submit it regardless, so a salesperson asking to fix
+ * his leaving time asked to change his check-in to the value it already had.
  */
 export async function requestCorrection(c: CorrectionRequest, at: Date = new Date()): Promise<string | null> {
-  if (!c.reason.trim()) return 'Say why the change is needed';
-  if (!c.date) return 'Pick the day to correct';
-  if (c.date > todayKuwait(at)) return 'That day has not happened yet';
-  if (!c.arrivedAt && !c.leftAt) return 'Give the time you arrived, the time you left, or both';
-  if (c.arrivedAt && c.leftAt && c.leftAt <= c.arrivedAt) {
-    return 'The leaving time is before the arrival time — check both';
-  }
+  const plan = planCorrection(c, at);
+  if (plan.problem) return plan.problem;
 
-  const asks = [c.arrivedAt && `in ${c.arrivedAt}`, c.leftAt && `out ${c.leftAt}`].filter(Boolean).join(', ');
   const { error } = await supabase.from('employee_requests').insert({
     user_id: c.userId,
     employee_id: c.employeeId,
     request_type: 'Attendance correction',
     attendance_date: c.date,
-    proposed_clock_in: c.arrivedAt ? kuwaitISO(c.date, c.arrivedAt) : null,
-    proposed_clock_out: c.leftAt ? kuwaitISO(c.date, c.leftAt) : null,
-    attendance_record_id: c.recordId ?? null,
-    details: `${c.date} — ${asks}${c.recordId ? '' : ' (no record for that day)'}: ${c.reason.trim()}`,
+    proposed_clock_in: plan.proposedClockIn,
+    proposed_clock_out: plan.proposedClockOut,
+    attendance_record_id: plan.recordId,
+    details: plan.details,
   });
   return error ? `Could not submit: ${error.message}` : null;
 }

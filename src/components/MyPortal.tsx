@@ -11,6 +11,7 @@ import { dayHours, totalHours, type DayHours } from '../shared/workedHours';
 import {
   fencesNear, clockIn as portalClockIn, clockOut as portalClockOut,
   applyForLeave, reviseLeave, cancelLeave as portalCancelLeave,
+  planCorrection, requestCorrection, submitRequest as portalSubmitRequest,
 } from '../shared/portal';
 import { useLive } from '../shared/live';
 
@@ -139,6 +140,10 @@ export function MyPortal() {
   const [corIn, setCorIn] = useState('');
   const [corOut, setCorOut] = useState('');
   const [corExisting, setCorExisting] = useState<AttRec[] | null>(null);
+  /** Which shift is being corrected, so an evening departure is not attached to
+   *  the morning's record. */
+  const [corRecordId, setCorRecordId] = useState<string | null>(null);
+  const [corNextDay, setCorNextDay] = useState(false);
   const [corLoading, setCorLoading] = useState(false);
   const [openReqId, setOpenReqId] = useState<string | null>(null);
   const [showAllReq, setShowAllReq] = useState(false);
@@ -184,13 +189,15 @@ export function MyPortal() {
         if (!live) return;
         const recs = (data ?? []) as AttRec[];
         setCorExisting(recs);
-        setCorIn(recs[0] ? kuwaitHM(recs[0].clock_in) : '');
-        const out = recs[recs.length - 1]?.clock_out;
-        setCorOut(out ? kuwaitHM(out) : '');
+        /* The boxes are NOT filled in. They used to be, from the record — so the
+           arrival came pre-answered and the leaving time, the thing actually
+           wrong, was the only one left blank. An empty box now means "leave
+           that end alone", which is what the help text always claimed. */
+        setCorRecordId(recs.find(r => !r.clock_out)?.id ?? recs[0]?.id ?? null);
         setCorLoading(false);
       }, () => { if (live) { setCorExisting([]); setCorLoading(false); } });
     return () => { live = false; };
-  }, [showReqForm, corDate, user]);
+  }, [showReqForm, corDate, user?.id]);   // the id, not the object Supabase swaps on every token refresh
 
   async function load() {
     if (!user) { setLoading(false); return; }
@@ -292,21 +299,41 @@ export function MyPortal() {
     setGeoLoading(false);
   }
 
+  /**
+   * Close the shift, with or without a location.
+   *
+   * A clock-out has never needed one — there is no geofence test on leaving,
+   * only a flag — so refusing to write without a GPS fix enforced a rule that
+   * does not exist and left the day open instead. That is how a salesperson who
+   * could not clock out ended up asking for a correction, and how ten shifts
+   * came to be open at once, the oldest for six weeks.
+   *
+   * The leaving time is what matters and the phone knows it. Where they were is
+   * a second question, and "we could not confirm it" is a better answer than a
+   * day that never ended. A timeout used to fall through to the raw browser
+   * string with no advice at all; now every failure ends the same way.
+   */
   async function clockOut() {
     const open = todayRecs.find(r => !r.clock_out);
     if (!open) return;
     setGeoError(null); setGeoLoading(true);
+    let where: { latitude: number; longitude: number; accuracy: number } | null = null;
+    let why: string | null = null;
     try {
       const { coords } = await getPosition();
-      const err = await portalClockOut(open.id, {
-        latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy,
-      });
-      if (err) setGeoError(err);
-      else { showToast('Clocked out', 'success'); await load(); }
+      where = { latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy };
     } catch (err) {
       const e = err as { code?: number; message?: string };
-      if (e.code === 1) setGeoError(`${locationBlockedMessage()}\n${CORRECTION_FALLBACK}`);
-      else setGeoError(e.message ?? 'Could not get your location.');
+      why = e.code === 1 ? locationBlockedMessage('clock out')
+          : e.code === 3 ? 'Your phone took too long to find you.'
+          : e.message ?? 'Your phone could not say where you are.';
+    }
+    const problem = await portalClockOut(open.id, where);
+    if (problem) setGeoError(problem);
+    else {
+      if (why) setGeoError(`Clocked out. ${why}\nYour leaving time is recorded; your manager will see that the location could not be confirmed.`);
+      showToast(why ? 'Clocked out — location not confirmed' : 'Clocked out', why ? 'info' : 'success');
+      await load();
     }
     setGeoLoading(false);
   }
@@ -316,6 +343,18 @@ export function MyPortal() {
      somebody who finishes at 15:30 that they left early at 15:30 every day is
      how a warning stops being read. */
   const myShiftEnd = emp?.shift_end?.slice(0, 5) ?? workEnd;
+
+  /* What the form is actually asking for, decided by the shared rule the request
+     itself will use — so the button, the warning and the submitted request can
+     never disagree. */
+  const corRecord = useMemo(
+    () => corExisting?.find(r => r.id === corRecordId) ?? corExisting?.[0] ?? null,
+    [corExisting, corRecordId]);
+  const corPlan = useMemo(() => planCorrection({
+    date: corDate, arrivedAt: corIn, leftAt: corOut, leftNextDay: corNextDay,
+    reason: reqDetails,
+    record: corRecord && { id: corRecord.id, clock_in: corRecord.clock_in, clock_out: corRecord.clock_out },
+  }), [corDate, corIn, corOut, corNextDay, reqDetails, corRecord]);
 
   const lvDays = useMemo(() => (lvStart && lvEnd && lvEnd >= lvStart ? workingDaysBetween(lvStart, lvEnd) : 0), [lvStart, lvEnd]);
   const edDays = useMemo(() => (edStart && edEnd && edEnd >= edStart ? workingDaysBetween(edStart, edEnd) : 0), [edStart, edEnd]);
@@ -335,42 +374,26 @@ export function MyPortal() {
     load();
   }
 
+  /* Both kinds of request go through the shared layer now. The correction's
+     rule — what is actually being asked for — is planCorrection, the same one
+     the form has been describing as they typed, so the request cannot say
+     something different from the button they pressed. */
   async function submitRequest() {
-    if (!showReqForm || !reqDetails.trim()) { showToast('Say why the change is needed', 'error'); return; }
-
-    const payload: Record<string, unknown> = {
-      user_id: user!.id, employee_id: emp?.id ?? null, request_type: showReqForm, details: reqDetails.trim(),
-    };
-
-    if (showReqForm === 'Attendance correction') {
-      if (!corDate) { showToast('Pick the day to correct', 'error'); return; }
-      if (corDate > todayKuwait()) { showToast('That day has not happened yet', 'error'); return; }
-      if (!corIn && !corOut) { showToast('Give the time you arrived, the time you left, or both', 'error'); return; }
-      if (corIn && corOut && corOut <= corIn) {
-        // A shift crossing midnight is real, but it is rare enough that a
-        // backwards pair is far more likely to be a slip. Say so rather than
-        // sending the manager a request to leave before arriving.
-        showToast('The leaving time is before the arrival time — check both', 'error'); return;
-      }
-      const first = corExisting?.[0] ?? null;
-      payload.attendance_date = corDate;
-      payload.proposed_clock_in = corIn ? kuwaitISO(corDate, corIn) : null;
-      payload.proposed_clock_out = corOut ? kuwaitISO(corDate, corOut) : null;
-      payload.attendance_record_id = first?.id ?? null;
-      /* details stays a readable sentence as well as structured fields: it is
-         what the notification and the older screens show, and a manager reading
-         on a phone should not need the form to understand the ask. */
-      const asks = [corIn && `in ${corIn}`, corOut && `out ${corOut}`].filter(Boolean).join(', ');
-      payload.details = `${corDate} — ${asks}${first ? '' : ' (no record for that day)'}: ${reqDetails.trim()}`;
-    }
-
+    if (!showReqForm) return;
     setBusy(true);
-    const { error } = await supabase.from('employee_requests').insert(payload);
+    const problem = showReqForm === 'Attendance correction'
+      ? await requestCorrection({
+          userId: user!.id, employeeId: emp?.id ?? null,
+          date: corDate, arrivedAt: corIn, leftAt: corOut, leftNextDay: corNextDay,
+          reason: reqDetails,
+          record: corRecord && { id: corRecord.id, clock_in: corRecord.clock_in, clock_out: corRecord.clock_out },
+        })
+      : await portalSubmitRequest(user!.id, emp?.id ?? null, showReqForm, reqDetails);
     setBusy(false);
-    if (error) { showToast(`Could not submit: ${error.message}`, 'error'); return; }
+    if (problem) { showToast(problem, 'error'); return; }
     showToast('Sent to your manager', 'success');
     setShowReqForm(null); setReqDetails(''); setCorIn(''); setCorOut(''); setCorExisting(null);
-    setCorDate(todayKuwait());
+    setCorRecordId(null); setCorNextDay(false); setCorDate(todayKuwait());
     load();
   }
 
@@ -638,19 +661,31 @@ export function MyPortal() {
                 {/* Any past day. A missed clock-out is usually noticed when the
                     month's hours are read, not on the day it happened. */}
                 <input type="date" value={corDate} max={todayKuwait()}
-                  onChange={e => setCorDate(e.target.value)} className="input" />
+                  onChange={e => { setCorDate(e.target.value); setCorIn(''); setCorOut(''); setCorNextDay(false); }}
+                  className="input" />
               </label>
 
               <div className="rounded-xl bg-slate-50 border border-slate-200 px-3 py-2 text-xs">
                 <span className="font-semibold text-slate-500">Recorded now: </span>
                 {corLoading ? <span className="text-slate-400">checking…</span>
                   : !corExisting?.length ? <span className="text-amber-700">nothing — no clock-in for that day</span>
-                  : <span className="text-slate-600">
-                      {corExisting.map((r, i) => (
-                        <span key={r.id}>
-                          {i > 0 && ' · '}
-                          {fmtTime(r.clock_in)} → {r.clock_out ? fmtTime(r.clock_out) : 'never clocked out'}
-                        </span>
+                  : corExisting.length === 1 ? <span className="text-slate-600">
+                      {fmtTime(corExisting[0].clock_in)} → {corExisting[0].clock_out
+                        ? fmtTime(corExisting[0].clock_out)
+                        : <span className="text-amber-700">never clocked out</span>}
+                    </span>
+                  : <span className="block mt-1 space-y-1">
+                      {/* Only asked when the day has more than one shift — otherwise
+                          fixing an evening departure lands on the morning record. */}
+                      <span className="block text-slate-500">Which one is wrong?</span>
+                      {corExisting.map(r => (
+                        <label key={r.id} className="flex items-center gap-2 text-slate-600">
+                          <input type="radio" name="corShift" checked={corRecordId === r.id}
+                            onChange={() => setCorRecordId(r.id)} />
+                          <span>{fmtTime(r.clock_in)} → {r.clock_out
+                            ? fmtTime(r.clock_out)
+                            : <span className="text-amber-700">never clocked out</span>}</span>
+                        </label>
                       ))}
                     </span>}
               </div>
@@ -659,33 +694,70 @@ export function MyPortal() {
                 <label className="block">
                   <span className="block text-xs font-semibold text-slate-500 mb-1">I arrived at</span>
                   <input type="time" value={corIn} onChange={e => setCorIn(e.target.value)} className="input" />
+                  <span className="block text-[11px] text-slate-400 mt-0.5">
+                    {corRecord ? `now ${kuwaitHM(corRecord.clock_in)} — leave empty to keep it` : 'nothing recorded'}
+                  </span>
                 </label>
                 <label className="block">
                   <span className="block text-xs font-semibold text-slate-500 mb-1">I left at</span>
                   <input type="time" value={corOut} onChange={e => setCorOut(e.target.value)} className="input" />
+                  <span className="block text-[11px] text-slate-400 mt-0.5">
+                    {corRecord?.clock_out ? `now ${kuwaitHM(corRecord.clock_out)} — leave empty to keep it`
+                      : corRecord ? 'never clocked out' : 'nothing recorded'}
+                  </span>
                 </label>
               </div>
-              {/* Clearing a field is a real answer — "this end is already
-                  right" — so it has to be said, or somebody retypes a correct
-                  time and gets it wrong. */}
-              <p className="text-[11px] text-slate-400 -mt-1">
-                Leave a box empty to keep what is recorded. Your manager sees both, and approving
-                writes the times straight onto the record.
-              </p>
+
+              {/* Offers, not prefills. The one value somebody in this position
+                  needs is the one the form never used to help with. */}
+              {!corRecord?.clock_out && corDate === todayKuwait() && (
+                <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+                  <span className="text-slate-400">Left at</span>
+                  <button type="button" onClick={() => setCorOut(kuwaitHM(new Date().toISOString()) ?? '')}
+                    className="px-2 py-0.5 rounded-full border border-slate-200 text-slate-600">now</button>
+                  {myShiftEnd && (
+                    <button type="button" onClick={() => setCorOut(myShiftEnd)}
+                      className="px-2 py-0.5 rounded-full border border-slate-200 text-slate-600">
+                      my shift ends ({myShiftEnd})
+                    </button>
+                  )}
+                </div>
+              )}
+
+              {/* Only offered once the times say the shift ran past midnight. */}
+              {corOut && (corIn || corRecord) && corOut <= (corIn || kuwaitHM(corRecord!.clock_in) || '') && (
+                <label className="flex items-center gap-2 text-xs text-slate-600">
+                  <input type="checkbox" checked={corNextDay} onChange={e => setCorNextDay(e.target.checked)} />
+                  I left after midnight, the next morning
+                </label>
+              )}
+
+              {corPlan.problem
+                ? <p className="text-[11px] text-amber-700">{corPlan.problem}</p>
+                : <p className="text-[11px] text-slate-400">Approving writes this onto the record.</p>}
             </div>
           )}
 
           <span className="block text-xs font-semibold text-slate-500 mb-1">
             {showReqForm === 'HR update' ? 'What needs changing' : 'Why the change is needed'}
           </span>
-          <textarea value={reqDetails} onChange={e => setReqDetails(e.target.value)} rows={3} autoFocus
+          {/* No autoFocus: it opened the keyboard on the reason and scrolled the
+              times out of sight, which is how somebody sent a request that named
+              neither of them. */}
+          <textarea value={reqDetails} onChange={e => setReqDetails(e.target.value)} rows={3}
             placeholder={showReqForm === 'HR update' ? 'e.g. My phone number changed to 9xxxxxxx' : 'e.g. Phone died at the end of the shift, Hussain saw me leave'}
             className="input resize-none mb-3" />
           <div className="flex items-center gap-2">
-            <button onClick={submitRequest} disabled={busy} className="btn-primary inline-flex items-center gap-1.5 disabled:opacity-60">
-              <Send size={14} aria-hidden /> {busy ? 'Sending…' : 'Send'}
+            <button onClick={submitRequest}
+              disabled={busy || (showReqForm === 'Attendance correction' && !!corPlan.problem)}
+              className="btn-primary inline-flex items-center gap-1.5 disabled:opacity-60">
+              <Send size={14} aria-hidden />
+              {busy ? 'Sending…'
+                : showReqForm === 'Attendance correction' && corPlan.summary ? corPlan.summary
+                : 'Send'}
             </button>
-            <button onClick={() => setShowReqForm(null)} className="btn-ghost">Cancel</button>
+            <button onClick={() => { setShowReqForm(null); setCorIn(''); setCorOut(''); setCorNextDay(false); }}
+              className="btn-ghost">Cancel</button>
           </div>
         </section>
       )}
