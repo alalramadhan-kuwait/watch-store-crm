@@ -6,6 +6,7 @@ import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useAppStore } from '../store';
 import { lateClassOf, isEarlyLeave, workingDaysBetween, haversineMeters, kuwaitMinutes } from '../utils/attendance';
+import { locationBlockedMessage, locationAlreadyDenied, CORRECTION_FALLBACK } from '../utils/locationHelp';
 
 /**
  * The salesperson's own page: attendance, leave and HR record.
@@ -131,6 +132,17 @@ export function MyPortal() {
   // keeps the live shift duration ticking while clocked in
   useEffect(() => { const t = setInterval(() => setNowMs(Date.now()), 30_000); return () => clearInterval(t); }, []);
 
+  /* If the browser has already refused location, say so before the button is
+     tapped rather than after. Somebody standing in the shop at 9am should not
+     have to discover it by failing. */
+  useEffect(() => {
+    let live = true;
+    void locationAlreadyDenied().then((denied) => {
+      if (live && denied) setGeoError(`${locationBlockedMessage()}\n${CORRECTION_FALLBACK}`);
+    });
+    return () => { live = false; };
+  }, []);
+
   /* What the day being corrected currently says, fetched as the date changes.
      Shown and prefilled rather than left blank: most corrections move one end
      of a shift, and retyping the end that was already right is how the right
@@ -247,7 +259,7 @@ export function MyPortal() {
       else { showToast(`Clocked in at ${matched.name}`, 'success'); await load(); }
     } catch (err) {
       const e = err as { code?: number; message?: string };
-      if (e.code === 1) setGeoError('Location is blocked. Allow location for this site in your browser settings, then try again.');
+      if (e.code === 1) setGeoError(`${locationBlockedMessage()}\n${CORRECTION_FALLBACK}`);
       else if (e.code === 3) setGeoError('Getting your location took too long. Try again.');
       else setGeoError(e.message ?? 'Could not get your location.');
     }
@@ -267,7 +279,7 @@ export function MyPortal() {
       else { showToast('Clocked out', 'success'); await load(); }
     } catch (err) {
       const e = err as { code?: number; message?: string };
-      if (e.code === 1) setGeoError('Location is blocked. Allow location for this site in your browser settings.');
+      if (e.code === 1) setGeoError(`${locationBlockedMessage()}\n${CORRECTION_FALLBACK}`);
       else setGeoError(e.message ?? 'Could not get your location.');
     }
     setGeoLoading(false);
@@ -574,7 +586,8 @@ export function MyPortal() {
 
         {geoError && (
           <div role="alert" className="mt-3 flex items-start gap-2 px-3 py-2.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-sm">
-            <AlertCircle size={15} className="mt-0.5 shrink-0" aria-hidden /><span>{geoError}</span>
+            <AlertCircle size={15} className="mt-0.5 shrink-0" aria-hidden />
+            <span className="whitespace-pre-line leading-relaxed">{geoError}</span>
           </div>
         )}
 
