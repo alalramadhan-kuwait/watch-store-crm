@@ -69,7 +69,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
      So the HR record is the fallback. Only for a salesperson: the shared shop
      login and a manager are deliberately nameless — that is what makes their
      board show the whole shop — and inheriting a name would quietly narrow it. */
-  const [rosterFallback, setRosterFallback] = useState<string | null>(null);
+  const [rosterFallback, setRosterFallback] = useState<string | null>(null); // employees.dsr_staff_name
 
   async function loadProfile(userId: string) {
     // per-user device memory (last staff picked) is keyed by the login
@@ -81,14 +81,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       .single();
     if (data) setProfile(data as Profile);
 
-    const p = data as Profile | null;
-    if (p && p.role === 'sales' && !p.sales_name) {
-      const { data: emp } = await supabase
-        .from('employees').select('dsr_staff_name').eq('user_id', userId).maybeSingle();
-      setRosterFallback((emp as { dsr_staff_name?: string } | null)?.dsr_staff_name ?? null);
-    } else {
-      setRosterFallback(null);
-    }
+    /* The roster name lives on the employee record — the row that also carries
+       their shop, their schedule and their leave. profiles.sales_name is a
+       mirror kept in step by a trigger, and is only read for an account with no
+       employee record linked. Reading the mirror first is what locked a
+       salesperson out of the DSR: hers had been filled in one place only. */
+    const { data: emp } = await supabase
+      .from('employees').select('dsr_staff_name').eq('user_id', userId).maybeSingle();
+    setRosterFallback((emp as { dsr_staff_name?: string | null } | null)?.dsr_staff_name ?? null);
   }
 
   useEffect(() => {
@@ -126,7 +126,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   return (
     <AuthContext.Provider value={{
       user, profile, role: profile?.role ?? null,
-      salesName: profile?.sales_name ?? rosterFallback,
+      salesName: rosterFallback ?? profile?.sales_name ?? null,
       onFloor: isFloorRole(profile?.role ?? null),
       loading, signIn, signOut,
     }}>
