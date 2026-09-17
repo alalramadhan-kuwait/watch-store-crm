@@ -12,6 +12,11 @@ one schedule reading, one store open/close rule.
 | `schedule.ts` | When were they expected to work — on *that* date? |
 | `attendanceStatus.ts` | Where do they stand today? |
 | `storeDay.ts` | When did the shop open and close? |
+| `portal.ts` | What My Portal asks the database, and what a valid answer is. |
+
+`portal.ts` is the one file here that talks to the network. It imports the
+`supabase` client from `../lib/supabase`, which exists at that path in both
+apps. Everything else is pure and can be tested without a database.
 
 Each has a counterpart in the database (`resolve_outlet`, `attendance_shifts`,
 `attendance_day_hours`, `schedule_on`, `store_day`) applying the same rules to

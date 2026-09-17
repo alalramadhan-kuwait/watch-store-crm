@@ -5,9 +5,13 @@ import {
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useAppStore } from '../store';
-import { lateClassOf, isEarlyLeave, workingDaysBetween, haversineMeters, kuwaitMinutes } from '../utils/attendance';
+import { lateClassOf, isEarlyLeave, workingDaysBetween, kuwaitMinutes } from '../utils/attendance';
 import { locationBlockedMessage, locationAlreadyDenied, CORRECTION_FALLBACK } from '../utils/locationHelp';
 import { dayHours, totalHours, type DayHours } from '../shared/workedHours';
+import {
+  fencesNear, clockIn as portalClockIn, clockOut as portalClockOut,
+  applyForLeave, reviseLeave, cancelLeave as portalCancelLeave,
+} from '../shared/portal';
 
 /**
  * The salesperson's own page: attendance, leave and HR record.
@@ -244,33 +248,26 @@ export function MyPortal() {
     if (geofences.length === 0) { setGeoError('No store location is set up yet. Ask your manager to add one.'); return; }
     setGeoError(null); setGeoLoading(true);
     try {
-      const { coords: { latitude, longitude } } = await getPosition();
-      let matched: Geofence | null = null;
-      for (const f of geofences) {
-        const d = haversineMeters(latitude, longitude, Number(f.lat), Number(f.lng));
-        if (d <= f.radius_m && (!matched || d < haversineMeters(latitude, longitude, Number(matched.lat), Number(matched.lng)))) matched = f;
-      }
+      const { coords: { latitude, longitude, accuracy } } = await getPosition();
+      const near = fencesNear(geofences, { latitude, longitude, accuracy });
+      const matched = near.find(n => n.inside)?.fence ?? null;
       if (!matched) {
         /* Name every workplace, not just the closest one. Someone who covers
            two shops reads "you are 340m from Avenues" as "this account is tied
            to Avenues", which is not what it says and not what the rule is. */
-        const all = geofences
-          .map(f => ({ name: f.name, d: Math.round(haversineMeters(latitude, longitude, Number(f.lat), Number(f.lng))) }))
-          .sort((a, b) => a.d - b.d)
-          .map(f => `${f.name} ${f.d}m`).join(', ');
+        const all = near.map(n => `${n.fence.name} ${Math.round(n.metres)}m`).join(', ');
         setGeoError(`You are not at any workplace, so there is nothing to clock in to. You can clock in at whichever one you are standing in — right now you are ${all} away.`);
         setGeoLoading(false); return;
       }
       const now = new Date();
-      const { error } = await supabase.from('attendance_records').insert({
-        user_id: user!.id, employee_name: profile!.full_name,
-        clock_in: now.toISOString(), clock_in_lat: latitude, clock_in_lng: longitude,
+      const err = await portalClockIn({
+        userId: user!.id, employeeName: profile!.full_name, fenceName: matched.name,
+        position: { latitude, longitude, accuracy },
         // Lateness is about when the day started. A second shift that begins in
         // the evening is not "late" — only the first clock-in is judged.
-        is_late: todayRecs.length === 0 && lateClassOf(now.toISOString(), workStart) !== 'On time',
-        location: matched.name,
+        isLate: todayRecs.length === 0 && lateClassOf(now.toISOString(), workStart) !== 'On time',
       });
-      if (error) setGeoError(error.message);
+      if (err) setGeoError(err);
       else { showToast(`Clocked in at ${matched.name}`, 'success'); await load(); }
     } catch (err) {
       const e = err as { code?: number; message?: string };
@@ -287,10 +284,10 @@ export function MyPortal() {
     setGeoError(null); setGeoLoading(true);
     try {
       const { coords } = await getPosition();
-      const { error } = await supabase.from('attendance_records').update({
-        clock_out: new Date().toISOString(), clock_out_lat: coords.latitude, clock_out_lng: coords.longitude,
-      }).eq('id', open.id);
-      if (error) setGeoError(error.message);
+      const err = await portalClockOut(open.id, {
+        latitude: coords.latitude, longitude: coords.longitude, accuracy: coords.accuracy,
+      });
+      if (err) setGeoError(err);
       else { showToast('Clocked out', 'success'); await load(); }
     } catch (err) {
       const e = err as { code?: number; message?: string };
@@ -308,21 +305,12 @@ export function MyPortal() {
     if (!emp) return;
     if (!lvStart || !lvEnd || lvEnd < lvStart) { showToast('Pick a valid start and end date', 'error'); return; }
     setBusy(true);
-    let documentPath: string | null = null;
-    if (lvFile) {
-      if (lvFile.size > 10 * 1024 * 1024) { showToast('That document is larger than 10 MB', 'error'); setBusy(false); return; }
-      const safeName = lvFile.name.replace(/[^\w.\-]+/g, '_');
-      const path = `${user!.id}/${Date.now()}-${safeName}`;
-      const { error: upErr } = await supabase.storage.from('leave-docs').upload(path, lvFile);
-      if (upErr) { showToast(`Could not upload the document: ${upErr.message}`, 'error'); setBusy(false); return; }
-      documentPath = path;
-    }
-    const { error } = await supabase.from('leave_records').insert({
-      employee_id: emp.id, leave_type: lvType, leave_start: lvStart, leave_end: lvEnd,
-      days: lvDays, approval_status: 'Pending', notes: lvNotes || null, document_url: documentPath,
+    const problem = await applyForLeave({
+      employeeId: emp.id, userId: user!.id, type: lvType, start: lvStart, end: lvEnd,
+      days: lvDays, notes: lvNotes, document: lvFile,
     });
     setBusy(false);
-    if (error) { showToast(`Could not submit: ${error.message}`, 'error'); return; }
+    if (problem) { showToast(problem, 'error'); return; }
     showToast(`${lvType === 'WFH' ? 'Work from home' : `${lvType} leave`} requested — waiting for approval`, 'success');
     setShowLeaveForm(false); setLvStart(''); setLvEnd(''); setLvNotes(''); setLvFile(null);
     load();
@@ -371,11 +359,9 @@ export function MyPortal() {
     if (!edStart || !edEnd || edEnd < edStart) { showToast('Pick a valid start and end date', 'error'); return; }
     setBusy(true);
     // changing dates always returns the request to Pending — HR re-approves the new dates
-    const { error } = await supabase.from('leave_records')
-      .update({ leave_start: edStart, leave_end: edEnd, days: edDays, approval_status: 'Pending' })
-      .eq('id', rawId);
+    const problem = await reviseLeave(rawId, edStart, edEnd, edDays);
     setBusy(false);
-    if (error) { showToast(`Could not update: ${error.message}`, 'error'); return; }
+    if (problem) { showToast(problem, 'error'); return; }
     showToast(wasApproved ? 'Dates changed — sent back to HR' : 'Leave dates updated', 'success');
     setEditLeaveId(null);
     load();
@@ -384,9 +370,9 @@ export function MyPortal() {
   async function cancelLeave(rawId: string) {
     if (!window.confirm('Cancel this request? You would have to apply again.')) return;
     setBusy(true);
-    const { error } = await supabase.from('leave_records').update({ approval_status: 'Cancelled' }).eq('id', rawId);
+    const problem = await portalCancelLeave(rawId);
     setBusy(false);
-    if (error) { showToast(`Could not cancel: ${error.message}`, 'error'); return; }
+    if (problem) { showToast(problem, 'error'); return; }
     showToast('Request cancelled', 'info');
     load();
   }
