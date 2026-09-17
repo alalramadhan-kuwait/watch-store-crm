@@ -264,13 +264,35 @@ part of the build.
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | `avenues` | Time Keeper - Avenues | physical | yes | yes | yes | yes | `Time Keeper - Avenues` | `Avenues` |
 | `time_gallery` | Time Gallery | physical | yes | yes | yes | yes | `Time Gallery` | `TimeGallery` |
-| `whatsapp` | Time Keeper WhatsApp | digital | yes | no | no | **no** | `Time Keeper` | `WhatsApp` |
-| `online` | Time Keeper Online | digital | yes | no | no | **no** | *(none yet)* | *(none yet)* |
+| `whatsapp` | Time Keeper WhatsApp | digital | yes | no | no | **no** | `Time Keeper`, Eman only | `WhatsApp` |
+| `online` | Time Keeper Online | digital | yes | no | no | **no** | `Time Keeper`, everyone else | *(none yet)* |
 | `hq` | Timekeeper HQ | physical | **no** | yes | yes | **no** | — | — |
 
-The till's register called **`Time Keeper`** is the WhatsApp channel's takings
-(Eman's), not a third shop. Eman's own attendance is at HQ; her *sales channel*
-being WhatsApp must never make WhatsApp behave like a shop.
+**One till register, two channels.** The POS has three registers but the shop
+sells through four channels: the register called **`Time Keeper`** carries both
+the online shop and the WhatsApp orders Eman handles. Only the salesperson tells
+them apart, so a till sale resolves from the register *and* who rang it up:
+
+```
+Time Keeper + Eman        → whatsapp
+Time Keeper + anyone else → online     (the register's catch-all)
+Time Gallery / Avenues    → themselves, whoever was serving
+```
+
+The rule is data, not code — `pos_channel_rules`, one row per case, so a second
+person selling on WhatsApp is an insert rather than a deployment. Matching is a
+case-insensitive substring, so `Eman` catches the till user `Eman Salman`.
+
+`lightspeed_sales_by_staff` carries the per-salesperson daily totals the split
+needs, written by `lightspeed-sync` from the same pages it already fetches (no
+extra API calls). `lightspeed_sales_daily` is **unchanged** and remains the
+authoritative outlet-day total; `pos_channel_sales` splits it and reconciles
+back to it exactly, carrying any remainder in the register's catch-all channel
+with `attributed = false`. Read `pos_channel_sales`, never the raw register
+names.
+
+Eman's own *attendance* is at HQ; her sales channel being WhatsApp must never
+make WhatsApp behave like a shop.
 
 **Never compare outlet text with `===`.** Four systems spell these four outlets
 four different ways. Use `resolveOutlet` / `sameOutlet`, or `resolve_outlet()`
@@ -322,6 +344,8 @@ in SQL.
 ---
 
 ## 13. Changelog
+
+- **2026-09-17** (later 5) — **The Time Keeper register is two channels.** See §10a: Eman's sales on it are WhatsApp, everyone else's are Online, split by who rang the sale up. Nothing on the shop floor changes — the DSR logs against `Avenues` and `TimeGallery`, both unaffected — but `resolveChannel` is in `src/shared/outlets.ts` if a DSR screen ever needs to name a till channel.
 
 - **2026-09-17** (later 4) — **One foundation under both apps.** See §10a. The shop floor's share of it: `utils/outlet.ts` and `utils/storeDay.ts` are now thin layers over `src/shared/`, so hours, status and store open/close are decided by the same code the back office runs.
 

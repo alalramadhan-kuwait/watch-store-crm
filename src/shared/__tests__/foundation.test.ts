@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { resolveOutlet, sameOutlet, tracksStoreDay, shops, sellingOutlets, outletName, isDigital } from '../outlets';
+import { resolveOutlet, sameOutlet, tracksStoreDay, shops, sellingOutlets, outletName, isDigital, resolveChannel, splitsByStaff } from '../outlets';
 import { shiftHours, dayHours, formatHours, ABANDON_AFTER_HOURS } from '../workedHours';
 import { standing, teamStanding, kuwaitDate } from '../attendanceStatus';
 import { isExpectedOn, scheduleOn, describeDays, weekdayOf, KUWAIT_WEEK, type Schedule } from '../schedule';
@@ -47,6 +47,30 @@ t('all four channels sell; the office does not', () => {
     ['avenues', 'time_gallery', 'whatsapp', 'online']);
   assert.ok(isDigital('WhatsApp') && isDigital('Online'));
   assert.equal(outletName('TimeGallery'), 'Time Gallery');
+});
+
+t('one till register splits into two channels by who rang the sale up', () => {
+  // the register's real users, as Lightspeed spells them
+  assert.equal(resolveChannel('Time Keeper', 'Eman Salman'), 'whatsapp');
+  assert.equal(resolveChannel('Time Keeper', 'TK - Online Orders'), 'online');
+  assert.equal(resolveChannel('Time Keeper', 'Ali Akbar Modi'), 'online');
+  // anyone else, and nobody at all, is the online shop — the rule's catch-all
+  assert.equal(resolveChannel('Time Keeper', null), 'online');
+  assert.equal(resolveChannel('Time Keeper', ''), 'online');
+});
+
+t('the shops are unaffected by who was serving', () => {
+  assert.equal(resolveChannel('Time Gallery', 'Eman Salman'), 'time_gallery');
+  assert.equal(resolveChannel('Time Keeper - Avenues', 'Eman Salman'), 'avenues');
+  assert.equal(resolveChannel('TimeGallery', null), 'time_gallery');
+  assert.ok(splitsByStaff('Time Keeper'));
+  assert.ok(!splitsByStaff('Time Gallery'));
+  assert.ok(!splitsByStaff('Time Keeper - Avenues'));
+});
+
+t('a register nobody recognises resolves to nothing, not to a guess', () => {
+  assert.equal(resolveChannel('Mall of Kuwait', 'Eman Salman'), null);
+  assert.equal(resolveChannel(null, 'Eman Salman'), null);
 });
 
 // ── worked hours ────────────────────────────────────────────────────────────

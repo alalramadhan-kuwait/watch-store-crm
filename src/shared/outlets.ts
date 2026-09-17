@@ -190,6 +190,61 @@ export const shops = (registry: Outlet[] = OUTLETS): Outlet[] =>
 export const sellingOutlets = (registry: Outlet[] = OUTLETS): Outlet[] =>
   registry.filter((o) => o.active && o.sells).sort((a, b) => a.sortOrder - b.sortOrder);
 
+/* ── one register, two channels ──────────────────────────────────────────────
+ *
+ * The till has three registers but the shop sells through four channels: the
+ * register called "Time Keeper" carries both the online shop and the WhatsApp
+ * orders Eman handles. Only the salesperson tells them apart, so a till sale is
+ * resolved from the register *and* who rang it up.
+ *
+ * Mirrors the pos_channel_rules table. Lowest priority wins; a null salesperson
+ * is the catch-all for that register. Kept in code as well as in the database
+ * so the apps can split a figure before the rules have loaded.
+ */
+export interface ChannelRule {
+  posName: string;
+  /** Matched case-insensitively as a substring, so 'Eman' matches 'Eman Salman'.
+   *  Null means everyone not caught by a more specific rule. */
+  salesperson: string | null;
+  channel: OutletCode;
+  priority: number;
+}
+
+export const POS_CHANNEL_RULES: ChannelRule[] = [
+  { posName: 'Time Keeper', salesperson: 'Eman', channel: 'whatsapp', priority: 10 },
+  { posName: 'Time Keeper', salesperson: null, channel: 'online', priority: 100 },
+];
+
+/** True when a register serves more than one channel and needs the salesperson. */
+export const splitsByStaff = (
+  posOutlet: string | null | undefined,
+  rules: ChannelRule[] = POS_CHANNEL_RULES,
+): boolean =>
+  rules.some((r) => outletKey(r.posName) === outletKey(posOutlet) && r.salesperson !== null);
+
+/**
+ * The channel a till sale belongs to.
+ *
+ * Falls back to the plain outlet for a register that serves one channel, so
+ * Time Gallery is Time Gallery whoever rang the sale up.
+ */
+export function resolveChannel(
+  posOutlet: string | null | undefined,
+  salesperson?: string | null,
+  rules: ChannelRule[] = POS_CHANNEL_RULES,
+  registry: Outlet[] = OUTLETS,
+): OutletCode | null {
+  const key = outletKey(posOutlet);
+  if (!key) return null;
+  const hit = [...rules]
+    .filter((r) => outletKey(r.posName) === key)
+    .sort((a, b) => a.priority - b.priority || (a.salesperson === null ? 1 : -1))
+    .find((r) =>
+      r.salesperson === null ||
+      (!!salesperson && salesperson.toLowerCase().includes(r.salesperson.toLowerCase())));
+  return hit ? hit.channel : resolveOutlet(posOutlet, registry);
+}
+
 /** Row shape returned by `select *` on the outlets table. */
 export interface OutletRow {
   code: string;

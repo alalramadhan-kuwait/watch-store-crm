@@ -1,9 +1,9 @@
 {
-  "foundation": "a3681b2011742fb8",
+  "foundation": "9f05e674e8ad6c5d",
   "files": {
     "attendanceStatus.ts": "2c2b8dc08ee07609",
     "live.ts": "12a66171598a316e",
-    "outlets.ts": "45b2e3d4d3aaeacf",
+    "outlets.ts": "6cfb59b63c18205c",
     "portal.ts": "83d2351917c708e1",
     "portalRules.ts": "32de7def87e3d1cf",
     "schedule.ts": "63233c82ff408ffc",
