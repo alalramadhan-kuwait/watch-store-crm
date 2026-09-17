@@ -102,7 +102,7 @@ export function Home() {
 
   const me = team.find((t) => t.member.fullName === profile?.full_name) ?? null;
   const sales = data?.cases.filter((c) => c.caseType === 'Sale') ?? [];
-  const lost = data?.cases.filter((c) => c.caseType === 'Lost') ?? [];
+  const lost = data?.cases.filter((c) => c.caseType === 'Lost Sale') ?? [];
   const salesValue = sales.reduce((t, c) => t + (c.amountKd ?? 0), 0);
   const missing = team.filter((t) => t.standing === 'missing');
 
