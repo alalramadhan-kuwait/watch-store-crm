@@ -27,9 +27,13 @@ export function TopBar() {
     return () => { live = false; clearInterval(t); };
   }, [profile, role]);
 
+  /* inline-flex, not the anchor's default inline: an inline box is only as
+     wide as the glyph inside it, so the padding never counted and the badge
+     below — positioned against that box — landed above and to the left of
+     the bell, half of it off the side of the screen. */
   const bell = (
     <NavLink to="/notifications" aria-label="Notifications"
-      className="relative p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors touch-manipulation">
+      className="relative inline-flex items-center justify-center p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors touch-manipulation">
       <Bell className="w-4 h-4" />
       {unread > 0 && (
         <span className="absolute top-1 right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-rose-500
@@ -43,8 +47,8 @@ export function TopBar() {
   return (
     <header className="fixed top-0 left-0 right-0 z-30 bg-white border-b border-slate-100 safe-area-top safe-area-x">
       <div className={`flex items-center justify-between ${sidebarW} transition-all duration-200`}>
-        {/* Mobile: sign out placeholder (keeps brand centered) */}
-        {profile && <div className="lg:hidden">{bell}</div>}
+        {/* Mobile: notifications */}
+        {profile && <div className="lg:hidden ml-1">{bell}</div>}
 
         {/* Desktop: sidebar toggle */}
         {profile && (
