@@ -105,6 +105,10 @@ export function shiftTimesOn(
 }
 
 export interface DayPunctuality {
+  /** The Kuwait day this is about. Carried through so a total can be opened
+   *  back up into the days behind it — "two hours late" invites "when?", and
+   *  the answer should not mean going and counting. */
+  date: string;
   /** Hours past the grace deadline. null when the shift start is unknown. */
   hoursLate: number | null;
   /** Hours before the shift end. null when they never clocked out, or the
@@ -166,7 +170,7 @@ export function dayPunctuality(input: DayRecords, opts: PunctualityOptions = {})
     hoursEarly = Math.max(0, endAt - last) / 60;
   }
 
-  return { hoursLate, hoursEarly, lateClass, excused, shift };
+  return { date: input.date, hoursLate, hoursEarly, lateClass, excused, shift };
 }
 
 export interface PunctualityTotals {
