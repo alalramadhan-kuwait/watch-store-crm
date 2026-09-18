@@ -651,6 +651,9 @@ export async function deleteFullDayReport(date: string, outlet = ''): Promise<vo
 
 export interface TeamMemberHR {
   employeeId: string;
+  /** The login this person is linked to. The real key between an HR record and
+   *  anything that person did — names are a display copy and get corrected. */
+  userId: string | null;
   fullName: string;
   rosterName: string;   // cases.staff
   location: string | null;
@@ -690,7 +693,7 @@ export async function getTeamDirectory(): Promise<TeamMemberHR[]> {
   const [{ data }, { data: schedRows }] = await Promise.all([
     supabase
       .from('employees')
-      .select('id, full_name, dsr_staff_name, location, expected_days, shift_start, shift_end')
+      .select('id, user_id, full_name, dsr_staff_name, location, expected_days, shift_start, shift_end')
       .eq('status', 'Active')
       .not('dsr_staff_name', 'is', null),
     supabase
@@ -707,6 +710,7 @@ export async function getTeamDirectory(): Promise<TeamMemberHR[]> {
 
   return (data ?? []).map(r => ({
     employeeId: r.id as string,
+    userId: (r.user_id as string) ?? null,
     fullName: r.full_name as string,
     rosterName: r.dsr_staff_name as string,
     location: (r.location as string) ?? null,
@@ -732,10 +736,18 @@ export async function getTeamAttendance(from: string, to: string): Promise<Atten
       .lt('clock_in', `${to}T00:00:00+03:00`),
     getTeamDirectory(),
   ]);
+  /* Matched on user_id, because the name on an attendance row is a copy taken
+     when it was written and a rename leaves it stale. Correcting the spelling of
+     one manager's HR record silently detached both of his records — including
+     the shift he was clocked into — and the shop floor simply stopped seeing
+     him. The name stays as the fallback for a row written before the link
+     existed, or for somebody clocked in by hand. */
+  const byUserId = new Map(team.filter(t => t.userId).map(t => [t.userId as string, t.rosterName]));
   const byFullName = new Map(team.map(t => [t.fullName.trim().toLowerCase(), t.rosterName]));
   const out: AttendanceDay[] = [];
   for (const r of rows ?? []) {
-    const roster = byFullName.get(String(r.employee_name ?? '').trim().toLowerCase());
+    const roster = (r.user_id ? byUserId.get(r.user_id as string) : undefined)
+      ?? byFullName.get(String(r.employee_name ?? '').trim().toLowerCase());
     if (!roster) continue; // office staff and anyone not on the shop roster
     const inTs = r.clock_in as string;
     const outTs = (r.clock_out as string) ?? null;
