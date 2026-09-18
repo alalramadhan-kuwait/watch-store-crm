@@ -17,6 +17,7 @@ import { Settings } from './components/Settings';
 import { CRM } from './components/CRM';
 import { OutletSelector } from './components/OutletSelector';
 import { MyPortal } from './components/MyPortal';
+import { Notifications } from './components/Notifications';
 import { ToastContainer } from './components/shared/Toast';
 import { AuthProvider, useAuth, canSeePerformance } from './context/AuthContext';
 import type { DsrRole } from './context/AuthContext';
@@ -122,6 +123,7 @@ function AppShell() {
           <Route path="/today" element={<TodayLog />} />
           <Route path="/followups" element={<FollowUps />} />
           <Route path="/portal" element={<MyPortal />} />
+          <Route path="/notifications" element={<Notifications />} />
           <Route path="/crm" element={<ProtectedRoute><CRM /></ProtectedRoute>} />
           <Route path="/manager" element={<ProtectedRoute allow={canSeePerformance}><ManagerDashboard /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute allow={canSeePerformance}><Reports /></ProtectedRoute>} />

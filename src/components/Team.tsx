@@ -9,6 +9,7 @@ import { workload, fairness, type Fairness } from '../shared/workload';
 import { useLive } from '../shared/live';
 import { shopsFrom, sameOutlet } from '../utils/outlet';
 import { AttendanceSheet } from './ManagerDashboard';
+import { TeamRequests } from './TeamRequests';
 import type { AttendanceDay, LeaveDay } from '../db';
 
 const todayKuwait = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
@@ -151,6 +152,11 @@ export function Team() {
           ))}
         </div>
       )}
+
+      {/* Approvals first. Who is in today can wait a scroll; a correction that
+          has been sitting for three days cannot, and until now he could not see
+          it on this device at all. */}
+      <TeamRequests />
 
       <div className="flex items-center gap-2">
         <Users className="w-5 h-5 text-slate-400" />

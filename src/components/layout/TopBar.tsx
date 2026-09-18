@@ -1,5 +1,8 @@
-import { LogOut, PanelLeftClose, PanelLeftOpen } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { NavLink } from 'react-router-dom';
+import { LogOut, PanelLeftClose, PanelLeftOpen, Bell } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { unreadCount } from '../../shared/notifications';
 import { useAppStore } from '../../store';
 import pkg from '../../../package.json';
 import { roleLabel } from '../../utils/roles';
@@ -10,13 +13,38 @@ export function TopBar() {
 
   const sidebarW = sidebarCollapsed ? 'lg:pl-14' : 'lg:pl-60';
 
+  /* The bell. This app raised no notifications to anybody until now, so the
+     count starting at zero is accurate rather than lazy. Polled every minute:
+     the flush job runs every thirty seconds, and a manager does not need to
+     know faster than he can walk across the shop. */
+  const [unread, setUnread] = useState(0);
+  useEffect(() => {
+    if (!profile) { setUnread(0); return; }
+    let live = true;
+    const tick = () => { void unreadCount(profile.id, role).then((n) => { if (live) setUnread(n); }); };
+    tick();
+    const t = setInterval(tick, 60_000);
+    return () => { live = false; clearInterval(t); };
+  }, [profile, role]);
+
+  const bell = (
+    <NavLink to="/notifications" aria-label="Notifications"
+      className="relative p-2 rounded-xl text-slate-400 hover:text-slate-700 hover:bg-slate-50 transition-colors touch-manipulation">
+      <Bell className="w-4 h-4" />
+      {unread > 0 && (
+        <span className="absolute top-1 right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-rose-500
+                         text-white text-[9px] font-bold leading-[15px] text-center tabular-nums">
+          {unread > 9 ? '9+' : unread}
+        </span>
+      )}
+    </NavLink>
+  );
+
   return (
     <header className="fixed top-0 left-0 right-0 z-30 bg-white border-b border-slate-100 safe-area-top safe-area-x">
       <div className={`flex items-center justify-between ${sidebarW} transition-all duration-200`}>
         {/* Mobile: sign out placeholder (keeps brand centered) */}
-        {profile && (
-          <div className="lg:hidden w-10" />
-        )}
+        {profile && <div className="lg:hidden">{bell}</div>}
 
         {/* Desktop: sidebar toggle */}
         {profile && (
@@ -65,7 +93,8 @@ export function TopBar() {
 
         {/* Desktop: show user + sign out */}
         {profile && (
-          <div className="hidden lg:flex items-center gap-4 pr-6">
+          <div className="hidden lg:flex items-center gap-2 pr-6">
+            {bell}
             <span className="text-xs text-slate-500">
               {profile.full_name}
               <span className="ml-1.5 px-1.5 py-0.5 rounded-md bg-slate-100 text-slate-500 text-[10px] font-medium">{roleLabel(role)}</span>
