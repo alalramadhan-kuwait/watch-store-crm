@@ -1,5 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import MyRequests from './MyRequests';
+import { dayPunctuality, punctualityTotals, shiftTimesOn } from '../shared/punctuality';
+import { scheduleFromRow, type Schedule, type ScheduleRow } from '../shared/schedule';
 import AskForSchedule from './AskForSchedule';
 import {
   LogIn, LogOut, AlertCircle, CheckCircle, Home, Plus, Send, X, Pencil, ChevronLeft, ChevronRight,
@@ -104,6 +106,10 @@ export function MyPortal() {
   const { user, profile, role } = useAuth();
   const { showToast } = useAppStore();
   const [emp, setEmp] = useState<EmpRecord | null>(null);
+  /* This person's own shift. Without it the page judged everybody against the
+     office's 09:00 — so Avenues staff, whose hours deliberately vary, were told
+     they were late for a shift nobody ever put them on. */
+  const [schedules, setSchedules] = useState<Schedule[]>([]);
   const [leaves, setLeaves] = useState<LeaveRec[]>([]);
   const [requests, setRequests] = useState<EmpRequest[]>([]);
   // Every clock-in for today, oldest first. A day can hold more than one shift
@@ -222,6 +228,14 @@ export function MyPortal() {
       // the HR record is linked by hand in Timekeeper Online; never matched by name
       const mine = ((empQ.data ?? []) as EmpRecord[]).find((e) => e.user_id === user.id) ?? null;
       setEmp(mine);
+      if (mine?.id) {
+        const { data: sch } = await supabase.from('employee_schedules')
+          .select('id, employee_id, effective_from, effective_to, working_days, shift_start, shift_end, grace_minutes, note')
+          .eq('employee_id', mine.id);
+        setSchedules(((sch ?? []) as ScheduleRow[]).map(scheduleFromRow));
+      } else {
+        setSchedules([]);
+      }
       setGeofences((geoQ.data as Geofence[]) ?? []);
       if (setQ.data?.work_start_time) setWorkStart(setQ.data.work_start_time as string);
       if (setQ.data?.work_end_time) setWorkEnd(setQ.data.work_end_time as string);
@@ -438,8 +452,6 @@ export function MyPortal() {
   }, [leaves, emp]);
 
   const monthStats = useMemo(() => {
-    const [wh, wm] = workStart.split(':').map(Number);
-    const graceMin = wh * 60 + wm + 60;
     // Group first: a split shift is one day worked, and the hours add up.
     // Counting per record would call a morning-plus-evening day two days, and
     // charge missing hours against each half of it.
@@ -450,11 +462,21 @@ export function MyPortal() {
       const seen = firstOfDay.get(d);
       if (!seen || r.clock_in < seen.clock_in) firstOfDay.set(d, r);
     }
-    let lateHours = 0, missingHours = 0;
-    for (const r of firstOfDay.values()) {
-      // only the clock-in that opened the day can be late
-      if (!r.justified) { const a = kuwaitMinutes(r.clock_in); if (a > graceMin) lateHours += (a - graceMin) / 60; }
-    }
+    /* Lateness comes from the shared engine, against this person's own shift.
+       It used to be worked out here against the office's start plus a
+       hard-coded hour, which is a second opinion — and a wrong one for anybody
+       not on the office's hours. */
+    const punctDays = [...byDay.keys()].map((date) => dayPunctuality({
+      date, schedules,
+      records: (monthRecs.filter((r) => kwDate(r.clock_in) === date))
+        .map((r) => ({ clockIn: r.clock_in, clockOut: r.clock_out, justified: r.justified })),
+    }, { defaultStart: workStart, graceMinutes: 60 }));
+    const punct = punctualityTotals(punctDays);
+    const lateHours = punct.hoursLate;
+    /* True when no day in the month could be judged: their hours vary, so there
+       is no shift to be late against and a number would be invented. */
+    const noShift = punct.days > 0 && punct.hoursLate === null;
+    let missingHours = 0;
     for (const day of byDay.values()) {
       // A day still being worked is not short of anything yet, and a day nobody
       // clocked out of needs a correction before it can be judged at all.
@@ -462,9 +484,10 @@ export function MyPortal() {
       if (day.hours > 0 && day.hours < STANDARD_DAY_HOURS) missingHours += STANDARD_DAY_HOURS - day.hours;
     }
     const days = byDay.size;
-    const late = [...firstOfDay.values()].filter(r => r.is_late && !r.justified).length;
-    return { days, late, onTime: Math.max(0, days - late), lateHours, missingHours };
-  }, [monthRecs, workStart]);
+    const late = punct.timesLate;
+    const judged = punctDays.filter((d) => d.hoursLate !== null).length;
+    return { days, late, onTime: Math.max(0, judged - late), judged, noShift, lateHours, missingHours };
+  }, [monthRecs, workStart, schedules]);
 
   const histStats = useMemo(() => {
     const byDay = groupByDay(histRecs);
@@ -546,9 +569,14 @@ export function MyPortal() {
   const wfhToday = todayLeave?.leave_type === 'WFH';
   const usedPct = leaveSummary.entitlement > 0 ? Math.min(100, Math.round((leaveSummary.annualTaken / leaveSummary.entitlement) * 100)) : 0;
   const shownRequests = showAllReq ? allRequests.slice(0, 20) : allRequests.slice(0, 4);
+  /* When this person is due, from their own shift where they have one. Saying
+     "Expected by 10:00" to somebody at Avenues, whose hours are assigned by the
+     manager day by day, is stating the office's rule as if it were theirs. */
+  const todaysShift = shiftTimesOn(schedules, todayKuwait(), { defaultStart: workStart });
   const graceEnd = (() => {
-    const [h, m] = workStart.split(':').map(Number);
-    const t = h * 60 + m + 60, hr = Math.floor(t / 60), mn = t % 60;
+    if (!todaysShift.start) return null;
+    const [h, m] = todaysShift.start.split(':').map(Number);
+    const t = h * 60 + m + (todaysShift.graceMinutes ?? 60), hr = Math.floor(t / 60), mn = t % 60;
     return `${((hr + 11) % 12) + 1}:${String(mn).padStart(2, '0')} ${hr >= 12 ? 'PM' : 'AM'}`;
   })();
   const headerStatus = onPaidLeaveToday ? `On ${todayLeave!.leave_type.toLowerCase()} leave today`
@@ -613,7 +641,7 @@ export function MyPortal() {
         <dl className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-3 border-y border-slate-100 py-3">
           <div><dt className="text-[11px] text-slate-400 uppercase tracking-wide">Days present</dt><dd className="mt-0.5 text-lg font-bold text-slate-800">{monthStats.days}</dd></div>
           <div><dt className="text-[11px] text-slate-400 uppercase tracking-wide">On time</dt><dd className="mt-0.5 text-lg font-bold text-slate-800">{monthStats.onTime}<span className="text-sm font-medium text-slate-400">/{monthStats.days}</span></dd></div>
-          <div><dt className="text-[11px] text-slate-400 uppercase tracking-wide">Late hours</dt><dd className={`mt-0.5 text-lg font-bold ${monthStats.lateHours > 0 ? 'text-amber-600' : 'text-slate-800'}`}>{hm(monthStats.lateHours)}</dd></div>
+          <div><dt className="text-[11px] text-slate-400 uppercase tracking-wide">Late hours</dt><dd className={`mt-0.5 text-lg font-bold ${(monthStats.lateHours ?? 0) > 0 ? 'text-amber-600' : 'text-slate-800'}`}>{monthStats.lateHours === null ? '—' : hm(monthStats.lateHours)}</dd>{monthStats.noShift && <dd className="text-[10px] text-slate-400 mt-0.5">hours vary</dd>}</div>
           <div><dt className="text-[11px] text-slate-400 uppercase tracking-wide">Missing hours</dt><dd className={`mt-0.5 text-lg font-bold ${monthStats.missingHours > 0 ? 'text-rose-600' : 'text-slate-800'}`}>{hm(monthStats.missingHours)}</dd></div>
         </dl>
         <p className="mt-1 text-[11px] text-slate-400">this month</p>
@@ -625,7 +653,9 @@ export function MyPortal() {
         </div>
 
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-          <span className="text-slate-400">Expected by {graceEnd}</span>
+          <span className="text-slate-400">
+            {graceEnd ? `Expected by ${graceEnd}` : 'Hours vary — no fixed start today'}
+          </span>
           {!clockedIn && lastRec?.clock_out && isEarlyLeave(lastRec.clock_out, myShiftEnd) && (
             <span className="text-amber-600">Left before {myShiftEnd} — counts as early leave unless approved.</span>
           )}
