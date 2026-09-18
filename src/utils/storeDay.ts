@@ -14,6 +14,7 @@
 import { sameOutlet } from './outlet';
 import { shiftHours as sharedShiftHours, dayHours } from '../shared/workedHours';
 import { standing as sharedStanding, type AttendanceStatus } from '../shared/attendanceStatus';
+import { shiftTimesOn } from '../shared/punctuality';
 import { KUWAIT_WEEK, type Schedule, type Weekday } from '../shared/schedule';
 
 export interface Shift {
@@ -118,6 +119,9 @@ export function storeDay(all: Shift[], outlet: string, date: string, now = new D
 
 export interface RosterMember {
   employeeId: string;
+  /** The login behind this record. Anything asking "which of these is me?"
+   *  matches on this — a display name is a copy and gets corrected. */
+  userId: string | null;
   fullName: string;
   rosterName: string;
   location: string | null;
@@ -166,6 +170,9 @@ export interface TeamStanding {
   hoursKnown: number | null;
   /** They did clock in, just after their shift had started. */
   arrivedLate: boolean;
+  /** The start their day is judged against, hh:mm — null when nobody has said
+   *  what hours they work, which is not the same as the office default. */
+  dueAt: string | null;
   firstIn: string | null;
   lastOut: string | null;
 }
@@ -222,6 +229,7 @@ export function standings(
       hoursKnown: verdict.hours.hours,
       // An excused late arrival is a decision somebody already made.
       arrivedLate: verdict.arrivedLate && !(mine[0]?.justified ?? false),
+      dueAt: shiftTimesOn(schedulesFor(member), date, { defaultStart: opts.workStart }).start,
       firstIn,
       lastOut,
     };

@@ -197,8 +197,14 @@ export function Team() {
               ) : (
                 <span>{t.standing === 'off' ? 'Not due in today'
                   : t.standing === 'on_leave' ? 'On approved leave'
-                  : t.standing === 'due_later' ? `Due at ${t.member.shiftStart ?? workStart}`
+                  /* `dueAt` is the start actually in force, which is null when
+                     their hours vary. Falling back to the office default here
+                     printed "Due at 09:00" for people the engine had just
+                     decided it could not time — the shops assign two shifts a
+                     day, so there is no 09:00 to be due at. */
+                  : t.standing === 'due_later' ? (t.dueAt ? `Due at ${t.dueAt}` : 'Hours vary — not due at a set time')
                   : t.standing === 'no_schedule' ? 'No working days set'
+                  : t.standing === 'late' ? (t.dueAt ? `Due at ${t.dueAt} — not clocked in` : 'Not clocked in')
                   : 'No clock-in'}</span>
               )}
             </div>

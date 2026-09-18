@@ -9,12 +9,43 @@ import { supabase } from '../lib/supabase';
 import { getSettings, getOpenFollowUps } from '../db';
 import { loadStoreDay, loadMonthToDate, loadMonthlyTarget, type StoreDayData } from '../db/storeToday';
 import { useLive } from '../shared/live';
-import { storeDay, standings, STANDING_WORD, type TeamStanding } from '../utils/storeDay';
+import { storeDay, standings, STANDING_WORD, type Standing, type TeamStanding } from '../utils/storeDay';
 import { shopsFrom, sameOutlet } from '../utils/outlet';
 import { followUpUrgency } from '../utils/followUps';
 import { formatKDCompact } from '../utils/formatKD';
 import { StoreDayDetail } from './StoreDayDetail';
 import { Modal } from './shared/Modal';
+
+/**
+ * Where each standing is counted on this page.
+ *
+ * The team line used to count four of the nine standings the shared engine can
+ * return — working, completed, missing, and on_leave/off. Everyone else landed
+ * in no column at all: anybody late, anybody whose hours vary so the app cannot
+ * say when they were due, anybody whose shift was never clocked out. A shop of
+ * four with one person clocked in read "In now 1" and three zeros, and the
+ * manager standing on the floor was in none of them.
+ *
+ * Worse, `missing` is only ever returned for a day in the past — today's
+ * equivalent is `late` — and this page only ever renders today, so the "Not in"
+ * number was structurally always zero and the alert behind it could not fire.
+ *
+ * Keyed by standing rather than filtered case by case, so a tenth standing
+ * cannot be added without deciding where it is counted.
+ */
+type Column = 'in' | 'done' | 'not_in' | 'later' | 'away' | 'unclear';
+
+const COLUMN: Record<Standing, Column> = {
+  working: 'in',
+  completed: 'done',
+  late: 'not_in',       // due in, shift started, nothing clocked — today
+  missing: 'not_in',    // the same thing, on a day that is over
+  due_later: 'later',
+  on_leave: 'away',
+  off: 'away',
+  needs_correction: 'unclear',
+  no_schedule: 'unclear',
+};
 
 const todayKuwait = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
 const hhmm = (iso: string | null) => (!iso ? '—' : new Date(iso)
@@ -35,7 +66,7 @@ const hm = (hours: number) => `${Math.floor(hours)}h ${String(Math.round((hours 
  * follow-up buckets come from the same utils/followUps the Follow-ups tab uses.
  */
 export function Home() {
-  const { profile, role } = useAuth();
+  const { user, profile, role } = useAuth();
   const activeOutlet = useAppStore((s) => s.activeOutlet);
   const setActiveOutlet = useAppStore((s) => s.setActiveOutlet);
   const navigate = useNavigate();
@@ -111,11 +142,23 @@ export function Home() {
     return standings(here, data.shifts, data.onLeave, today, { workStart, graceMinutes: 60 });
   }, [data, outlet, today, workStart]);
 
-  const me = team.find((t) => t.member.fullName === profile?.full_name) ?? null;
+  /* By login. Matching on the display name put the manager's own card on the
+     wrong footing the moment his HR record was respelled — the same bug that
+     detached his attendance. The name stays only as a fallback for a roster row
+     with no login linked yet. */
+  const me = team.find((t) => (t.member.userId && t.member.userId === user?.id))
+    ?? team.find((t) => t.member.fullName === profile?.full_name)
+    ?? null;
   const sales = data?.cases.filter((c) => c.caseType === 'Sale') ?? [];
   const lost = data?.cases.filter((c) => c.caseType === 'Lost Sale') ?? [];
   const salesValue = sales.reduce((t, c) => t + (c.amountKd ?? 0), 0);
-  const missing = team.filter((t) => t.standing === 'missing');
+  const inColumn = (c: Column) => team.filter((t) => COLUMN[t.standing] === c);
+  const notIn = inColumn('not_in');
+  const unclear = inColumn('unclear');
+  /* Hours vary, so there is no start time to have missed. Shown as a number and
+     never as an alarm — flagging somebody every morning for a shift nobody has
+     written down teaches a manager to ignore the flag. */
+  const dueLater = inColumn('later');
 
   const alerts: { key: string; text: string; go?: () => void }[] = [];
   if (data && !data.dayClosed && shop?.state === 'closed') {
@@ -124,8 +167,23 @@ export function Home() {
   if (followUps.overdue) {
     alerts.push({ key: 'fu', text: `${followUps.overdue} follow-up${followUps.overdue > 1 ? 's' : ''} overdue`, go: () => navigate('/followups') });
   }
-  for (const m of missing) {
-    alerts.push({ key: `miss-${m.member.employeeId}`, text: `${m.member.fullName} was due in and has not clocked in`, go: () => navigate('/team') });
+  for (const m of notIn) {
+    alerts.push({
+      key: `miss-${m.member.employeeId}`,
+      text: m.dueAt
+        ? `${m.member.fullName} was due in at ${m.dueAt} and has not clocked in`
+        : `${m.member.fullName} was due in and has not clocked in`,
+      go: () => navigate('/team'),
+    });
+  }
+  for (const m of unclear) {
+    alerts.push({
+      key: `unclear-${m.member.employeeId}`,
+      text: m.standing === 'needs_correction'
+        ? `${m.member.fullName} has a shift that was never clocked out`
+        : `Nobody has said which days ${m.member.fullName} works`,
+      go: () => navigate('/team'),
+    });
   }
 
   if (loading && !data) {
@@ -249,11 +307,15 @@ export function Home() {
         </div>
         <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
           {([
-            ['In now', team.filter((t) => t.standing === 'working').length, 'text-emerald-600'],
-            ['Done', team.filter((t) => t.standing === 'completed').length, 'text-slate-700'],
-            ['Not in', missing.length, 'text-rose-600'],
-            ['Leave / off', team.filter((t) => t.standing === 'on_leave' || t.standing === 'off').length, 'text-slate-400'],
-          ] as const).map(([label, n, tone]) => (
+            // The first three are the shape of the day and are shown at zero;
+            // the rest would only be noise on a shop where they do not apply.
+            { label: 'In now', n: inColumn('in').length, tone: 'text-emerald-600', always: true },
+            { label: 'Done', n: inColumn('done').length, tone: 'text-slate-700', always: true },
+            { label: 'Not in', n: notIn.length, tone: 'text-rose-600', always: true },
+            { label: 'Due later', n: dueLater.length, tone: 'text-slate-500', always: false },
+            { label: 'Leave / off', n: inColumn('away').length, tone: 'text-slate-400', always: false },
+            { label: 'Needs a look', n: unclear.length, tone: 'text-amber-600', always: false },
+          ]).filter((c) => c.always || c.n > 0).map(({ label, n, tone }) => (
             <span key={label} className="flex items-baseline gap-1.5">
               <span className={`text-lg font-bold ${tone}`}>{n}</span>
               <span className="text-xs text-slate-500">{label}</span>
