@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
+import MyRequests from './MyRequests';
+import AskForSchedule from './AskForSchedule';
 import {
   LogIn, LogOut, AlertCircle, CheckCircle, Home, Plus, Send, X, Pencil, ChevronLeft, ChevronRight,
 } from 'lucide-react';
@@ -995,6 +997,14 @@ export function MyPortal() {
           </div>
         )}
       </section>
+
+      {/* Everything I have asked for, and the way to ask for different hours.
+          Neither existed on this app: a request could be raised and then only
+          watched, and a schedule could only be changed by somebody at a desk. */}
+      <MyRequests userId={user?.id ?? null} />
+      <div>
+        <AskForSchedule employeeId={emp?.id ?? null} userId={user?.id ?? null} onSent={load} />
+      </div>
     </div>
   );
 }

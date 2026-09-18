@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { tabOf, counts, stageOf, standingLine, waitedFor, fieldChanges, type RequestRow } from '../requestRules';
+import {
+  tabOf, counts, stageOf, standingLine, waitedFor, fieldChanges, reminderState, whenShort,
+  REMIND_COOLDOWN_HOURS, type RequestRow,
+} from '../requestRules';
 
 let n = 0; const t = (_: string, f: () => void) => { f(); n++; };
 
@@ -12,9 +15,11 @@ const row = (p: Partial<RequestRow> = {}): RequestRow => ({
   attendance_date: '2026-09-17', attendance_record_id: 'a1',
   proposed_clock_in: null, proposed_clock_out: null,
   proposed_from: null, proposed_until: null, proposed_shift_start: null, proposed_shift_end: null,
-  current_clock_in: null, current_clock_out: null, current_shifts: 0, changes_nothing: false,
+  current_clock_in: null, current_clock_out: null, current_shifts: 0,
+  current_shift_start: null, current_shift_end: null, current_working_days: null,
+  changes_nothing: false,
   status: 'Pending', manager_status: 'Pending', stage_owner: 'manager',
-  hours_pending: 3, is_overdue: false,
+  hours_pending: 3, is_overdue: false, last_reminder_at: null, reminder_count: 0,
   submitted_at: at('14:20'), on_behalf_by: null, on_behalf_name: null,
   first_approver_id: 'm1', first_approver_name: 'Hussein Deeb',
   manager_remarks: null,
@@ -124,13 +129,64 @@ t('leave carries no field table; its dates are the request', () => {
   assert.deepEqual(fieldChanges(row({ kind: 'Leave' })), []);
 });
 
-t('a schedule change says what it wants and from when', () => {
+t('a schedule change compares the hours somebody is on against the ones they want', () => {
+  // the Avenues case: hours vary today, a fixed evening shift asked for
   const c = fieldChanges(row({
     kind: 'Schedule change', proposed_from: '2026-09-20', proposed_until: '2026-09-27',
+    current_shift_start: null, current_shift_end: null,
     proposed_shift_start: '14:00:00', proposed_shift_end: '22:00:00',
   }));
+  assert.equal(c[0].current, 'Hours vary');
   assert.equal(c[0].requested, '14:00–22:00');
+  assert.ok(!c[0].same);
   assert.equal(c[1].requested, '2026-09-20 until 2026-09-27');
+
+  // and asking for what they are already on is marked as no change
+  const noop = fieldChanges(row({
+    kind: 'Schedule change', proposed_from: '2026-09-20',
+    current_shift_start: '10:00:00', current_shift_end: '18:00:00',
+    proposed_shift_start: '10:00:00', proposed_shift_end: '18:00:00',
+  }));
+  assert.ok(noop[0].same);
+});
+
+t('you cannot remind yourself, and you cannot remind twice in an hour', () => {
+  const now = Date.parse('2026-09-18T12:00:00+03:00');
+  const waitingOnHussein = row({ stage_owner: 'manager' });
+
+  const asOwner = reminderState(waitingOnHussein, 'owner', now);
+  assert.ok(asOwner.can, 'the owner may chase the manager');
+  assert.equal(asOwner.lastLine, null, 'nothing sent yet');
+
+  const asHussein = reminderState(waitingOnHussein, 'manager', now);
+  assert.ok(!asHussein.can);
+  assert.equal(asHussein.blocked, 'This one is yours');
+
+  const settled = reminderState(row({ stage_owner: 'nobody', status: 'Approved' }), 'owner', now);
+  assert.ok(!settled.can);
+  assert.equal(settled.blocked, 'Already settled');
+});
+
+t('a fresh reminder blocks another, an old one does not', () => {
+  const now = Date.parse('2026-09-18T12:00:00+03:00');
+  const hoursAgo = (h: number) => new Date(now - h * 3600_000).toISOString();
+
+  const justNudged = reminderState(
+    row({ stage_owner: 'manager', last_reminder_at: hoursAgo(1) }), 'owner', now);
+  assert.ok(!justNudged.can);
+  assert.match(justNudged.blocked as string, /Reminded/);
+  assert.ok(justNudged.lastLine?.startsWith('Last reminder:'));
+
+  const stale = reminderState(
+    row({ stage_owner: 'manager', last_reminder_at: hoursAgo(REMIND_COOLDOWN_HOURS + 1) }), 'owner', now);
+  assert.ok(stale.can, 'past the cooldown it may go again');
+});
+
+t('a reminder time reads as today, yesterday, then a date', () => {
+  const now = Date.parse('2026-09-18T12:00:00+03:00');
+  assert.equal(whenShort('2026-09-18T09:15:00+03:00', now), 'today 09:15');
+  assert.equal(whenShort('2026-09-17T17:40:00+03:00', now), 'yesterday 17:40');
+  assert.equal(whenShort('2026-09-12T08:00:00+03:00', now), '12 Sep');
 });
 
 console.log(`${n} request checks passed`);

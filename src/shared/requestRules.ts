@@ -60,6 +60,10 @@ export interface RequestRow {
   current_clock_in: string | null;
   current_clock_out: string | null;
   current_shifts: number;
+  /** The schedule in force on the date a change is asked for. */
+  current_shift_start: string | null;
+  current_shift_end: string | null;
+  current_working_days: number[] | null;
   changes_nothing: boolean;
 
   status: string;
@@ -67,6 +71,8 @@ export interface RequestRow {
   stage_owner: StageOwner;
   hours_pending: number;
   is_overdue: boolean;
+  last_reminder_at: string | null;
+  reminder_count: number;
 
   submitted_at: string;
   on_behalf_by: string | null;
@@ -157,6 +163,10 @@ export interface FieldChange {
 const hm = (iso: string | null): string | null => (!iso ? null : new Intl.DateTimeFormat('en-GB',
   { timeZone: 'Asia/Kuwait', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso)));
 
+/** A pair of shift times, or the honest absence of them. */
+const hours = (start: string | null, end: string | null): string =>
+  (start && end ? `${start.slice(0, 5)}–${end.slice(0, 5)}` : 'Hours vary');
+
 /**
  * The Current → Requested table, built once for both apps.
  *
@@ -185,22 +195,73 @@ export function fieldChanges(r: RequestRow): FieldChange[] {
     ];
   }
   if (r.kind === 'Schedule change') {
+    const now = hours(r.current_shift_start, r.current_shift_end);
+    const want = hours(r.proposed_shift_start, r.proposed_shift_end);
     return [
+      { field: 'Hours', current: now, requested: want, same: now === want },
       {
-        field: 'Hours',
-        current: 'As scheduled',
-        requested: r.proposed_shift_start && r.proposed_shift_end
-          ? `${r.proposed_shift_start.slice(0, 5)}–${r.proposed_shift_end.slice(0, 5)}`
-          : 'Hours vary',
-        same: false,
-      },
-      {
-        field: 'From',
+        field: 'Dates',
         current: '—',
-        requested: r.proposed_until ? `${r.proposed_from} until ${r.proposed_until}` : `${r.proposed_from}`,
+        requested: r.proposed_until ? `${r.proposed_from} until ${r.proposed_until}` : `from ${r.proposed_from}`,
         same: false,
       },
     ];
   }
   return [];
+}
+
+/* --------------------------------------------------------------- reminders */
+
+/** How long a nudge has to settle before another one is worth sending. */
+export const REMIND_COOLDOWN_HOURS = 4;
+
+export interface ReminderState {
+  /** True when a nudge would actually go somewhere. */
+  can: boolean;
+  /** Why not, when it cannot — shown instead of a dead button. */
+  blocked: string | null;
+  /** "Last reminder sent: today 09:15", or null if none ever was. */
+  lastLine: string | null;
+}
+
+/**
+ * Whether the person looking at this can usefully chase it.
+ *
+ * Only worth offering to somebody who is *not* the one holding it up: a button
+ * that reminds yourself is a joke at the user's expense. The cooldown is the
+ * same four hours the database enforces, checked here only so the screen can
+ * explain itself rather than letting the press fail.
+ */
+export function reminderState(r: RequestRow, mine: MyStage, now = Date.now()): ReminderState {
+  const lastLine = r.last_reminder_at ? `Last reminder: ${whenShort(r.last_reminder_at, now)}` : null;
+  if (r.stage_owner === 'nobody') return { can: false, blocked: 'Already settled', lastLine };
+  if (r.stage_owner === mine) return { can: false, blocked: 'This one is yours', lastLine };
+  if (r.last_reminder_at) {
+    const since = (now - new Date(r.last_reminder_at).getTime()) / 3600_000;
+    if (since < REMIND_COOLDOWN_HOURS) {
+      return { can: false, blocked: `Reminded ${waitedFor(since)} ago`, lastLine };
+    }
+  }
+  return { can: true, blocked: null, lastLine };
+}
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+                'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/** "today 09:15" / "yesterday 17:40" / "12 Sep". */
+export function whenShort(iso: string, now = Date.now()): string {
+  const d = new Date(iso);
+  const day = (x: Date) => x.toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
+  const clock = d.toLocaleTimeString('en-GB',
+    { timeZone: 'Asia/Kuwait', hour: '2-digit', minute: '2-digit', hour12: false });
+  const today = day(new Date(now));
+  const yesterday = day(new Date(now - 86_400_000));
+  if (day(d) === today) return `today ${clock}`;
+  if (day(d) === yesterday) return `yesterday ${clock}`;
+  /* Spelled out rather than left to the locale: en-GB renders September as
+     "Sept", which is four characters wide in a column of three and reads as a
+     typo beside "12 Aug". */
+  const [y, m, dd] = day(d).split('-');
+  void y;
+  return `${dd} ${MONTHS[Number(m) - 1]}`;
 }

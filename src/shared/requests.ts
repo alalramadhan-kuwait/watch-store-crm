@@ -10,6 +10,7 @@
  */
 import { supabase } from '../lib/supabase';
 import type { MyStage, RequestRow, Verdict } from './requestRules';
+import { todayKuwait } from './portalRules';
 
 export * from './requestRules';
 
@@ -94,4 +95,107 @@ export async function loadRequests(opts: LoadOptions = {}): Promise<RequestRow[]
   const { data, error } = await q;
   if (error) return [];
   return (data ?? []) as unknown as RequestRow[];
+}
+
+/* ---------------------------------------------------------------- reminders */
+
+/**
+ * Nudge whoever is holding a request up.
+ *
+ * The cooldown, who may send one, and who receives it are all decided by
+ * `remind_request` in the database — the same function the nightly job calls, so
+ * a button press and an automatic chase can never disagree about what "recently
+ * reminded" means. Returns a sentence when it refused, null when it went.
+ */
+export async function remind(r: RequestRow): Promise<string | null> {
+  const { data, error } = await supabase.rpc('remind_request', {
+    p_source: r.source, p_request_id: r.id,
+  });
+  if (error) return error.message;
+  return (data as string | null) ?? null;
+}
+
+/* ----------------------------------------------------- the employee's own copy */
+
+export interface EditableFields {
+  details?: string;
+  proposed_clock_in?: string | null;
+  proposed_clock_out?: string | null;
+  proposed_from?: string | null;
+  proposed_until?: string | null;
+  proposed_shift_start?: string | null;
+  proposed_shift_end?: string | null;
+}
+
+/**
+ * Change a request that has not been acted on yet.
+ *
+ * The row-level policy allows this only while the request is still Pending and
+ * only to the person who raised it, so a screen cannot widen it by asking
+ * nicely. Once a manager has decided, editing is refused by the database rather
+ * than hidden by the UI — the difference matters when two tabs are open.
+ */
+export async function editRequest(r: RequestRow, patch: EditableFields): Promise<string | null> {
+  if (r.source !== 'employee_requests') {
+    return 'Leave is changed from the leave screen, not here.';
+  }
+  const { error } = await supabase.from('employee_requests').update(patch).eq('id', r.id);
+  return error ? error.message : null;
+}
+
+/* ------------------------------------------------- asking for different hours */
+
+export interface ScheduleAsk {
+  employeeId: string;
+  userId: string;
+  from: string;
+  until?: string | null;
+  shiftStart?: string | null;
+  shiftEnd?: string | null;
+  reason: string;
+}
+
+/**
+ * Ask for different working hours.
+ *
+ * Until now there was no way to: schedules moved only through set_schedule(),
+ * which HR and managers can call and nobody else, so an employee wanting a
+ * different shift had to find somebody at a desk. Avenues assigns mornings and
+ * nights by the day, which is exactly the case that needs asking.
+ *
+ * Leaving both times empty is a real request, not an empty one — it asks to go
+ * back to hours that vary.
+ */
+export async function askForSchedule(a: ScheduleAsk): Promise<string | null> {
+  if (!a.reason.trim()) return 'Say why, so whoever reads this can decide.';
+  if (a.from < todayKuwait()) return 'A schedule change starts today or later.';
+  if (a.until && a.until < a.from) return 'The end date comes before the start date.';
+  if (!!a.shiftStart !== !!a.shiftEnd) return 'Give both a start and an end time, or neither.';
+
+  const { error } = await supabase.from('employee_requests').insert({
+    user_id: a.userId,
+    employee_id: a.employeeId,
+    request_type: 'Schedule change',
+    status: 'Pending',
+    details: a.reason.trim(),
+    proposed_from: a.from,
+    proposed_until: a.until || null,
+    proposed_shift_start: a.shiftStart || null,
+    proposed_shift_end: a.shiftEnd || null,
+  });
+  return error ? error.message : null;
+}
+
+/**
+ * Write an approved schedule change onto the actual schedule.
+ *
+ * Approving one and not applying it would leave "Approved" beside an unchanged
+ * rota, which is the same two-words-for-one-state failure that attendance
+ * corrections had. The database function calls set_schedule, so every rule about
+ * dated schedules stays in one place.
+ */
+export async function applyScheduleChange(r: RequestRow): Promise<string | null> {
+  const { data, error } = await supabase.rpc('apply_schedule_change', { p_request_id: r.id });
+  if (error) return error.message;
+  return (data as string | null) ?? null;
 }
