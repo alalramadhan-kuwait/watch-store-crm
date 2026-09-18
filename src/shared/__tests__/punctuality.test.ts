@@ -13,7 +13,7 @@ const at = (hhmm: string) => `2026-09-15T${hhmm}:00+03:00`;
 const office = { defaultStart: '09:00', defaultEnd: '17:00' };
 
 t('the office day: arriving inside the grace hour is on time', () => {
-  const d = dayPunctuality({ records: [{ clockIn: at('09:55'), clockOut: at('18:00') }], schedules: sched(null, null), date: '2026-09-15' }, office);
+  const d = dayPunctuality({ records: [{ clockIn: at('09:55'), clockOut: at('18:00') }], schedules: [], date: '2026-09-15' }, office);
   assert.equal(d.hoursLate, 0);
   assert.equal(d.lateClass, 'On time');
   assert.equal(d.hoursEarly, 0);
@@ -23,7 +23,7 @@ t('the office day: arriving inside the grace hour is on time', () => {
 t('an afternoon shift is not six hours late for turning up on time', () => {
   // the real case: Avenues opens in the afternoon, judged against 09:00
   const recs = [{ clockIn: at('16:00'), clockOut: at('23:00') }];
-  const wrong = dayPunctuality({ records: recs, schedules: sched(null, null), date: '2026-09-15' }, office);
+  const wrong = dayPunctuality({ records: recs, schedules: [], date: '2026-09-15' }, office);
   assert.ok((wrong.hoursLate as number) > 5, 'the old office-hours rule says hours late');
 
   const right = dayPunctuality({ records: recs, schedules: sched('16:00', '23:00'), date: '2026-09-15' }, office);
@@ -35,7 +35,7 @@ t('an afternoon shift is not six hours late for turning up on time', () => {
 t('an early finisher is not leaving early every day', () => {
   // the real case: in 08:36, out 16:00, scored against a 17:00 end
   const recs = [{ clockIn: at('08:36'), clockOut: at('16:00') }];
-  const wrong = dayPunctuality({ records: recs, schedules: sched(null, null), date: '2026-09-15' }, office);
+  const wrong = dayPunctuality({ records: recs, schedules: [], date: '2026-09-15' }, office);
   assert.equal(wrong.hoursEarly, 1);
 
   const right = dayPunctuality({ records: recs, schedules: sched('08:30', '16:00'), date: '2026-09-15' }, office);
@@ -71,10 +71,41 @@ t('a day nobody clocked out of has no leaving time to judge', () => {
 });
 
 t('with no shift set anywhere, nothing is claimed', () => {
-  const d = dayPunctuality({ records: [{ clockIn: at('14:00'), clockOut: at('20:00') }], schedules: sched(null, null), date: '2026-09-15' }, {});
+  const d = dayPunctuality({ records: [{ clockIn: at('14:00'), clockOut: at('20:00') }], schedules: [], date: '2026-09-15' }, {});
   assert.equal(d.hoursLate, null);
   assert.equal(d.hoursEarly, null);
   assert.equal(d.shift.source, 'none');
+});
+
+t('a schedule with no hours on it means they vary, not "use the office default"', () => {
+  /* Avenues: the manager assigns mornings or nights by the day, so there is no
+     honest pair to judge against. This used to fall through to 09:00–17:00,
+     which is the rule that scored a salesperson nineteen hours late across
+     three days he turned up for. */
+  const varies = dayPunctuality(
+    { records: [{ clockIn: at('16:00'), clockOut: at('22:00') }], schedules: sched(null, null), date: '2026-09-15' },
+    office);
+  assert.equal(varies.shift.source, 'none', 'the office default must not be reached for them');
+  assert.equal(varies.hoursLate, null);
+  assert.equal(varies.hoursEarly, null);
+
+  // and somebody with no schedule row at all still falls back, as before
+  const nobody = dayPunctuality(
+    { records: [{ clockIn: at('16:00'), clockOut: at('22:00') }], schedules: [], date: '2026-09-15' },
+    office);
+  assert.equal(nobody.shift.source, 'default');
+  assert.ok((nobody.hoursLate as number) > 5);
+});
+
+t('the totals say how many days could not be judged', () => {
+  const days = [
+    dayPunctuality({ records: [{ clockIn: at('16:00'), clockOut: at('22:00') }], schedules: sched(null, null), date: '2026-09-15' }, office),
+    dayPunctuality({ records: [{ clockIn: at('16:00'), clockOut: at('22:00') }], schedules: sched(null, null), date: '2026-09-16' }, office),
+  ];
+  const tot = punctualityTotals(days);
+  assert.equal(tot.daysWithoutShift, 2);
+  assert.equal(tot.hoursLate, null, 'no total is claimed from days nobody can judge');
+  assert.equal(tot.hoursEarly, null);
 });
 
 t('last month is judged by last month s shift', () => {
@@ -91,7 +122,7 @@ t('a month adds up, and says what it could not judge', () => {
     dayPunctuality({ records: [{ clockIn: at('11:00'), clockOut: at('17:00') }], schedules: sched('09:00','17:00'), date: '2026-09-15' }, office), // 1h late
     dayPunctuality({ records: [{ clockIn: at('09:30'), clockOut: at('15:30') }], schedules: sched('09:00','17:00'), date: '2026-09-16' }, office), // 1.5h early
     dayPunctuality({ records: [{ clockIn: at('10:00'), clockOut: null }],        schedules: sched('09:00','17:00'), date: '2026-09-17' }, office),
-    dayPunctuality({ records: [{ clockIn: at('14:00'), clockOut: at('20:00') }], schedules: sched(null, null),      date: '2026-09-18' }, {}),
+    dayPunctuality({ records: [{ clockIn: at('14:00'), clockOut: at('20:00') }], schedules: [],      date: '2026-09-18' }, {}),
   ];
   const tot = punctualityTotals(days);
   assert.equal(tot.days, 4);
@@ -100,6 +131,22 @@ t('a month adds up, and says what it could not judge', () => {
   assert.equal(tot.timesLate, 1);
   assert.equal(tot.timesEarly, 1);
   assert.equal(tot.daysWithoutShift, 1, 'the day with no shift set is flagged, not counted as on time');
+});
+
+t('the report can tell "measured against the default" from "not measured"', () => {
+  const rec = [{ clockIn: at('16:00'), clockOut: at('22:00') }];
+  const onDefault = punctualityTotals([
+    dayPunctuality({ records: rec, schedules: [], date: '2026-09-15' }, office),
+  ]);
+  assert.equal(onDefault.usedDefaultOnly, true, 'real figures, resting on an assumption');
+  assert.equal(onDefault.hoursVary, false);
+
+  const varies = punctualityTotals([
+    dayPunctuality({ records: rec, schedules: sched(null, null), date: '2026-09-15' }, office),
+  ]);
+  assert.equal(varies.hoursVary, true);
+  assert.equal(varies.usedDefaultOnly, false, 'nothing was measured, so nothing rests on the default');
+  assert.equal(varies.hoursLate, null);
 });
 
 t('the words still step at fifteen and thirty minutes past grace', () => {

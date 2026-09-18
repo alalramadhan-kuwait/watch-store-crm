@@ -16,6 +16,7 @@
 
 import { dayHours, type DayHours, type ShiftInput } from './workedHours';
 import { isExpectedOn, scheduleOn, type Schedule } from './schedule';
+import { shiftTimesOn } from './punctuality';
 
 export type AttendanceStatus =
   /** Clocked in and still on the floor. */
@@ -106,7 +107,10 @@ export function standing(input: StandingInput, now: Date = new Date()): Standing
   const isToday = date === today;
   const inFuture = date > today;
 
-  const startAt = minutesOf(schedule?.shiftStart ?? defaultStart);
+  /* Through shiftTimesOn, so somebody whose hours vary by the day is not called
+     late against a morning they were never on. Null here means "cannot say",
+     which reads as due_later rather than late. */
+  const startAt = minutesOf(shiftTimesOn(schedules, date, { defaultStart }).start);
   const arrivals = records
     .map((r) => new Date(r.clockIn).getTime())
     .filter((t) => Number.isFinite(t));

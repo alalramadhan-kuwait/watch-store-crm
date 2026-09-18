@@ -70,15 +70,33 @@ const minutesOf = (hhmm: string | null | undefined): number | null => {
   return Number.isFinite(h) && Number.isFinite(m) ? h * 60 + m : null;
 };
 
-/** The shift somebody was on, on a date. */
+/**
+ * The shift somebody was on, on a date.
+ *
+ * Three states, and the third one matters. A schedule that sets times is
+ * judged against them. Somebody with no schedule at all falls back to the
+ * shop-wide default. But a schedule that exists and deliberately sets *no*
+ * times means the hours vary — the Avenues manager assigns mornings or nights
+ * by the day — and there is no honest pair to judge against: 10:00 makes a
+ * night shift four hours late, 14:00 makes a morning one look wrong, and the
+ * whole 10:00–22:00 window makes everybody on mornings leave four hours early.
+ *
+ * That case used to fall through to the office's 09:00–17:00, which is the rule
+ * that scored a salesperson nineteen hours late across three days he turned up
+ * for. It now says it does not know, which a report can show as "—".
+ */
 export function shiftTimesOn(
   schedules: Schedule[],
   date: string,
   opts: PunctualityOptions = {},
 ): ShiftTimes {
   const s = scheduleOn(schedules, date);
-  if (s?.shiftStart || s?.shiftEnd) {
-    return { start: s.shiftStart?.slice(0, 5) ?? null, end: s.shiftEnd?.slice(0, 5) ?? null, source: 'schedule' };
+  if (s) {
+    if (s.shiftStart || s.shiftEnd) {
+      return { start: s.shiftStart?.slice(0, 5) ?? null, end: s.shiftEnd?.slice(0, 5) ?? null, source: 'schedule' };
+    }
+    // A schedule on the record with no hours on it: their hours vary.
+    return { start: null, end: null, source: 'none' };
   }
   const start = opts.defaultStart ?? null;
   const end = opts.defaultEnd ?? null;
@@ -161,10 +179,18 @@ export interface PunctualityTotals {
   hoursEarly: number | null;
   /** Late arrivals somebody excused; not counted in the totals above. */
   excusedDays: number;
-  /** Days whose shift times nobody has set — the totals do not cover them. */
+  /** Days whose hours are not knowable — nobody set them, or they vary by the
+   *  day. The totals do not cover these. */
   daysWithoutShift: number;
   /** True when every judged day used the shop-wide default, not a real shift. */
   usedDefaultOnly: boolean;
+  /**
+   * True when nobody's hours could be judged at all, because the schedule on
+   * record deliberately sets none — the Avenues case, where the manager assigns
+   * mornings and nights by the day. Different from usedDefaultOnly: there the
+   * figures are real but rest on an assumption; here there are no figures.
+   */
+  hoursVary: boolean;
 }
 
 /** A period's worth of days, added up. */
@@ -181,7 +207,11 @@ export function punctualityTotals(
     hoursEarly: judgedEarly.length ? judgedEarly.reduce((t, d) => t + (d.hoursEarly as number), 0) : null,
     excusedDays: days.filter((d) => d.excused).length,
     daysWithoutShift: days.filter((d) => d.shift.source === 'none').length,
+    /* Only 'default' counts as "measured against the office hours". A day with
+       no shift at all was not measured, so it must not be reported as if it
+       had been — that is the claim that put nineteen late hours beside a name. */
     usedDefaultOnly:
-      days.length > 0 && days.every((d) => d.shift.source !== 'schedule'),
+      days.length > 0 && days.every((d) => d.shift.source === 'default'),
+    hoursVary: days.length > 0 && days.every((d) => d.shift.source === 'none'),
   };
 }

@@ -4,8 +4,8 @@
 -- guessed it: a day counted as a working day if SOMEBODY ELSE clocked in on it,
 -- so a person on their day off was marked absent whenever a colleague worked,
 -- and a whole shop taking the same day off was marked as a day nobody had to
--- work. Good enough for a monthly count; useless for "who is missing right
--- now", which is the question a manager opens the app to ask.
+-- work. Good enough for a monthly count; useless for "who is missing right now",
+-- which is the question a manager opens the app to ask.
 --
 -- The shops work Saturday to Thursday and close Friday, so that is the default
 -- and every current employee is correct without anyone editing anything.
