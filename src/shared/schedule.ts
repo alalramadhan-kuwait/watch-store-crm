@@ -40,6 +40,16 @@ export interface Schedule {
   workingDays: Weekday[];
   shiftStart: string | null;
   shiftEnd: string | null;
+  /**
+   * Minutes after the shift start that still count as on time.
+   *
+   * Null means "use the company default", which is nearly everybody. A number
+   * belongs here rather than in settings because grace forgives a *shift*: the
+   * company's hour was written for the office's 09:00 start, and laying it on
+   * top of a 10:00 shift moves that person's deadline to 11:00, which is not
+   * what anybody means by late.
+   */
+  graceMinutes?: number | null;
   note?: string | null;
 }
 
@@ -52,6 +62,7 @@ export interface ScheduleRow {
   working_days: number[] | null;
   shift_start: string | null;
   shift_end: string | null;
+  grace_minutes?: number | null;
   note: string | null;
 }
 
@@ -63,6 +74,7 @@ export const scheduleFromRow = (r: ScheduleRow): Schedule => ({
   workingDays: (r.working_days ?? KUWAIT_WEEK) as Weekday[],
   shiftStart: r.shift_start,
   shiftEnd: r.shift_end,
+  graceMinutes: r.grace_minutes ?? null,
   note: r.note,
 });
 

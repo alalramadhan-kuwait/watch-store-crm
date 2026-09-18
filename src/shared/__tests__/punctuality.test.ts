@@ -4,9 +4,9 @@ import type { Schedule } from '../schedule';
 
 let n = 0; const t = (_: string, f: () => void) => { f(); n++; };
 
-const sched = (start: string | null, end: string | null): Schedule[] => ([{
+const sched = (start: string | null, end: string | null, graceMinutes: number | null = null): Schedule[] => ([{
   employeeId: 'e1', effectiveFrom: '2020-01-01', effectiveTo: null,
-  workingDays: [0, 1, 2, 3, 4, 6], shiftStart: start, shiftEnd: end,
+  workingDays: [0, 1, 2, 3, 4, 6], shiftStart: start, shiftEnd: end, graceMinutes,
 }]);
 /** Kuwait wall-clock on 15 Sep 2026 as an instant. */
 const at = (hhmm: string) => `2026-09-15T${hhmm}:00+03:00`;
@@ -147,6 +147,31 @@ t('the report can tell "measured against the default" from "not measured"', () =
   assert.equal(varies.hoursVary, true);
   assert.equal(varies.usedDefaultOnly, false, 'nothing was measured, so nothing rests on the default');
   assert.equal(varies.hoursLate, null);
+});
+
+t('a shift that sets its own grace is judged by that, not the company hour', () => {
+  /* The real case: Ali Akbar starts at 10:00, and the company's hour of grace —
+     written for a 09:00 office start — pushed his deadline to 11:00, so a
+     10:30 arrival scored as on time. His schedule now says zero. */
+  const at1030 = [{ clockIn: at('10:30'), clockOut: at('18:00') }];
+
+  const withCompanyHour = dayPunctuality(
+    { records: at1030, schedules: sched('10:00', '18:00'), date: '2026-09-15' }, office);
+  assert.equal(withCompanyHour.hoursLate, 0, 'an hour of grace forgives it');
+
+  const noGrace = dayPunctuality(
+    { records: at1030, schedules: sched('10:00', '18:00', 0), date: '2026-09-15' }, office);
+  assert.equal(noGrace.hoursLate, 0.5, 'his shift starts at 10:00, so 10:30 is half an hour late');
+  assert.equal(noGrace.shift.graceMinutes, 0);
+});
+
+t('zero grace is a real answer, not a missing one', () => {
+  // 0 must not fall through to the company default the way null does
+  const half = sched('09:00', '17:00', 30);
+  const d = dayPunctuality(
+    { records: [{ clockIn: at('09:45'), clockOut: at('17:00') }], schedules: half, date: '2026-09-15' },
+    { ...office, graceMinutes: 60 });
+  assert.equal(d.hoursLate, 0.25, 'judged against 09:30, not the company 10:00');
 });
 
 t('the words still step at fifteen and thirty minutes past grace', () => {

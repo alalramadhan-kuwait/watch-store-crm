@@ -695,7 +695,7 @@ export async function getTeamDirectory(): Promise<TeamMemberHR[]> {
       .not('dsr_staff_name', 'is', null),
     supabase
       .from('employee_schedules')
-      .select('id, employee_id, effective_from, effective_to, working_days, shift_start, shift_end, note'),
+      .select('id, employee_id, effective_from, effective_to, working_days, shift_start, shift_end, grace_minutes, note'),
   ]);
 
   const byEmployee = new Map<string, Schedule[]>();

@@ -45,6 +45,12 @@ export interface ShiftTimes {
   /** 'HH:mm', or null when nobody has said. */
   start: string | null;
   end: string | null;
+  /**
+   * The grace this shift carries, if it names one. Null falls back to the
+   * company default. Zero is a real answer, not a missing one: it means the
+   * shift start is the deadline.
+   */
+  graceMinutes: number | null;
   /** Where the times came from, so a report can say when it is guessing. */
   source: 'schedule' | 'default' | 'none';
 }
@@ -93,15 +99,20 @@ export function shiftTimesOn(
   const s = scheduleOn(schedules, date);
   if (s) {
     if (s.shiftStart || s.shiftEnd) {
-      return { start: s.shiftStart?.slice(0, 5) ?? null, end: s.shiftEnd?.slice(0, 5) ?? null, source: 'schedule' };
+      return {
+        start: s.shiftStart?.slice(0, 5) ?? null,
+        end: s.shiftEnd?.slice(0, 5) ?? null,
+        graceMinutes: s.graceMinutes ?? null,
+        source: 'schedule',
+      };
     }
     // A schedule on the record with no hours on it: their hours vary.
-    return { start: null, end: null, source: 'none' };
+    return { start: null, end: null, graceMinutes: s.graceMinutes ?? null, source: 'none' };
   }
   const start = opts.defaultStart ?? null;
   const end = opts.defaultEnd ?? null;
-  if (start || end) return { start, end, source: 'default' };
-  return { start: null, end: null, source: 'none' };
+  if (start || end) return { start, end, graceMinutes: null, source: 'default' };
+  return { start: null, end: null, graceMinutes: null, source: 'none' };
 }
 
 export interface DayPunctuality {
@@ -135,8 +146,12 @@ export interface DayRecords {
  */
 export function dayPunctuality(input: DayRecords, opts: PunctualityOptions = {}): DayPunctuality {
   const { records, schedules, date } = input;
-  const grace = opts.graceMinutes ?? DEFAULT_GRACE_MINUTES;
   const shift = shiftTimesOn(schedules, date, opts);
+  /* The shift's own grace wins. The company's hour was written for a 09:00
+     start, and laying it on top of somebody's 10:00 shift moves their deadline
+     to 11:00 — a morning everybody would call late, scored as on time. A
+     schedule that names a number, including zero, means that number. */
+  const grace = shift.graceMinutes ?? opts.graceMinutes ?? DEFAULT_GRACE_MINUTES;
 
   const arrivals = records
     .map((r) => ({ at: kuwaitMinutes(r.clockIn), justified: !!r.justified, raw: r.clockIn }))
