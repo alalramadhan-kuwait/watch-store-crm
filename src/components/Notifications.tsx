@@ -48,7 +48,7 @@ export function Notifications() {
 
   const load = useCallback(async () => {
     if (!user) { setRows([]); return; }
-    setRows(await loadMyNotifications(user.id, role));
+    setRows(await loadMyNotifications(user.id, role, { shopFloorOnly: true }));
   }, [user, role]);
 
   useEffect(() => { void load(); }, [load]);

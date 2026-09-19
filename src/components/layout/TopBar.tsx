@@ -21,7 +21,7 @@ export function TopBar() {
   useEffect(() => {
     if (!profile) { setUnread(0); return; }
     let live = true;
-    const tick = () => { void unreadCount(profile.id, role).then((n) => { if (live) setUnread(n); }); };
+    const tick = () => { void unreadCount(profile.id, role, { shopFloorOnly: true }).then((n) => { if (live) setUnread(n); }); };
     tick();
     const t = setInterval(tick, 60_000);
     return () => { live = false; clearInterval(t); };

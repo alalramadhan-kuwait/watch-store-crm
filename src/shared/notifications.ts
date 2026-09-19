@@ -32,6 +32,27 @@ export interface FeedNotif {
 const NOT_IN_THE_FEED = new Set(['po_summary']);
 
 /**
+ * The event types that belong on a shop floor.
+ *
+ * Read from the database rather than listed here, because the decision is the
+ * same for both apps and a list in the client is a second opinion waiting to
+ * drift. `notification_settings.shop_floor` holds it; adding an event type in
+ * future is one row, not a release.
+ *
+ * Why it exists at all: a store manager was addressed by every event whose
+ * audience includes "manager", which is fifteen of the twenty-six types. Most
+ * of what reached him — supplier payments, shipment updates, account changes,
+ * geofence edits — is nothing he can act on from a shop, and a notification you
+ * cannot act on teaches you the bell is noise. The one that needed him is then
+ * the one he misses.
+ */
+async function shopFloorTypes(): Promise<string[]> {
+  const { data } = await supabase.from('notification_settings')
+    .select('event_type').eq('shop_floor', true).eq('enabled', true);
+  return (data ?? []).map((r) => (r as { event_type: string }).event_type);
+}
+
+/**
  * Everything addressed to this person, newest first.
  *
  * Addressed means either named directly or sent to a role they hold. The
@@ -40,18 +61,25 @@ const NOT_IN_THE_FEED = new Set(['po_summary']);
  * cannot know which of several audiences a reader arrived through.
  */
 export async function loadMyNotifications(
-  userId: string, role: string | null, limit = 100,
+  userId: string, role: string | null, opts: { limit?: number; shopFloorOnly?: boolean } = {},
 ): Promise<FeedNotif[]> {
+  const limit = opts.limit ?? 100;
   const addressed = role
     ? `person_user_id.eq.${userId},audience_roles.cs.{${role}}`
     : `person_user_id.eq.${userId}`;
 
+  const allowed = opts.shopFloorOnly ? await shopFloorTypes() : null;
+  /* An empty allow-list means nothing is marked for the shop floor, which is a
+     configuration answer, not a reason to fall back to showing everything. */
+  if (allowed && allowed.length === 0) return [];
+
+  let q = supabase.from('notifications')
+    .select('id, created_at, event_type, title, body, url, exclude_user')
+    .or(addressed);
+  if (allowed) q = q.in('event_type', allowed);
+
   const [{ data: rows }, { data: reads }] = await Promise.all([
-    supabase.from('notifications')
-      .select('id, created_at, event_type, title, body, url, exclude_user')
-      .or(addressed)
-      .order('created_at', { ascending: false })
-      .limit(limit),
+    q.order('created_at', { ascending: false }).limit(limit),
     supabase.from('notification_reads').select('notification_id').eq('user_id', userId),
   ]);
 
@@ -66,8 +94,10 @@ export async function loadMyNotifications(
 }
 
 /** The number on the bell. */
-export async function unreadCount(userId: string, role: string | null): Promise<number> {
-  const list = await loadMyNotifications(userId, role, 100);
+export async function unreadCount(
+  userId: string, role: string | null, opts: { shopFloorOnly?: boolean } = {},
+): Promise<number> {
+  const list = await loadMyNotifications(userId, role, { ...opts, limit: 100 });
   return list.filter((n) => !n.read).length;
 }
 
