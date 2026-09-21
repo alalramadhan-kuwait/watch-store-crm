@@ -17,6 +17,8 @@ interface DbCase {
   outlet: string | null;
   customer_name: string | null;
   contact: string | null;
+  /** Set by cases_visible when the number exists but this login may not see it. */
+  contact_masked?: boolean;
   case_type: string;
   brand: string | null;
   product_type: string | null;
@@ -103,6 +105,7 @@ function caseFromDb(row: DbCase & { sale_items?: DbSaleItem[] }): Case {
     outlet: row.outlet ?? undefined,
     customerName: row.customer_name ?? undefined,
     contact: row.contact ?? undefined,
+    contactMasked: row.contact_masked ?? false,
     caseType: row.case_type as CaseType,
     brand: row.brand ?? undefined,
     productType: row.product_type as ProductType ?? undefined,
@@ -176,7 +179,7 @@ function settingsFromDb(row: DbSettings): AppSettings {
 export async function getBrands(): Promise<Brand[]> {
   const [{ data: brandsData }, { data: usageData }] = await Promise.all([
     supabase.from('brands').select('*').order('sort_order', { ascending: true }),
-    supabase.from('cases').select('brand').not('brand', 'is', null).eq('deleted', false),
+    supabase.from('cases_visible').select('brand').not('brand', 'is', null).eq('deleted', false),
   ]);
 
   const counts: Record<string, number> = {};
@@ -261,7 +264,7 @@ export async function nextCaseId(date: string): Promise<string> {
 export async function getTodayCases(): Promise<Case[]> {
   const today = format(new Date(), 'yyyy-MM-dd');
   const { data } = await supabase
-    .from('cases')
+    .from('cases_visible')
     .select('*, sale_items(*)')
     .eq('date_logged', today)
     .eq('deleted', false)
@@ -271,7 +274,7 @@ export async function getTodayCases(): Promise<Case[]> {
 
 export async function getOpenFollowUps(): Promise<Case[]> {
   const { data } = await supabase
-    .from('cases')
+    .from('cases_visible')
     .select('*, sale_items(*)')
     .eq('case_type', 'Follow-up')
     .eq('status', 'Open')
@@ -282,7 +285,7 @@ export async function getOpenFollowUps(): Promise<Case[]> {
 
 export async function getCasesForRange(from: string, to: string): Promise<Case[]> {
   const { data } = await supabase
-    .from('cases')
+    .from('cases_visible')
     .select('*, sale_items(*)')
     .eq('deleted', false)
     .gte('date_logged', from)
@@ -294,7 +297,7 @@ export async function getCasesForRange(from: string, to: string): Promise<Case[]
 
 export async function countOpenFollowUps(): Promise<number> {
   const { count } = await supabase
-    .from('cases')
+    .from('cases_visible')
     .select('*', { count: 'exact', head: true })
     .eq('case_type', 'Follow-up')
     .eq('status', 'Open')
@@ -396,7 +399,7 @@ export async function getAllDayCloses(): Promise<DayClose[]> {
 
 export async function getCasesByDate(date: string): Promise<Case[]> {
   const { data } = await supabase
-    .from('cases')
+    .from('cases_visible')
     .select('*, sale_items(*)')
     .eq('date_logged', date)
     .eq('deleted', false)
@@ -419,7 +422,7 @@ export async function isDayClosed(date: string, outlet = ''): Promise<boolean> {
 
 export async function closeDay(date: string, closedBy: string, outlet = ''): Promise<string> {
   // Fetch cases — filter by outlet if specified
-  let query = supabase.from('cases').select('*').eq('date_logged', date).eq('deleted', false);
+  let query = supabase.from('cases_visible').select('*').eq('date_logged', date).eq('deleted', false);
   if (outlet) query = query.eq('outlet', outlet);
   const { data: rows } = await query;
   const { data: { user } } = await supabase.auth.getUser();
@@ -450,7 +453,7 @@ export async function closeDay(date: string, closedBy: string, outlet = ''): Pro
   const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
 
   const { count: openFU } = await supabase
-    .from('cases').select('*', { count: 'exact', head: true })
+    .from('cases_visible').select('*', { count: 'exact', head: true })
     .eq('case_type', 'Follow-up').eq('status', 'Open').eq('deleted', false);
 
   const staffSales: Record<string, { count: number; kd: number }> = {};
@@ -484,7 +487,7 @@ export async function closeDay(date: string, closedBy: string, outlet = ''): Pro
 
 // Rebuild and persist the stored summary for a closed day (e.g. after manager edits/deletes).
 export async function rebuildDaySummary(date: string, outlet = ''): Promise<string> {
-  let q = supabase.from('cases').select('*').eq('date_logged', date).eq('deleted', false);
+  let q = supabase.from('cases_visible').select('*').eq('date_logged', date).eq('deleted', false);
   if (outlet) q = q.eq('outlet', outlet);
   const { data: rows } = await q;
   const allRows = (rows ?? []).map(r => caseFromDb(r as DbCase));
@@ -502,7 +505,7 @@ export async function rebuildDaySummary(date: string, outlet = ''): Promise<stri
   const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
 
   const { count: openFU } = await supabase
-    .from('cases').select('*', { count: 'exact', head: true })
+    .from('cases_visible').select('*', { count: 'exact', head: true })
     .eq('case_type', 'Follow-up').eq('status', 'Open').eq('deleted', false);
 
   const staffSales: Record<string, { count: number; kd: number }> = {};
@@ -606,7 +609,7 @@ export async function upsertCustomer(record: CustomerRecord): Promise<void> {
 /** Fetch all non-deleted cases that have a customerName or contact (for CRM view) */
 export async function getAllCustomerCases(): Promise<Case[]> {
   const { data } = await supabase
-    .from('cases')
+    .from('cases_visible')
     .select('*, sale_items(*)')
     .eq('deleted', false)
     .or('customer_name.not.is.null,contact.not.is.null')
@@ -629,7 +632,7 @@ export async function bulkUpdateCustomerInfo(
 
 export async function deleteFullDayReport(date: string, outlet = ''): Promise<void> {
   // Soft-delete cases for the date (filtered by outlet if specified)
-  let q = supabase.from('cases').select('id').eq('date_logged', date).eq('deleted', false);
+  let q = supabase.from('cases_visible').select('id').eq('date_logged', date).eq('deleted', false);
   if (outlet) q = q.eq('outlet', outlet);
   const { data: rows } = await q;
   if (rows && rows.length > 0) {

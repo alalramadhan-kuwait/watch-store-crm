@@ -49,7 +49,7 @@ export async function loadStoreDay(outlet: string, date: string): Promise<StoreD
     getTeamDirectory(),
     getTeamAttendance(date, next),
     getTeamLeave(date, next),
-    supabase.from('cases')
+    supabase.from('cases_visible')
       .select('id, case_id, staff, outlet, case_type, status, brand, customer_name, amount_kd')
       .eq('date_logged', date).eq('deleted', false),
     supabase.from('day_closes').select('closed_by, outlet').eq('date', date),
@@ -91,7 +91,7 @@ export async function loadStoreDay(outlet: string, date: string): Promise<StoreD
  *  day because it is one number and changes slowly. */
 export async function loadMonthToDate(outlet: string, date: string): Promise<number> {
   const monthStart = `${date.slice(0, 8)}01`;
-  const { data } = await supabase.from('cases')
+  const { data } = await supabase.from('cases_visible')
     .select('outlet, amount_kd, case_type')
     .gte('date_logged', monthStart).lte('date_logged', date).eq('deleted', false);
   return ((data ?? []) as Record<string, unknown>[])

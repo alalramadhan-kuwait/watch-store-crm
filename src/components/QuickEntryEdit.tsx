@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { supabase } from '../lib/supabase';
 import { canActForOtherStaff } from '../utils/roles';
 import { format, addDays } from 'date-fns';
 import { Plus, Trash2 } from 'lucide-react';
@@ -41,6 +42,19 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
   const [caseType] = useState<CaseType>(case_.caseType);
   const [customerName, setCustomerName] = useState(case_.customerName || '');
   const [contact, setContact] = useState(case_.contact || '');
+
+  /* A colleague's number is hidden on the list. Opening your own unlocked
+     entry from today is the one case where it may be shown — to fix a typo —
+     and the database decides that, not this form. Left empty, the number on
+     the entry is untouched: an empty field is never sent as a change. */
+  useEffect(() => {
+    if (!case_.contactMasked || !case_.id) return;
+    let live = true;
+    supabase.rpc('case_contact_for_edit', { p_case: case_.id }).then(({ data }) => {
+      if (live && typeof data === 'string' && data) setContact(data);
+    });
+    return () => { live = false; };
+  }, [case_.id, case_.contactMasked]);
   const [product, setProduct] = useState(case_.product);
   const [amountKD, setAmountKD] = useState(case_.amountKD?.toString() || '');
   const [lostReason, setLostReason] = useState(case_.lostReason || '');

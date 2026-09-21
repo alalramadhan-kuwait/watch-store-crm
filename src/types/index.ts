@@ -85,6 +85,8 @@ export interface Case {
   outlet?: string;
   customerName?: string;
   contact?: string;
+  /** The number is on the entry but hidden from this login (see cases_visible). */
+  contactMasked?: boolean;
   caseType: CaseType;
   brand?: string;
   productType?: ProductType;
