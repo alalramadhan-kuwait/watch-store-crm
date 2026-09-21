@@ -52,6 +52,91 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- The last line of defence against a blank screen.
+
+         Inline, and before anything else, because the failure it catches is the
+         bundle itself not loading: a device holding a shell from an older build
+         asks for hashed filenames the server deleted at the next deploy, and a
+         page whose only script 404s renders nothing at all. Staff saw a white
+         page and were told to switch browsers, which worked only because Chrome
+         on iOS runs no service worker and so was always fetching fresh.
+
+         First time, it repairs itself silently — caches cleared, worker
+         unregistered, one reload onto the published build. If that did not
+         help, it says so in words with a button, because a message a person can
+         act on beats a white rectangle. -->
+    <script>
+      (function () {
+        var KEY = 'dsr:recovering';
+        var shown = false;
+
+        function clearAndReload() {
+          var go = function () { location.reload(); };
+          var jobs = [];
+          try {
+            if (window.caches && caches.keys) {
+              jobs.push(caches.keys().then(function (ks) {
+                return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+              }));
+            }
+            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+              jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+                return Promise.all(rs.map(function (r) { return r.unregister(); }));
+              }));
+            }
+          } catch (e) { /* private mode, or an API this browser withholds */ }
+          if (!jobs.length) { go(); return; }
+          Promise.all(jobs).then(go, go);
+          setTimeout(go, 4000);          // never leave the reload itself hanging
+        }
+
+        function panel() {
+          if (shown) return;
+          shown = true;
+          var d = document.createElement('div');
+          d.setAttribute('style', 'position:fixed;inset:0;z-index:2147483647;display:flex;'
+            + 'align-items:center;justify-content:center;padding:24px;background:#0f172a;'
+            + 'font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#e2e8f0');
+          d.innerHTML =
+            '<div style="max-width:22rem;text-align:center">'
+            + '<p style="margin:0 0 .5rem;font-size:1.05rem;font-weight:600;color:#f8fafc">'
+            + 'The DSR could not start</p>'
+            + '<p style="margin:0 0 1.25rem;color:#94a3b8">This device is holding an old copy of the app. '
+            + 'Reloading clears it and fetches the current one.</p>'
+            + '<button type="button" style="font:inherit;font-weight:600;padding:.6rem 1.4rem;border:0;'
+            + 'border-radius:.6rem;background:#f8fafc;color:#0f172a">Reload</button></div>';
+          document.body.appendChild(d);
+          d.querySelector('button').addEventListener('click', function () {
+            try { sessionStorage.removeItem(KEY); } catch (e) { /* ignore */ }
+            clearAndReload();
+          });
+        }
+
+        // Repair once per visit; a second failure is not a stale cache, so say so.
+        function recover() {
+          var tried = false;
+          try { tried = !!sessionStorage.getItem(KEY); sessionStorage.setItem(KEY, '1'); }
+          catch (e) { tried = true; }          // no storage to remember by: do not loop
+          if (tried) { panel(); return; }
+          clearAndReload();
+        }
+
+        // A script or stylesheet that never arrives — the stale-shell case itself.
+        window.addEventListener('error', function (e) {
+          var t = e.target;
+          if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) recover();
+        }, true);
+
+        // Everything else that ends in nothing being drawn.
+        window.addEventListener('DOMContentLoaded', function () {
+          setTimeout(function () {
+            var root = document.getElementById('root');
+            if (window.__booted || (root && root.childElementCount > 0)) return;
+            recover();
+          }, 12000);
+        });
+      })();
+    </script>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>
