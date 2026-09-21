@@ -71,6 +71,10 @@
   .label {
     @apply block text-sm font-semibold text-slate-600 mb-1.5;
   }
+  /* The outcome buttons on the entry form. Tailwind keeps a class in this
+     layer only when it finds that exact name written out in a source file, so
+     these must never be assembled from pieces at render time — spell each one
+     out where it is used. */
   .type-btn {
     @apply flex-1 flex flex-col items-center justify-center gap-1 py-4 rounded-2xl border-2 font-semibold text-sm transition-all duration-150 touch-manipulation select-none active:scale-95;
   }

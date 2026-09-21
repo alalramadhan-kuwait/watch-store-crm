@@ -719,15 +719,23 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
         <div>
           <label className="label">What happened? <span className="text-rose-500">*</span></label>
           <div className={panelMode ? 'flex flex-col gap-1.5' : 'grid grid-cols-3 gap-2'}>
+            {/* Every class name here is written out in full, deliberately.
+                These live in @layer components, which Tailwind strips unless it
+                finds the exact name in the source — and it reads the files as
+                text, so a name built as `type-btn-${cls}` is a name it never
+                sees. Built that way, the three buttons lost both their tint and
+                their selected state while Manual Sale, whose class is spelt
+                out, still turned green. */}
             {([
-              { type: 'No Interaction', icon: Users,        cls: 'neutral'  },
-              { type: 'Follow-up',      icon: Clock,        cls: 'followup' },
-              { type: 'Lost Sale',      icon: TrendingDown, cls: 'lost'     },
-            ] as const).map(({ type, icon: Icon, cls }) => (
+              { type: 'No Interaction', icon: Users,        idle: 'type-btn-neutral',  active: 'type-btn-neutral-active'  },
+              { type: 'Follow-up',      icon: Clock,        idle: 'type-btn-followup', active: 'type-btn-followup-active' },
+              { type: 'Lost Sale',      icon: TrendingDown, idle: 'type-btn-lost',     active: 'type-btn-lost-active'     },
+            ] as const).map(({ type, icon: Icon, idle, active }) => (
               <button key={type} type="button" onClick={() => setEntryType(type as CaseType)}
+                aria-pressed={entryType === type}
                 className={panelMode
-                  ? `flex items-center gap-3 px-4 py-2.5 rounded-xl border-2 font-semibold text-sm transition-all duration-150 active:scale-95 select-none touch-manipulation w-full ${entryType === type ? `type-btn-${cls}-active` : `type-btn-${cls}`}`
-                  : `type-btn ${entryType === type ? `type-btn-${cls}-active` : `type-btn-${cls}`}`}>
+                  ? `flex items-center gap-3 px-4 py-2.5 rounded-xl border-2 font-semibold text-sm transition-all duration-150 active:scale-95 select-none touch-manipulation w-full ${entryType === type ? active : idle}`
+                  : `type-btn ${entryType === type ? active : idle}`}>
                 <Icon className={panelMode ? 'w-4 h-4 shrink-0' : 'w-5 h-5'} />
                 <span className={panelMode ? '' : 'whitespace-nowrap text-xs'}>{caseLabel(type)}</span>
               </button>
@@ -735,6 +743,7 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
           </div>
           {/* Manual Sale stays, off the main path, for the transition */}
           <button type="button" onClick={() => setEntryType('Sale')}
+            aria-pressed={entryType === 'Sale'}
             className={`mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-colors
               ${entryType === 'Sale' ? 'type-btn-sale-active border-2' : 'border-dashed border-slate-300 text-slate-500 hover:bg-slate-50'}`}>
             <ShoppingBag className="w-3.5 h-3.5" /> {caseLabel('Sale')}
