@@ -97,25 +97,24 @@ export function pdfFileName(date: string, outlet?: string) {
 }
 
 // ── Page geometry (mm, A4 portrait) ─────────────────────────────────────────
-// Every page carries the header bar and footer bar, so content is confined to
-// the band between them. Tables get the same band as their page-break margins,
-// which is what stops a continuation page from running under the header.
-const PAGE_W = 210;
-const PAGE_H = 297;
-const ML = 14;
-const CONTENT_R = PAGE_W - ML;           // 196
-const HEADER_H = 28;
-const FOOTER_H = 12;
-const CONTENT_TOP = 36;
-// Continuation pages get a slim header strip instead of the full bar, so the
-// room goes to the tables. Both the page-break margin and ensureSpace use it.
-const CONT_HEADER_H = 11;
-const CONT_TOP = 17;
-const CONTENT_BOTTOM = PAGE_H - FOOTER_H - 4;   // 281
-const TABLE_MARGIN = { left: ML, right: ML, top: CONT_TOP, bottom: PAGE_H - CONTENT_BOTTOM };
-// Smallest table worth starting on a page: head row plus one body row. A heading
-// is only drawn where at least this much room follows it, so it can never sit
-// alone at the foot of a page with its table on the next one.
+// The report is read on a phone and sent on WhatsApp, so the page is shaped
+// like a phone: narrow enough that 8pt type lands around 11px on a handset,
+// and exactly as tall as the content. It used to be A4 — a quarter of it blank
+// under the last table, and every figure too small to read without zooming.
+const PAGE_W = 100;
+const ML = 7;
+const CONTENT_R = PAGE_W - ML;           // 93
+const HEADER_H = 21;
+const FOOTER_H = 9;
+const CONTENT_TOP = 27;
+const BOTTOM_PAD = 5;
+// A continuous page still needs a floor and a ceiling: a quiet day should not
+// print a stub, and a very long one should not become a single unusable strip.
+const MIN_PAGE_H = 150;
+const MAX_PAGE_H = 1400;
+const MEASURE_H = 4000;
+// Smallest table worth starting: head row plus one body row. Only reached on a
+// day long enough to have been paginated at MAX_PAGE_H.
 const MIN_TABLE_H = 16;
 
 const TEAL: [number, number, number] = [15, 118, 110];
@@ -123,396 +122,318 @@ const INK: [number, number, number] = [30, 41, 59];
 const MUTED: [number, number, number] = [100, 116, 139];
 
 function drawHeader(doc: jsPDF, displayDate: string, page: number, outlet?: string) {
-  if (page > 1) {
-    doc.setFillColor(10, 10, 10);
-    doc.rect(0, 0, PAGE_W, CONT_HEADER_H, 'F');
-    doc.setFillColor(...TEAL);
-    doc.rect(0, CONT_HEADER_H, PAGE_W, 1, 'F');
-    doc.setFont('helvetica', 'normal');
-    doc.setCharSpace(2);
-    doc.setFontSize(8);
-    doc.setTextColor(200, 200, 200);
-    doc.text('TIME KEEPER', ML, 7.5);
-    doc.setCharSpace(0);
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(255, 255, 255);
-    doc.text(`${displayDate}${outlet ? `  ·  ${outlet.toUpperCase()}` : ''}  ·  continued`, CONTENT_R, 7.5, { align: 'right' });
-    return;
-  }
   doc.setFillColor(10, 10, 10);
   doc.rect(0, 0, PAGE_W, HEADER_H, 'F');
+
   doc.setTextColor(255, 255, 255);
-  doc.setFontSize(15);
+  doc.setFontSize(11);
   doc.setFont('helvetica', 'normal');
-  doc.setCharSpace(3);
-  doc.text('TIME KEEPER', ML, 11);
-  doc.setFontSize(7);
-  doc.setCharSpace(2);
-  doc.setTextColor(180, 180, 180);
-  doc.text('EST. 2018', ML, 17);
-  doc.setCharSpace(1);
-  doc.setFontSize(8);
-  doc.setTextColor(200, 200, 200);
-  doc.text('DAILY REPORT', CONTENT_R, 11, { align: 'right' });
-  doc.setFontSize(10);
-  doc.setTextColor(255, 255, 255);
-  doc.setFont('helvetica', 'bold');
+  doc.setCharSpace(2.2);
+  doc.text('TIME KEEPER', ML, 9);
   doc.setCharSpace(0);
-  doc.text(displayDate, CONTENT_R, outlet ? 17 : 20, { align: 'right' });
+  doc.setFontSize(6);
+  doc.setTextColor(170, 170, 170);
+  doc.text(page > 1 ? 'DAILY REPORT · CONT.' : 'DAILY REPORT', CONTENT_R, 8, { align: 'right' });
+
+  doc.setCharSpace(0);
+  doc.setFont('helvetica', 'bold');
+  doc.setFontSize(9);
+  doc.setTextColor(255, 255, 255);
+  doc.text(displayDate, ML, 16.5);
   if (outlet) {
-    doc.setFontSize(8);
     doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
     doc.setTextColor(180, 220, 215);
-    doc.text(outlet.toUpperCase(), CONTENT_R, 24, { align: 'right' });
+    doc.text(outlet.toUpperCase(), CONTENT_R, 16.5, { align: 'right' });
   }
   doc.setFillColor(...TEAL);
-  doc.rect(0, HEADER_H, PAGE_W, 1.5, 'F');
+  doc.rect(0, HEADER_H, PAGE_W, 1.2, 'F');
 }
 
-function drawFooter(doc: jsPDF, page: number, pages: number, generatedAt: string) {
+function drawFooter(doc: jsPDF, pageH: number, page: number, pages: number, generatedAt: string) {
   doc.setFillColor(10, 10, 10);
-  doc.rect(0, PAGE_H - FOOTER_H, PAGE_W, FOOTER_H, 'F');
-  doc.setFontSize(7);
+  doc.rect(0, pageH - FOOTER_H, PAGE_W, FOOTER_H, 'F');
+  doc.setFontSize(6);
   doc.setFont('helvetica', 'normal');
-  doc.setCharSpace(1.5);
-  doc.setTextColor(180, 180, 180);
-  doc.text('TIME KEEPER', ML, PAGE_H - 5);
+  doc.setCharSpace(1.2);
+  doc.setTextColor(170, 170, 170);
+  doc.text('TIME KEEPER', ML, pageH - 3.5);
   doc.setCharSpace(0);
   doc.setTextColor(120, 120, 120);
-  if (pages > 1) doc.text(`Page ${page} of ${pages}`, PAGE_W / 2, PAGE_H - 5, { align: 'center' });
-  doc.text(`Generated ${generatedAt}`, CONTENT_R, PAGE_H - 5, { align: 'right' });
+  const right = pages > 1 ? `${generatedAt}  ·  ${page}/${pages}` : generatedAt;
+  doc.text(right, CONTENT_R, pageH - 3.5, { align: 'right' });
 }
 
 /** Sortable label for a case's time-of-day; entries without one sort last. */
 const timeKey = (c: Case) => c.timeLogged || '99:99';
-/** Clip long free text to about two table lines; the full note lives in the app. */
+/** Clip long free text; the full text lives in the app. */
 const clip = (s: string | undefined, n: number) =>
-  !s ? '—' : s.length <= n ? s : s.slice(0, n - 1).trimEnd() + '…';
+  !s ? '' : s.length <= n ? s : s.slice(0, n - 1).trimEnd() + '…';
 
-export function generatePDF(date: string, cases: Case[], outlet?: string): string {
-  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+/**
+ * Draw everything between the bars, and say where it ended.
+ *
+ * Runs twice: once on a page tall enough that nothing can break, to find out
+ * how much room the day actually needs, then again on a page cut to that
+ * height. That is what makes the report end where the content ends.
+ */
+function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[]): number {
   const { sales, followups, lost, revenue, convRate, staffMap, brandSalesMap, typeSalesMap, dayCases, followUpWins, followUpWinRevenue } =
     buildDailyStats(cases);
+
+  const contentBottom = pageH - FOOTER_H - 3;
+  let curY = CONTENT_TOP;
+
+  const ensureSpace = (h: number) => {
+    if (curY + h > contentBottom) { doc.addPage(); curY = CONTENT_TOP; }
+  };
+  /** Section heading, optional note on the line beneath. Returns the table's start y. */
+  const heading = (title: string, note?: string) => {
+    ensureSpace(4 + MIN_TABLE_H);
+    doc.setFontSize(9.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...INK);
+    doc.text(title, ML, curY);
+    if (!note) return curY + 2.5;
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...MUTED);
+    const lines = doc.splitTextToSize(note, CONTENT_R - ML) as string[];
+    doc.text(lines, ML, curY + 3.2);
+    return curY + 2.5 + lines.length * 2.4;
+  };
+  const tableEnd = (gap = 6) => { curY = (doc as any).lastAutoTable.finalY + gap; };
+  const tableBase = {
+    theme: 'striped' as const,
+    headStyles: { fillColor: TEAL, fontSize: 7, cellPadding: 1.3 },
+    margin: { left: ML, right: ML, top: CONTENT_TOP, bottom: pageH - contentBottom },
+    styles: { fontSize: 7.5, cellPadding: 1.3, overflow: 'linebreak' as const },
+  };
+
+  // ── Headline figures: three across, two down ─────────────────────────────
+  const totalVisitors = dayCases.reduce((s, c) =>
+    s + (c.caseType === 'No Interaction' ? (c.visitorCount ?? 1) : 1), 0);
+  const kpis = [
+    { label: 'Revenue (KD)', value: formatKD(revenue) },
+    { label: 'Sales', value: String(sales.length) },
+    { label: 'Conversion', value: `${convRate}%` },
+    { label: 'Interested', value: String(followups.length) },
+    { label: 'Lost opp.', value: String(lost.length) },
+    { label: 'Visitors', value: String(totalVisitors) },
+  ];
+  const kpiCols = 3, kpiGap = 2.5, kpiH = 13;
+  const kpiW = (CONTENT_R - ML - kpiGap * (kpiCols - 1)) / kpiCols;
+  kpis.forEach((kpi, i) => {
+    const x = ML + (i % kpiCols) * (kpiW + kpiGap);
+    const y = curY + Math.floor(i / kpiCols) * (kpiH + kpiGap);
+    doc.setFillColor(240, 253, 250);
+    doc.roundedRect(x, y, kpiW, kpiH, 1.6, 1.6, 'F');
+    // Revenue can run to five figures; shrink to fit rather than overflow the tile.
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...TEAL);
+    let size = 11;
+    doc.setFontSize(size);
+    while (doc.getTextWidth(kpi.value) > kpiW - 3 && size > 6) { size -= 0.5; doc.setFontSize(size); }
+    doc.text(kpi.value, x + kpiW / 2, y + 6.2, { align: 'center' });
+    doc.setFontSize(5.5);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...MUTED);
+    doc.text(kpi.label, x + kpiW / 2, y + 10.4, { align: 'center' });
+  });
+  curY += Math.ceil(kpis.length / kpiCols) * (kpiH + kpiGap) + 4;
+
+  // ── Store traffic ────────────────────────────────────────────────────────
+  const traffic = buildHourlyTraffic(dayCases);
+  if (traffic.length > 0) {
+    const chartH = 24;
+    ensureSpace(8 + chartH + 6);
+    const peak = traffic.reduce((mx, t) => t.count > mx.count ? t : mx, traffic[0]);
+
+    doc.setFontSize(9.5);
+    doc.setFont('helvetica', 'bold');
+    doc.setTextColor(...INK);
+    doc.text('Store Traffic', ML, curY);
+    doc.setFontSize(6);
+    doc.setFont('helvetica', 'normal');
+    doc.setTextColor(...MUTED);
+    doc.text(`${totalVisitors} visitors  ·  busiest ${peak.label} (${peak.count})`, CONTENT_R, curY, { align: 'right' });
+
+    const chartX = ML, chartY = curY + 3, chartW = CONTENT_R - ML;
+    const labelRowH = 7;
+    const barAreaH = chartH - labelRowH - 4;
+    const maxCount = Math.max(...traffic.map(t => t.count), 1);
+    const slotW = chartW / traffic.length;
+    const barW = slotW * 0.62;
+    const halfGap = (slotW - barW) / 2;
+
+    doc.setFillColor(248, 250, 252);
+    doc.roundedRect(chartX, chartY, chartW, chartH, 1.6, 1.6, 'F');
+    doc.setDrawColor(224, 231, 238);
+    doc.setLineWidth(0.15);
+    [0.33, 0.66].forEach(frac => {
+      const lineY = chartY + 2 + barAreaH * (1 - frac);
+      doc.line(chartX + 2, lineY, chartX + chartW - 2, lineY);
+    });
+
+    traffic.forEach((t, i) => {
+      const barX = chartX + i * slotW + halfGap;
+      const barH = t.count > 0 ? Math.max((t.count / maxCount) * barAreaH, 1.2) : 0;
+      const barY = chartY + 2 + barAreaH - barH;
+      const isPeak = t.count === peak.count && t.count > 0;
+      if (barH > 0) {
+        if (isPeak) doc.setFillColor(...TEAL);
+        else {
+          const k = t.count / maxCount;
+          doc.setFillColor(Math.round(20 + (1 - k) * 100), Math.round(184 - (1 - k) * 60), Math.round(166 - (1 - k) * 50));
+        }
+        doc.roundedRect(barX, barY, barW, barH, 0.5, 0.5, 'F');
+        doc.setFontSize(isPeak ? 5.5 : 5);
+        doc.setFont('helvetica', isPeak ? 'bold' : 'normal');
+        doc.setTextColor(isPeak ? 15 : 90, isPeak ? 118 : 105, isPeak ? 110 : 125);
+        doc.text(String(t.count), barX + barW / 2, barY - 1.1, { align: 'center' });
+      } else {
+        doc.setFillColor(232, 237, 243);
+        doc.roundedRect(barX, chartY + 2 + barAreaH - 1, barW, 1, 0.2, 0.2, 'F');
+      }
+      // Every other hour is labelled: at this width all of them collide.
+      if (i % 2 === 0 || isPeak) {
+        doc.setFontSize(4.8);
+        doc.setFont('helvetica', isPeak ? 'bold' : 'normal');
+        doc.setTextColor(isPeak ? 15 : 110, isPeak ? 118 : 120, isPeak ? 110 : 140);
+        doc.text(t.label, barX + barW / 2, chartY + chartH - 2, { align: 'center' });
+      }
+    });
+    curY = chartY + chartH + 6;
+  }
+
+  // ── Staff ────────────────────────────────────────────────────────────────
+  {
+    const startY = heading('Staff');
+    const rows = Object.entries(staffMap)
+      .sort(([, a], [, b]) => b.kd - a.kd || b.sales - a.sales)
+      .map(([name, d]) => [name, String(d.sales), formatKD(d.kd), String(d.followups), String(d.lost)]);
+    autoTable(doc, {
+      ...tableBase, startY,
+      head: [['Staff', 'Sales', 'KD', 'Int.', 'Lost']],
+      body: rows.length ? rows : [['—', '0', '0.000', '0', '0']],
+      columnStyles: {
+        0: { cellWidth: 'auto' }, 1: { cellWidth: 10, halign: 'right' },
+        2: { cellWidth: 17, halign: 'right' }, 3: { cellWidth: 9, halign: 'right' },
+        4: { cellWidth: 9, halign: 'right' },
+      },
+    });
+    tableEnd();
+  }
+
+  // ── Brands, then product types: stacked, never side by side ──────────────
+  const rowsOf = (m: Breakdown) => Object.entries(m)
+    .map(([k, s]) => ({ k, ...s }))
+    .sort((a, b) => b.kd - a.kd || b.count - a.count)
+    .map(({ k, count, kd }) => [k, String(count), formatKD(kd)]);
+  const breakdownCols = {
+    0: { cellWidth: 'auto' as const },
+    1: { cellWidth: 12, halign: 'right' as const },
+    2: { cellWidth: 20, halign: 'right' as const },
+  };
+  const brandRows = rowsOf(brandSalesMap);
+  if (brandRows.length) {
+    const startY = heading('Brands sold', 'per item — a basket counts under each of its brands');
+    autoTable(doc, { ...tableBase, startY, head: [['Brand', 'Items', 'KD']], body: brandRows, columnStyles: breakdownCols });
+    tableEnd();
+  }
+  const typeRows = rowsOf(typeSalesMap);
+  if (typeRows.length) {
+    const startY = heading('Product types');
+    autoTable(doc, { ...tableBase, startY, head: [['Type', 'Items', 'KD']], body: typeRows, columnStyles: breakdownCols });
+    tableEnd();
+  }
+
+  // ── Follow-ups closed today, kept out of the day's figures ───────────────
+  if (followUpWins.length > 0) {
+    const startY = heading('Follow-ups won',
+      `${followUpWins.length} closed today · ${formatKD(followUpWinRevenue)} KD — from earlier visits, not counted above`);
+    autoTable(doc, {
+      ...tableBase, startY,
+      headStyles: { ...tableBase.headStyles, fillColor: [124, 58, 237] as [number, number, number] },
+      head: [['Time', 'Customer / item', 'KD']],
+      body: [...followUpWins].sort((a, b) => timeKey(a).localeCompare(timeKey(b))).map(c => [
+        c.timeLogged || '—',
+        [c.customerName, `${c.brand || c.product || '—'}${c.linkedCaseId ? ` (from ${c.linkedCaseId})` : ''}`, c.staff].filter(Boolean).join('\n'),
+        formatKD(c.amountKD || 0),
+      ]),
+      columnStyles: { 0: { cellWidth: 10 }, 1: { cellWidth: 'auto' }, 2: { cellWidth: 17, halign: 'right' } },
+    });
+    tableEnd();
+  }
+
+  // ── Every visit ──────────────────────────────────────────────────────────
+  // A browsing visit with nothing written about it is footfall, already in the
+  // count and the chart above; printing it would be a row of dashes. Customer
+  // and note sit under the item rather than in columns of their own — at this
+  // width six columns leave no room for the words that matter.
+  {
+    const listed = dayCases.filter(c => c.caseType !== 'No Interaction' || !!c.notes);
+    const skipped = dayCases.length - listed.length;
+    const startY = heading('Every visit', skipped
+      ? `${skipped} browsing visit${skipped === 1 ? '' : 's'} with no note counted in traffic above, not listed`
+      : undefined);
+    const rows = listed
+      .sort((a, b) => timeKey(a).localeCompare(timeKey(b)))
+      .map(c => {
+        const items = getEffectiveItems(c);
+        let item: string;
+        if (items.length > 1) item = `${items[0].brand || items[0].product || '—'} +${items.length - 1} more`;
+        else if (c.caseType === 'Lost Sale' && c.product && c.product !== c.brand) item = [c.brand, c.product].filter(Boolean).join(' — ');
+        else item = c.brand || c.product || '—';
+        const detail = [
+          item,
+          c.customerName || undefined,
+          c.lostReason ? `Reason: ${c.lostReason}` : undefined,
+          clip(c.notes, 90) || undefined,
+        ].filter(Boolean).join('\n');
+        return [c.timeLogged || '—', `${c.staff}\n${caseLabel(c.caseType)}`, detail, c.amountKD ? formatKD(c.amountKD) : '—'];
+      });
+    autoTable(doc, {
+      ...tableBase, startY,
+      head: [['Time', 'Staff / outcome', 'Item / customer / note', 'KD']],
+      body: rows.length ? rows : [['—', '—', 'Nothing logged', '—']],
+      styles: { ...tableBase.styles, fontSize: 6.8, cellPadding: 1.1 },
+      headStyles: { ...tableBase.headStyles, fontSize: 6.3 },
+      columnStyles: {
+        0: { cellWidth: 9 }, 1: { cellWidth: 20 },
+        2: { cellWidth: 'auto' }, 3: { cellWidth: 13, halign: 'right' },
+      },
+    });
+    curY = (doc as any).lastAutoTable.finalY;
+  }
+
+  return curY;
+}
+
+export function generatePDF(date: string, cases: Case[], outlet?: string): string {
   const displayDate = format(new Date(date + 'T12:00:00'), 'd MMMM yyyy');
   // Store time, whatever the device is set to — this is a business record.
   const generatedAt = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Kuwait', day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false,
   }).format(new Date()).replace(',', '');
 
-  let curY = CONTENT_TOP;
-
-  /** Start a new page if `h` mm will not fit above the footer. */
-  const ensureSpace = (h: number) => {
-    if (curY + h > CONTENT_BOTTOM) { doc.addPage(); curY = CONT_TOP; }
-  };
-  /** Section heading, optional one-line note beneath; returns the y a table should start at. */
-  // The note shares the heading's baseline, right-aligned, so it costs no
-  // height — on a report that should stay short, every line is a row of data.
-  const heading = (title: string, note?: string) => {
-    ensureSpace(3 + MIN_TABLE_H);
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...INK);
-    doc.text(title, ML, curY);
-    if (note) {
-      doc.setFontSize(7.5);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(...MUTED);
-      doc.text(note, CONTENT_R, curY, { align: 'right' });
-    }
-    return curY + 3;
-  };
-  const tableEnd = () => { curY = (doc as any).lastAutoTable.finalY + 5; };
-  // Tight rows throughout: this is read on a phone and shared as a record, so
-  // it should be short. Body font stays above 8pt.
-  const tableBase = {
-    theme: 'striped' as const, headStyles: { fillColor: TEAL }, margin: TABLE_MARGIN,
-    styles: { fontSize: 8, cellPadding: 1.5 },
+  const build = (pageH: number) => {
+    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [PAGE_W, pageH] });
+    const endY = renderBody(doc, pageH, date, cases);
+    return { doc, endY };
   };
 
-  // ── KPI tiles (2 rows × 3) ───────────────────────────────────────────────
-  const totalVisitorKd = dayCases.reduce((s, c) =>
-    s + (c.caseType === 'No Interaction' ? (c.visitorCount ?? 1) : 1), 0);
-  const kpis = [
-    { label: 'Revenue (KD)', value: formatKD(revenue) },
-    { label: 'Sales', value: String(sales.length) },
-    { label: 'Interested', value: String(followups.length) },
-    { label: 'Lost Opportunities', value: String(lost.length) },
-    { label: 'Total Visitors', value: String(totalVisitorKd) },
-    { label: 'Conversion', value: `${convRate}%` },
-  ];
-  // One row of six, not two rows of three — the numbers are short.
-  const kpiGap = 3, kpiH = 15;
-  const kpiW = (CONTENT_R - ML - kpiGap * (kpis.length - 1)) / kpis.length;
-  kpis.forEach((kpi, i) => {
-    const x = ML + i * (kpiW + kpiGap);
-    doc.setFillColor(240, 253, 250);
-    doc.roundedRect(x, curY, kpiW, kpiH, 2, 2, 'F');
-    doc.setFontSize(12);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...TEAL);
-    doc.text(kpi.value, x + kpiW / 2, curY + 6.5, { align: 'center' });
-    doc.setFontSize(6.5);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...MUTED);
-    doc.text(kpi.label, x + kpiW / 2, curY + 11.8, { align: 'center' });
-  });
-  curY += kpiH + 6;
+  // Measure on a page nothing can overflow, then cut the page to what was used.
+  const measured = build(MEASURE_H).endY;
+  const pageH = Math.min(MAX_PAGE_H, Math.max(MIN_PAGE_H, Math.ceil(measured + FOOTER_H + BOTTOM_PAD)));
 
-  // ── Store Traffic chart (Google Maps-style popular times) ────────────────
-  const traffic = buildHourlyTraffic(dayCases);
-  if (traffic.length > 0) {
-    const chartH = 26;           // total chart box height
-    ensureSpace(9 + chartH + 8);
-    const peakEntry = traffic.reduce((mx, t) => t.count > mx.count ? t : mx, traffic[0]);
-
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...INK);
-    doc.text('Store Traffic', ML, curY);
-
-    doc.setFontSize(7.5);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(...MUTED);
-    doc.text(`${totalVisitorKd} total visitors / interactions  ·  Peak: ${peakEntry.label} (${peakEntry.count})`, ML, curY + 5);
-
-    const chartX = ML;
-    const chartY = curY + 9;
-    const chartW = CONTENT_R - ML;
-    const labelRowH = 8;         // bottom label area
-    const barAreaH = chartH - labelRowH - 4; // usable bar height
-    const maxCount = Math.max(...traffic.map(t => t.count), 1);
-    const n = traffic.length;
-
-    // Calculate bar width and gaps so all bars fit
-    const totalGapFrac = 0.35;   // 35% of slot is gap
-    const slotW = chartW / n;
-    const barW = slotW * (1 - totalGapFrac);
-    const halfGap = (slotW * totalGapFrac) / 2;
-
-    // Chart background
-    doc.setFillColor(248, 250, 252);
-    doc.roundedRect(chartX, chartY, chartW, chartH, 2, 2, 'F');
-
-    // Subtle horizontal guide lines (25%, 50%, 75%)
-    doc.setDrawColor(220, 228, 236);
-    doc.setLineWidth(0.2);
-    [0.25, 0.5, 0.75].forEach(frac => {
-      const lineY = chartY + 2 + barAreaH * (1 - frac);
-      doc.line(chartX + 2, lineY, chartX + chartW - 2, lineY);
-    });
-
-    traffic.forEach((t, i) => {
-      const slotX = chartX + i * slotW;
-      const barX = slotX + halfGap;
-      const barH = t.count > 0 ? Math.max((t.count / maxCount) * barAreaH, 1.5) : 0;
-      const barY = chartY + 2 + barAreaH - barH;
-      const isPeak = t.count === peakEntry.count && t.count > 0;
-      const isEmpty = t.count === 0;
-
-      // Bar fill — Google Maps uses orange/amber; we match brand teal with a peak highlight
-      if (isEmpty) {
-        doc.setFillColor(226, 232, 240);
-      } else if (isPeak) {
-        doc.setFillColor(...TEAL);        // dark teal — busiest
-      } else {
-        // Gradient-like: darker as count approaches peak
-        const intensity = t.count / maxCount;
-        const r = Math.round(20 + (1 - intensity) * 100);
-        const g = Math.round(184 - (1 - intensity) * 60);
-        const b = Math.round(166 - (1 - intensity) * 50);
-        doc.setFillColor(r, g, b);
-      }
-
-      if (barH > 0) {
-        doc.roundedRect(barX, barY, barW, barH, 0.8, 0.8, 'F');
-      } else {
-        // Draw a tiny empty placeholder
-        doc.setFillColor(235, 240, 245);
-        doc.roundedRect(barX, chartY + 2 + barAreaH - 1.5, barW, 1.5, 0.3, 0.3, 'F');
-      }
-
-      // Count label above bar (only if bar is tall enough)
-      if (t.count > 0) {
-        doc.setFontSize(isPeak ? 6.5 : 5.5);
-        doc.setFont('helvetica', isPeak ? 'bold' : 'normal');
-        doc.setTextColor(isPeak ? 15 : 30, isPeak ? 118 : 100, isPeak ? 110 : 130);
-        doc.text(String(t.count), barX + barW / 2, barY - 1.5, { align: 'center' });
-      }
-
-      // Hour label at bottom
-      doc.setFontSize(5.5);
-      doc.setFont('helvetica', isPeak ? 'bold' : 'normal');
-      doc.setTextColor(isPeak ? 15 : 100, isPeak ? 118 : 116, isPeak ? 110 : 139);
-      doc.text(t.label, barX + barW / 2, chartY + chartH - 2, { align: 'center' });
-    });
-
-    // "Popular times" watermark label top-right inside chart
-    doc.setFontSize(6);
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(180, 190, 205);
-    doc.text('Popular times', chartX + chartW - 3, chartY + 5.5, { align: 'right' });
-
-    curY = chartY + chartH + 6;
-  }
-
-  // ── Staff Performance ────────────────────────────────────────────────────
-  {
-    const startY = heading('Staff Performance');
-    const staffRows = Object.entries(staffMap)
-      .sort(([, a], [, b]) => b.kd - a.kd || b.sales - a.sales)
-      .map(([name, d]) => [name, String(d.sales), `${formatKD(d.kd)} KD`, String(d.followups), String(d.lost)]);
-    autoTable(doc, {
-      ...tableBase,
-      startY,
-      head: [['Staff Member', 'Sales', 'Revenue (KD)', 'Interested', 'Lost opp.']],
-      body: staffRows.length ? staffRows : [['—', '0', '0.000 KD', '0', '0']],
-    });
-    tableEnd();
-  }
-
-  // ── Brand and product-type breakdown (sales only — lost sales excluded) ──
-  // Two narrow tables side by side. If the brand table is long enough to run
-  // onto another page they stack instead, so neither is left behind.
-  const rowsOf = (m: Breakdown) => Object.entries(m)
-    .map(([k, s]) => ({ k, ...s }))
-    .sort((a, b) => b.kd - a.kd || b.count - a.count)
-    .map(({ k, count, kd }) => [k, String(count), `${formatKD(kd)} KD`]);
-  const brandRows = rowsOf(brandSalesMap);
-  const typeRows = rowsOf(typeSalesMap);
-  if (brandRows.length) {
-    const brandW = 104, gap = 6;
-    const typeLeft = ML + brandW + gap;
-    // Rather than let a long brand table split across the fold, move the whole
-    // section to a fresh page when it would fit there entire — that keeps the two
-    // tables side by side. Only a table too tall for any page is allowed to span.
-    const ROW_H = 5.2, HEAD_H = 7;                        // 8pt rows at 1.5 padding, measured
-    const estimate = 8 + HEAD_H + Math.max(brandRows.length, typeRows.length) * ROW_H;
-    if (estimate <= CONTENT_BOTTOM - CONTENT_TOP) ensureSpace(estimate);
-    const startY = heading('Brand Analytics', 'per item sold — a basket counts under each of its brands');
-    const pageBefore = doc.getCurrentPageInfo().pageNumber;
-    autoTable(doc, {
-      ...tableBase,
-      startY,
-      tableWidth: brandW,
-      head: [['Brand', 'Items', 'Revenue (KD)']],
-      body: brandRows,
-    });
-    const brandEnd = (doc as any).lastAutoTable.finalY;
-    const spanned = doc.getCurrentPageInfo().pageNumber !== pageBefore;
-    if (typeRows.length) {
-      if (spanned) {
-        curY = brandEnd + 5;
-        const y2 = heading('By Product Type');
-        autoTable(doc, {
-          ...tableBase, startY: y2, tableWidth: brandW,
-          head: [['Type', 'Items', 'Revenue (KD)']], body: typeRows,
-        });
-        tableEnd();
-      } else {
-        autoTable(doc, {
-          ...tableBase,
-          startY,
-          margin: { ...TABLE_MARGIN, left: typeLeft },
-          tableWidth: CONTENT_R - typeLeft,
-          head: [['Type', 'Items', 'Revenue (KD)']],
-          body: typeRows,
-            });
-        curY = Math.max(brandEnd, (doc as any).lastAutoTable.finalY) + 5;
-      }
-    } else {
-      curY = brandEnd + 5;
-    }
-  }
-
-  // ── Follow-up Conversions (own log — excluded from the day's figures) ────
-  if (followUpWins.length > 0) {
-    const startY = heading(
-      'Follow-up Conversions',
-      `${followUpWins.length} closed today · ${formatKD(followUpWinRevenue)} KD — from earlier follow-ups, not in today's figures above`,
-    );
-    autoTable(doc, {
-      ...tableBase,
-      startY,
-      headStyles: { fillColor: [124, 58, 237] },
-      head: [['Time', 'Customer', 'Brand / Product', 'Staff', 'From follow-up', 'Amount (KD)']],
-      body: [...followUpWins].sort((a, b) => timeKey(a).localeCompare(timeKey(b))).map(c => [
-        c.timeLogged || '—',
-        c.customerName || '—',
-        c.brand || c.product || '—',
-        c.staff || '—',
-        c.linkedCaseId || '—',
-        formatKD(c.amountKD || 0),
-      ]),
-      columnStyles: { 5: { halign: 'right' } },
-    });
-    tableEnd();
-  }
-
-  // ── All Cases table ──────────────────────────────────────────────────────
-  // Browsing visits with nothing written about them are footfall, not events:
-  // they are already in the visitor count and the traffic chart, and each one
-  // would print as a row of dashes. Anything with a note stays. Notes wrap,
-  // clipped at about two lines — the full text is in the app.
-  {
-    const listed = dayCases.filter(c => c.caseType !== 'No Interaction' || !!c.notes);
-    const skipped = dayCases.length - listed.length;
-    const startY = heading('All Cases', skipped
-      ? `${skipped} browsing visit${skipped === 1 ? '' : 's'} without a note counted in traffic above, not listed`
-      : undefined);
-    const caseRows = listed
-      .sort((a, b) => timeKey(a).localeCompare(timeKey(b)))
-      .map(c => {
-        const items = getEffectiveItems(c);
-        let brandProduct: string;
-        if (items.length > 1) {
-          brandProduct = `${items[0].brand || items[0].product || '—'} +${items.length - 1} more`;
-        } else if (c.caseType === 'Lost Sale' && c.product && c.product !== c.brand) {
-          brandProduct = `${c.brand || ''} — ${c.product}`;
-        } else {
-          brandProduct = c.brand || c.product || '—';
-        }
-        return [
-          c.timeLogged,
-          c.staff,
-          caseLabel(c.caseType),
-          c.customerName || '—',
-          brandProduct,
-          c.amountKD ? formatKD(c.amountKD) : '—',
-          clip(c.notes, 110),
-        ];
-      });
-    autoTable(doc, {
-      ...tableBase,
-      startY,
-      head: [['Time', 'Staff', 'Type', 'Customer', 'Brand / Product', 'KD', 'Notes / Requirement']],
-      body: caseRows,
-      styles: { fontSize: 7.5, cellPadding: 1.2, overflow: 'linebreak' },
-      columnStyles: {
-        // Notes is the column worth reading, so it gets the width: ~62mm here
-        // fits a typical note in two lines instead of three.
-        0: { cellWidth: 11 },
-        1: { cellWidth: 22 },
-        2: { cellWidth: 17 },
-        3: { cellWidth: 24 },
-        4: { cellWidth: 32 },
-        5: { cellWidth: 14, halign: 'right' },
-        6: { cellWidth: 'auto' },
-      },
-    });
-  }
-
-  // ── Header and footer on every page ──────────────────────────────────────
-  // Drawn last, once the page count is known. Both bars sit outside the content
-  // band, so painting them over finished pages covers nothing.
+  const { doc } = build(pageH);
   const pages = doc.getNumberOfPages();
   for (let p = 1; p <= pages; p++) {
     doc.setPage(p);
     drawHeader(doc, displayDate, p, outlet);
-    drawFooter(doc, p, pages, generatedAt);
+    drawFooter(doc, pageH, p, pages, generatedAt);
   }
-
   return doc.output('datauristring');
 }
 

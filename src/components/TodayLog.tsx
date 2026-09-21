@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { canActForOtherStaff } from '../utils/roles';
 import { format } from 'date-fns';
-import { Edit2, Trash2, Lock, Share2, FileText, ShieldAlert, ChevronDown, ChevronUp, Layers, MapPin, UserRound } from 'lucide-react';
+import { Edit2, Trash2, Lock, Share2, FileText, ShieldAlert, ChevronDown, ChevronUp, Layers, MapPin, UserRound, MessageCircle } from 'lucide-react';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
 import { getTodayCases, getDayClose, closeDay, getSettings, updateCase, rebuildDaySummary, getCasesByDate, getLightspeedToday, type LightspeedToday } from '../db';
 import { useNavigate } from 'react-router-dom';
@@ -11,6 +11,7 @@ import { useAppStore } from '../store';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
 import { useLive } from '../shared/live';
+import { sameOutlet } from '../utils/outlet';
 import { CaseTypeBadge, DayStatusBadge } from './shared/Badge';
 import { Modal, ConfirmModal } from './shared/Modal';
 import type { Case, AppSettings, DayClose, CaseStatus } from '../types';
@@ -46,21 +47,33 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
      sales this login is allowed to see. */
   const [tillToday, setTillToday] = useState<LightspeedToday | null>(null);
 
+  const [outletFilter, setOutletFilter] = useState<string>('');
+
+  /* The one outlet this screen is about, and the only answer anything is
+     allowed to use: the floor is pinned to the shop they picked, everyone
+     else follows the filter, and empty means the whole company.
+
+     Everything downstream reads this — the list, the figures, the day-close
+     row, the summary and the PDF — because they were drifting apart. An owner
+     filtered to Avenues saw Avenues' numbers on screen but closed the whole
+     company's day: the preview counted every outlet, and closeDay was handed
+     an empty outlet, which locks every shop's entries and files one combined
+     report. */
+  const reportOutlet = onFloor ? (activeOutlet ?? '') : outletFilter;
+
   // Re-runs when the outlet changes: the list is filtered in render, but the
   // day-close row is per-outlet and was fetched once at mount, so switching
   // shops used to keep showing the previous one's "Closed at ..." banner.
   const load = useCallback(async () => {
-    const outlet = onFloor ? (activeOutlet ?? '') : '';
-    const [c, dc, s] = await Promise.all([getTodayCases(), getDayClose(today, outlet), getSettings()]);
+    const [c, dc, s] = await Promise.all([getTodayCases(), getDayClose(today, reportOutlet), getSettings()]);
     setCases(c);
     setDayClose(dc);
     setSettings(s);
-  }, [onFloor, activeOutlet]);
+  }, [reportOutlet]);
 
   useEffect(() => { load(); }, [load]);
 
-  const [outletFilter, setOutletFilter] = useState<string>('');
-  const tillOutlet = onFloor ? (activeOutlet ?? null) : (outletFilter || null);
+  const tillOutlet = reportOutlet || null;
   useEffect(() => {
     let live = true;
     getLightspeedToday(tillOutlet).then(t => { if (live) setTillToday(t); }).catch(() => { if (live) setTillToday(null); });
@@ -79,12 +92,15 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
 
   const isClosed = !!dayClose;
 
-  // Staff see only their outlet; manager can filter or see all
-  const filteredCases = cases.filter(c => {
-    if (role === 'admin' && outletFilter) return c.outlet === outletFilter;
-    if (role !== 'admin' && activeOutlet) return !c.outlet || c.outlet === activeOutlet;
-    return true;
-  });
+  /* One rule, and the same one the database applies when the day is closed
+     (closeDay filters on the outlet column). It used to differ by role: the
+     floor's version also swept in entries with no outlet at all, which the
+     close then left behind — so the screen and the report disagreed about
+     entries nobody could account for. An untagged entry now belongs to the
+     company view only, where it is visible and can still be closed. */
+  const filteredCases = reportOutlet
+    ? cases.filter(c => sameOutlet(c.outlet, reportOutlet))
+    : cases;
 
   /* Closing an earlier follow-up writes a new Sale dated today, carrying
      linkedCaseId back to the follow-up. It is not this day's trade: the
@@ -109,33 +125,31 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   const total = sales.length + lost.length;
   const convRate = total > 0 ? Math.round((sales.length / total) * 100) : 0;
 
-  // Outlet for PDF: staff always use their outlet; manager uses filter if set
-  const pdfOutlet = onFloor ? (activeOutlet ?? '') : outletFilter;
   /* The PDF gets the FULL outlet-filtered set, follow-up wins included:
      buildDailyStats splits them out itself and prints them in their own log.
      Handing it dayCases would silently drop that section from the report. */
-  const pdfCases = filteredCases;
+  const reportCases = filteredCases;
 
   // Signature that changes when any case is added, removed, or its amount/status/type changes
-  const casesSig = pdfCases.map(c => `${c.id}:${c.amountKD}:${c.status}:${c.caseType}`).join('|');
+  const casesSig = reportCases.map(c => `${c.id}:${c.amountKD}:${c.status}:${c.caseType}`).join('|');
 
   // Generate (or regenerate) the PDF whenever the day is closed AND case data changes
   useEffect(() => {
-    if (isClosed && pdfCases.length > 0) {
+    if (isClosed && reportCases.length > 0) {
       try {
-        setPdfUri(generatePDF(today, pdfCases, pdfOutlet || undefined));
+        setPdfUri(generatePDF(today, reportCases, reportOutlet || undefined));
         setPdfError(null);
       } catch (err) {
         setPdfUri(null);
         setPdfError(err instanceof Error ? err.message : 'Could not build the PDF');
       }
     }
-  }, [isClosed, casesSig, pdfOutlet]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [isClosed, casesSig, reportOutlet]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Rebuild the PDF on demand (used by the retry button). */
   function buildPdfNow() {
     try {
-      setPdfUri(generatePDF(today, pdfCases, pdfOutlet || undefined));
+      setPdfUri(generatePDF(today, reportCases, reportOutlet || undefined));
       setPdfError(null);
     } catch (err) {
       setPdfError(err instanceof Error ? err.message : 'Could not build the PDF');
@@ -146,7 +160,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
     if (!pdfUri) return;
     setSharingPdf(true);
     try {
-      const result = await shareReport(today, pdfUri, pdfOutlet || undefined);
+      const result = await shareReport(today, pdfUri, reportOutlet || undefined);
       if (result === 'cancelled') return; // user dismissed the share sheet
       showToast(result === 'shared' ? 'Report shared!' : 'PDF downloaded.', 'success');
     } finally {
@@ -156,7 +170,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
 
   function handleDownloadPdf() {
     if (!pdfUri) return;
-    downloadReport(today, pdfUri, pdfOutlet || undefined);
+    downloadReport(today, pdfUri, reportOutlet || undefined);
   }
 
   /** Build and share/download the report for an earlier day, scoped to this user's outlet. */
@@ -167,18 +181,18 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
     setPastBusy(true);
     try {
       const all = await getCasesByDate(reportDate);
-      const scoped = pdfOutlet ? all.filter(c => !c.outlet || c.outlet === pdfOutlet) : all;
+      const scoped = reportOutlet ? all.filter(c => !c.outlet || c.outlet === reportOutlet) : all;
       if (scoped.length === 0) {
-        showToast(`No entries for ${reportDate}${pdfOutlet ? ` at ${pdfOutlet}` : ''}.`, 'info');
+        showToast(`No entries for ${reportDate}${reportOutlet ? ` at ${reportOutlet}` : ''}.`, 'info');
         return;
       }
-      const uri = generatePDF(reportDate, scoped, pdfOutlet || undefined);
+      const uri = generatePDF(reportDate, scoped, reportOutlet || undefined);
       if (mode === 'download') {
-        downloadReport(reportDate, uri, pdfOutlet || undefined);
+        downloadReport(reportDate, uri, reportOutlet || undefined);
         showToast('PDF downloaded.', 'success');
         return;
       }
-      const result = await shareReport(reportDate, uri, pdfOutlet || undefined);
+      const result = await shareReport(reportDate, uri, reportOutlet || undefined);
       if (result === 'cancelled') return;
       showToast(result === 'shared' ? 'Report shared!' : 'PDF downloaded.', 'success');
     } catch {
@@ -218,14 +232,31 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
       await rebuildDaySummary(today, dayClose?.outlet ?? '');
       // regenerate PDF from fresh filtered data
       const fresh = await getCasesByDate(today);
-      const freshFiltered = pdfOutlet ? fresh.filter(c => !c.outlet || c.outlet === pdfOutlet) : fresh;
-      if (freshFiltered.length > 0) setPdfUri(generatePDF(today, freshFiltered, pdfOutlet || undefined));
+      const freshFiltered = reportOutlet ? fresh.filter(c => sameOutlet(c.outlet, reportOutlet)) : fresh;
+      if (freshFiltered.length > 0) setPdfUri(generatePDF(today, freshFiltered, reportOutlet || undefined));
     }
   }
 
+  /* The message the shop sends at the end of the night. It is the Report
+     Preview, word for word — what was agreed to when the day was closed —
+     and WhatsApp opens with it typed in, recipient left to the sender.
+     Nothing is sent from here. */
+  function handleShareWhatsApp() {
+    // Built fresh, not remembered: a manager adjustment after the close has
+    // to change the message too.
+    const text = buildPreviewSummary(reportCases);
+    const url = `https://wa.me/?text=${encodeURIComponent(text.trim())}`;
+    const w = window.open(url, '_blank', 'noopener');
+    if (!w) window.location.href = url;
+  }
+
   async function handleOpenCloseDay() {
-    if (!cases.length) { showToast('No cases logged today.', 'info'); return; }
-    setCloseDaySummary(buildPreviewSummary(cases));
+    // the outlet being closed, not the company — see reportOutlet above
+    if (!reportCases.length) {
+      showToast(reportOutlet ? `No visits logged at ${reportOutlet} today.` : 'No visits logged today.', 'info');
+      return;
+    }
+    setCloseDaySummary(buildPreviewSummary(reportCases));
     setCloserName(prev => prev || salesName || ''); // a personal login closes as itself
     setCloseDayOpen(true);
   }
@@ -239,6 +270,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
     }
     return (
       `📊 Daily Report — ${format(new Date(today + 'T12:00:00'), 'd MMM yyyy')}\n` +
+      `${reportOutlet || 'All outlets'}\n` +
       `Revenue: ${formatKD(rev)} KD\n` +
       `Sales: ${s.length}  |  Interested: ${f.length}  |  Lost opportunities: ${l.length}  |  Browsing: ${b.length}\n` +
       `Conversion: ${conv}%\n` +
@@ -253,8 +285,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
     setClosingDay(true);
     try {
       const closer = closerName || salesName || settings?.staffRoster[0] || 'Manager';
-      const outlet = onFloor ? (activeOutlet ?? '') : '';
-      await closeDay(today, closer, outlet);
+      await closeDay(today, closer, reportOutlet);
       showToast('Day closed. Report ready to share.', 'success');
       setCloseDayOpen(false);
       setCloseDaySummary(null);
@@ -543,6 +574,12 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
           {!pdfUri && !pdfError && (
             <p className="mb-3 text-xs text-slate-400">Preparing the PDF…</p>
           )}
+          <button
+            onClick={handleShareWhatsApp}
+            className="w-full flex items-center justify-center gap-2 bg-emerald-600 text-white font-semibold text-sm py-4 rounded-2xl shadow-md shadow-emerald-600/10 active:scale-[0.98] transition-all mb-3"
+          >
+            <MessageCircle className="w-4 h-4" /> Send summary on WhatsApp
+          </button>
           <div className={`flex gap-3 ${panelMode ? 'flex-col' : 'grid grid-cols-2'}`}>
             <button
               onClick={handleSharePdf}
@@ -568,7 +605,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
       <div className="mt-6">
         <div className="h-px bg-slate-200 mb-4" />
         <p className="text-xs font-semibold text-slate-400 uppercase tracking-wide mb-3">
-          {role === 'admin' ? 'Earlier day report' : "Yesterday's report"}{pdfOutlet ? ` — ${pdfOutlet}` : ''}
+          {role === 'admin' ? 'Earlier day report' : "Yesterday's report"}{reportOutlet ? ` — ${reportOutlet}` : ''}
         </p>
         <div className="flex flex-wrap gap-2 items-end">
           <label className="text-xs flex-1 min-w-[140px]">
@@ -605,8 +642,8 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
         </div>
         <p className="text-xs text-slate-400 mt-2">
           {role === 'admin'
-            ? <>Pick any past date to get that day's report{pdfOutlet ? ` for ${pdfOutlet}` : ''} — works whether or not the day was closed.</>
-            : <>Yesterday's report{pdfOutlet ? ` for ${pdfOutlet}` : ''} — works whether or not the day was closed. For older days, ask your manager.</>}
+            ? <>Pick any past date to get that day's report{reportOutlet ? ` for ${reportOutlet}` : ''} — works whether or not the day was closed.</>
+            : <>Yesterday's report{reportOutlet ? ` for ${reportOutlet}` : ''} — works whether or not the day was closed. For older days, ask your manager.</>}
         </p>
       </div>
 
@@ -657,9 +694,16 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
           <button onClick={handleConfirmClose} className="btn-primary" disabled={closingDay}>{closingDay ? 'Closing…' : 'Confirm & Close'}</button>
         </>}>
         <div className="space-y-4">
+          {/* Which day is being closed, in words. The owner can close one shop
+              or the whole company, and the two are a long way apart — closing
+              the company locks every shop's entries. */}
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-sm text-amber-800">
-            <strong>Once closed, today's sales and lost entries can't be edited.</strong><br />
-            Follow-ups will remain open on the tracker.
+            <strong>
+              {reportOutlet
+                ? `Closing ${reportOutlet} for today.`
+                : 'Closing every outlet for today.'}
+            </strong><br />
+            Sales and lost opportunities can no longer be edited afterwards. Follow-ups stay open on the tracker.
           </div>
           {closeDaySummary && (
             <div className="bg-slate-50 rounded-2xl p-4">
