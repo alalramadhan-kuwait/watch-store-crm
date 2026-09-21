@@ -30,6 +30,8 @@ const WHERE: Record<string, string> = {
   '/attendance': '/team',
   '/leave': '/team',
   '/team': '/team',
+  // a customer's page is the same address in both apps
+  '/crm': '/crm',
 };
 
 const ago = (iso: string) => {

@@ -108,7 +108,8 @@ export function CRM() {
   }
 
   if (openId) {
-    return <CustomerPage id={openId} onBack={() => openCustomer(null)} onChanged={load} canAssign={perf} />;
+    return <CustomerPage id={openId} onBack={() => openCustomer(null)} onChanged={load} canAssign={perf}
+      openWith={params.get('wa') as TemplateKey | null} />;
   }
 
   const chips: { key: Filter; label: string; show: boolean }[] = [
@@ -191,7 +192,7 @@ type TimelineItem =
   | { kind: 'purchase'; at: string; p: ProfilePurchase }
   | { kind: 'handoff'; at: string; h: ProfileHandoff };
 
-function CustomerPage({ id, onBack, onChanged, canAssign }: { id: string; onBack: () => void; onChanged: () => void; canAssign: boolean }) {
+function CustomerPage({ id, onBack, onChanged, canAssign, openWith }: { id: string; onBack: () => void; onChanged: () => void; canAssign: boolean; openWith?: TemplateKey | null }) {
   const { role } = useAuth();
   const { showToast } = useAppStore();
   const navigate = useNavigate();
@@ -207,6 +208,13 @@ function CustomerPage({ id, onBack, onChanged, canAssign }: { id: string; onBack
     catch (err) { showToast(err instanceof Error ? err.message : 'Could not open the customer.', 'error'); setP(null); }
   }, [id, showToast]);
   useEffect(() => { void load(); }, [load]);
+
+  /* A reminder's link arrives with the template named, so the message is
+     one tap away — the page opens with WhatsApp ready, once. */
+  const [autoOpened, setAutoOpened] = useState(false);
+  useEffect(() => {
+    if (p && openWith && !autoOpened && p.customer.phone_e164) { setWa({ template: openWith }); setAutoOpened(true); }
+  }, [p, openWith, autoOpened]);
 
   const timeline = useMemo<TimelineItem[]>(() => {
     if (!p) return [];
