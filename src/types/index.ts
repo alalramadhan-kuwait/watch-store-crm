@@ -91,6 +91,8 @@ export interface Case {
   contactDeclined?: boolean;
   /** When the customer was actually here (ISO). created_at is when it was saved. */
   interactionAt?: string;
+  /** The customer record this visit is linked to, when the number matched one. */
+  customerId?: string;
   caseType: CaseType;
   brand?: string;
   productType?: ProductType;

@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { canActForOtherStaff } from '../utils/roles';
 import { readDraft, writeDraft, clearDraft } from '../lib/drafts';
 import { format, addDays } from 'date-fns';
@@ -355,9 +356,23 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
     if (d.whenTouched && d.when) { setWhen(d.when); setWhenTouched(true); }
   };
 
+  /* Opened from a customer's page: the number and name are already known,
+     so they arrive filled in and the form starts at the outcome. A draft
+     for somebody else is not restored over them. */
+  const [params, setParams] = useSearchParams();
+  const prefill = useRef({ contact: params.get('contact') ?? '', name: params.get('name') ?? '' });
+  useEffect(() => {
+    const p = prefill.current;
+    if (!p.contact && !p.name) return;
+    if (p.contact) setContact(displayPhone(normalizePhone(p.contact) ?? p.contact) ?? p.contact);
+    if (p.name) setCustomerName(p.name);
+    setParams({}, { replace: true });
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
   const loaded = useRef(false);
   useEffect(() => {
     if (loaded.current) return;
+    if (prefill.current.contact || prefill.current.name) { loaded.current = true; return; }
     loaded.current = true;
     const d = readDraft<Draft>(user?.id, DRAFT);
     if (!d || !worthKeeping(d)) return;

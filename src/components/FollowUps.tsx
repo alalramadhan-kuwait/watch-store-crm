@@ -2,7 +2,11 @@ import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'rea
 import { canActForOtherStaff } from '../utils/roles';
 import { format, isToday, isBefore, differenceInDays, startOfDay, startOfMonth } from 'date-fns';
 import { Phone, MessageCircle, CheckCircle, XCircle, UserX, ChevronDown, Filter, BarChart2, TrendingUp, Pencil, Plus, ShieldAlert} from 'lucide-react';
-import { getOpenFollowUps, getSettings, updateCase, insertCase, nextCaseId, getBrands, getCasesForRange } from '../db';
+import { getOpenFollowUps, getSettings, updateCase, insertCase, nextCaseId, getBrands, getCasesForRange, getUpcomingOccasions, type Occasion } from '../db';
+import { WhatsAppSheet } from './WhatsAppSheet';
+import { normalizePhone } from '../shared/phoneRules';
+import { useNavigate } from 'react-router-dom';
+import { Cake, Gift } from 'lucide-react';
 import { supabase } from '../lib/supabase';
 import { useLive } from '../shared/live';
 import { useAppStore } from '../store';
@@ -17,7 +21,7 @@ import { followUpUrgency, urgencyOrder } from '../utils/followUps';
 
 
 /** What a row's Actions menu can start. 'edit' opens the editor, the rest confirm. */
-type FollowUpAction = 'contacted' | 'won' | 'lost' | 'no_response' | 'edit';
+type FollowUpAction = 'contacted' | 'won' | 'lost' | 'no_response' | 'edit' | 'whatsapp';
 
 export function FollowUps() {
   const { showToast, activeOutlet } = useAppStore();
@@ -44,6 +48,15 @@ export function FollowUps() {
   // way everywhere. It stays available after the day is closed: a follow-up
   // outlives the day it was logged on, and so must fixing a wrong number.
   const [editCase, setEditCase] = useState<Case | null>(null);
+  /* WhatsApp opens from here with the follow-up's product in the message. It
+     records the handoff and nothing else: Mark Contacted stays a separate,
+     deliberate step, because opening WhatsApp is not the same as the message
+     having gone. */
+  const [waCase, setWaCase] = useState<Case | null>(null);
+  const [occasions, setOccasions] = useState<Occasion[]>([]);
+  const [waOccasion, setWaOccasion] = useState<Occasion | null>(null);
+  const navigate = useNavigate();
+  useEffect(() => { void getUpcomingOccasions(7).then(setOccasions).catch(() => setOccasions([])); }, []);
   const [newOpen, setNewOpen] = useState(false);
   const [brands, setBrands] = useState<Brand[]>([]);
   const [nf, setNf] = useState({
@@ -241,6 +254,10 @@ export function FollowUps() {
 
   function openAction(c: Case, type: FollowUpAction) {
     if (type === 'edit') { setEditCase(c); return; }
+    if (type === 'whatsapp') {
+      if (!c.customerId) { showToast('This follow-up has no customer number to message.', 'error'); return; }
+      setWaCase(c); return;
+    }
     setActionCase(c);
     setActionType(type);
     setActionAmount('');
@@ -338,6 +355,33 @@ export function FollowUps() {
           <Plus className="w-4 h-4" /> New
         </button>
       </div>
+
+      {/* Occasions in the next week, for the customers this login knows.
+          Not follow-ups — nobody promised a call — but the same page, because
+          this is where somebody stands when deciding who to message today. */}
+      {occasions.length > 0 && (
+        <div className="card p-4 mb-4 border-pink-100 bg-pink-50/40">
+          <div className="flex items-center justify-between mb-2">
+            <h2 className="font-bold text-slate-900 text-sm flex items-center gap-1.5"><Cake className="w-4 h-4 text-pink-500" /> This week's occasions</h2>
+            <button onClick={() => navigate('/crm?tab=occasions')} className="text-xs font-semibold text-brand-700">All</button>
+          </div>
+          <div className="divide-y divide-pink-100">
+            {occasions.slice(0, 6).map(o => (
+              <div key={`${o.customerId}-${o.kind}-${o.date}`} className="flex items-center gap-3 py-2">
+                {o.kind === 'birthday' ? <Cake className="w-4 h-4 text-pink-500 shrink-0" /> : <Gift className="w-4 h-4 text-violet-500 shrink-0" />}
+                <button onClick={() => navigate(`/crm?customer=${o.customerId}`)} className="flex-1 min-w-0 text-left">
+                  <span className="block text-sm font-semibold text-slate-800 truncate">{o.name}</span>
+                  <span className="block text-xs text-slate-500">{o.label} · {o.daysUntil === 0 ? 'today' : o.daysUntil === 1 ? 'tomorrow' : `in ${o.daysUntil} days`}</span>
+                </button>
+                <button onClick={() => setWaOccasion(o)} disabled={!o.phone}
+                  className="shrink-0 flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-emerald-600 text-white text-xs font-semibold disabled:opacity-40">
+                  <MessageCircle className="w-3.5 h-3.5" /> WhatsApp
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Sales so far this month — the reason the board is worth working.
           Deliberately not a sixth KPI tile: those count the follow-up list,
@@ -609,6 +653,18 @@ export function FollowUps() {
 
       {/* Edit details — the same editor Today's Log uses, so one case is
           corrected the same way wherever it is opened from. */}
+      {waCase && waCase.customerId && (
+        <WhatsAppSheet
+          target={{ customerId: waCase.customerId, name: waCase.customerName ?? null, phone: waCase.contact ? (normalizePhone(waCase.contact) ?? null) : null }}
+          caseId={waCase.id} product={waCase.product} defaultTemplate="interested_followup"
+          onClose={() => setWaCase(null)} />
+      )}
+      {waOccasion && (
+        <WhatsAppSheet
+          target={{ customerId: waOccasion.customerId, name: waOccasion.name, phone: waOccasion.phone }}
+          defaultTemplate={waOccasion.kind === 'birthday' ? 'birthday' : 'anniversary'}
+          onClose={() => setWaOccasion(null)} />
+      )}
       <Modal
         open={!!editCase}
         onClose={() => setEditCase(null)}
@@ -773,6 +829,7 @@ function FollowUpTableRow({ case_: c, onAction }: { case_: Case; onAction: (c: C
   }
 
   const actions = [
+    { icon: <MessageCircle className="w-4 h-4" />, label: 'WhatsApp', color: 'text-emerald-700', type: 'whatsapp' as const },
     { icon: <Phone className="w-4 h-4" />, label: 'Mark Contacted', color: 'text-slate-700', type: 'contacted' as const },
     { icon: <CheckCircle className="w-4 h-4" />, label: 'Closed — Won', color: 'text-emerald-700', type: 'won' as const },
     { icon: <XCircle className="w-4 h-4" />, label: 'Closed — Lost', color: 'text-rose-600', type: 'lost' as const },
@@ -850,6 +907,7 @@ function FollowUpRow({ case_: c, onAction }: { case_: Case; onAction: (c: Case, 
   const label = urgencyLabel[urgency];
 
   const sheetActions = [
+    { icon: <MessageCircle className="w-5 h-5" />, label: 'WhatsApp', color: 'text-emerald-700', type: 'whatsapp' as const },
     { icon: <Phone className="w-5 h-5" />, label: 'Mark Contacted', color: 'text-slate-800', type: 'contacted' as const },
     { icon: <Pencil className="w-5 h-5" />, label: 'Edit Details', color: 'text-slate-800', type: 'edit' as const },
     { icon: <CheckCircle className="w-5 h-5" />, label: 'Closed — Won', color: 'text-emerald-700', type: 'won' as const },
