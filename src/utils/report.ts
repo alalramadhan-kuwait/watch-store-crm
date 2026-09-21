@@ -1,3 +1,4 @@
+import { caseLabel } from '../shared/caseLabels';
 import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
@@ -236,8 +237,8 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
   const kpis = [
     { label: 'Revenue (KD)', value: formatKD(revenue) },
     { label: 'Sales', value: String(sales.length) },
-    { label: 'Follow-ups', value: String(followups.length) },
-    { label: 'Lost Sales', value: String(lost.length) },
+    { label: 'Interested', value: String(followups.length) },
+    { label: 'Lost Opportunities', value: String(lost.length) },
     { label: 'Total Visitors', value: String(totalVisitorKd) },
     { label: 'Conversion', value: `${convRate}%` },
   ];
@@ -365,7 +366,7 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
     autoTable(doc, {
       ...tableBase,
       startY,
-      head: [['Staff Member', 'Sales', 'Revenue (KD)', 'Follow-ups', 'Lost']],
+      head: [['Staff Member', 'Sales', 'Revenue (KD)', 'Interested', 'Lost opp.']],
       body: staffRows.length ? staffRows : [['—', '0', '0.000 KD', '0', '0']],
     });
     tableEnd();
@@ -475,7 +476,7 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
         return [
           c.timeLogged,
           c.staff,
-          c.caseType,
+          caseLabel(c.caseType),
           c.customerName || '—',
           brandProduct,
           c.amountKD ? formatKD(c.amountKD) : '—',

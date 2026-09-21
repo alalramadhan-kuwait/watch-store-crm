@@ -7,10 +7,20 @@ import { getSettings, updateCase, updateSaleItems } from '../db';
 import type { Case, CaseType, AppSettings, ProductType } from '../types';
 import { PRODUCT_TYPES } from '../types';
 import { formatKD } from '../utils/formatKD';
+import { caseLabel } from '../shared/caseLabels';
 import { useAuth } from '../context/AuthContext';
 import { useAppStore } from '../store';
 
 const STRAP_WIDTHS = ['18mm', '20mm', '22mm', '24mm', 'Other'] as const;
+
+/** A datetime-local value for an instant, in the phone's own zone. */
+const localStamp = (d: Date) => format(d, "yyyy-MM-dd'T'HH:mm");
+
+/** The instant a visit was recorded as happening; older rows only carry the day and clock time. */
+function visitInstant(c: Case): Date {
+  if (c.interactionAt) return new Date(c.interactionAt);
+  return new Date(`${c.dateLogged}T${c.timeLogged || '00:00'}`);
+}
 
 // ── Sale item draft (mirrors QuickEntry) ──────────────────────────────────────
 
@@ -56,6 +66,8 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
     return () => { live = false; };
   }, [case_.id, case_.contactMasked]);
   const [product, setProduct] = useState(case_.product);
+  const [when, setWhen] = useState(() => localStamp(visitInstant(case_)));
+  const [whenError, setWhenError] = useState('');
   const [amountKD, setAmountKD] = useState(case_.amountKD?.toString() || '');
   const [lostReason, setLostReason] = useState(case_.lostReason || '');
   const [followUpAction, setFollowUpAction] = useState(case_.followUpAction || '');
@@ -122,6 +134,18 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
       const changes: Record<string, { from: unknown; to: unknown }> = {};
       if (staff !== case_.staff) changes.staff = { from: case_.staff, to: staff };
 
+      /* The visit time may be corrected, but never into the future and never
+         to nothing. Unchanged, it is left alone so an old entry keeps its
+         original stamp. */
+      let interactionAt: string | undefined;
+      if (when !== localStamp(visitInstant(case_))) {
+        const at = new Date(when);
+        if (Number.isNaN(at.getTime())) { setWhenError('Enter the visit time.'); setSaving(false); return; }
+        if (at.getTime() > Date.now() + 60_000) { setWhenError('The visit time cannot be in the future.'); setSaving(false); return; }
+        interactionAt = at.toISOString();
+        changes.visitTime = { from: visitInstant(case_).toISOString(), to: interactionAt };
+      }
+
       if (caseType === 'Sale') {
         const totalKD = saleTotal;
         const firstItem = saleItems[0];
@@ -133,6 +157,7 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
 
         await updateCase(case_.id, {
           staff,
+          interactionAt,
           customerName: customerName || undefined,
           contact: contact || undefined,
           brand: firstItem.brand || undefined,
@@ -163,6 +188,7 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
 
         await updateCase(case_.id, {
           staff,
+          interactionAt,
           customerName: customerName || undefined,
           contact: contact || undefined,
           product: finalProduct,
@@ -191,7 +217,17 @@ export function QuickEntryEdit({ case_, onDone, onCancel }: {
   return (
     <div className="space-y-4">
       <div className="bg-slate-50 rounded-xl px-3 py-2 text-xs text-slate-500">
-        Case ID: <span className="font-mono font-medium">{case_.caseId}</span> · Type: <strong>{caseType}</strong>
+        Visit <span className="font-mono font-medium">{case_.caseId}</span> · <strong>{caseLabel(caseType)}</strong>
+      </div>
+
+      <div>
+        <label className="label">Visit time</label>
+        <input type="datetime-local" value={when} max={localStamp(new Date())}
+          onChange={e => { setWhen(e.target.value); setWhenError(''); }}
+          className={`input ${whenError ? 'input-error' : ''}`} />
+        {whenError
+          ? <p className="text-rose-500 text-xs mt-1">{whenError}</p>
+          : <p className="text-[11px] text-slate-400 mt-1">When the customer was actually here, not when it was typed.</p>}
       </div>
 
       <div>

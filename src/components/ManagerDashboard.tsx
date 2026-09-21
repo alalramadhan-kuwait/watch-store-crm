@@ -281,7 +281,7 @@ function MonthView() {
         {stats.lostReasons.length > 0 && (
           <div className="card p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-slate-900">Lost Sale Reasons</h3>
+              <h3 className="font-bold text-slate-900">Lost Opportunity Reasons</h3>
               <span className="text-[10px] text-slate-400">Click bars ↗</span>
             </div>
             <ResponsiveContainer width="100%" height={200}>
@@ -334,7 +334,7 @@ function MonthView() {
         {stats.brandLost.length > 0 && (
           <div className="card p-4">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="font-bold text-slate-900">Lost Sales by Brand</h3>
+              <h3 className="font-bold text-slate-900">Lost Opportunities by Brand</h3>
               <span className="text-[10px] text-slate-400">Click bars ↗</span>
             </div>
             <ResponsiveContainer width="100%" height={220}>
@@ -344,7 +344,7 @@ function MonthView() {
                 <Tooltip formatter={(v) => [`${v} cases`, 'Lost']} />
                 <Bar dataKey="count" radius={[0, 4, 4, 0]} cursor="pointer"
                   onClick={(data) => drillInto(
-                    `Lost Sales — ${data.brand}`,
+                    `Lost Opportunities — ${data.brand}`,
                     stats.lost.filter(c => (c.brand || c.product || 'Unknown') === data.brand)
                   )}>
                   {stats.brandLost.map((_, i) => <Cell key={i} fill={i === 0 ? '#e11d48' : '#fda4af'} />)}

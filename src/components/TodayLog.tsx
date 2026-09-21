@@ -3,7 +3,9 @@ import { canActForOtherStaff } from '../utils/roles';
 import { format } from 'date-fns';
 import { Edit2, Trash2, Lock, Share2, FileText, ShieldAlert, ChevronDown, ChevronUp, Layers, MapPin, UserRound } from 'lucide-react';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
-import { getTodayCases, getDayClose, closeDay, getSettings, updateCase, rebuildDaySummary, getCasesByDate } from '../db';
+import { getTodayCases, getDayClose, closeDay, getSettings, updateCase, rebuildDaySummary, getCasesByDate, getLightspeedToday, type LightspeedToday } from '../db';
+import { useNavigate } from 'react-router-dom';
+import { caseLabel } from '../shared/caseLabels';
 import { generatePDF, shareReport, downloadReport, buildDailyStats } from '../utils/report';
 import { useAppStore } from '../store';
 import { useAuth } from '../context/AuthContext';
@@ -37,6 +39,12 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   const [pastDate, setPastDate] = useState(yesterday);
   const [pastBusy, setPastBusy] = useState(false);
   const [sharingPdf, setSharingPdf] = useState(false);
+  const navigate = useNavigate();
+
+  /* The till's own count for this outlet today, so the log can be read
+     against what Lightspeed actually rang up. The database limits it to the
+     sales this login is allowed to see. */
+  const [tillToday, setTillToday] = useState<LightspeedToday | null>(null);
 
   // Re-runs when the outlet changes: the list is filtered in render, but the
   // day-close row is per-outlet and was fetched once at mount, so switching
@@ -51,6 +59,14 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
 
   useEffect(() => { load(); }, [load]);
 
+  const [outletFilter, setOutletFilter] = useState<string>('');
+  const tillOutlet = onFloor ? (activeOutlet ?? null) : (outletFilter || null);
+  useEffect(() => {
+    let live = true;
+    getLightspeedToday(tillOutlet).then(t => { if (live) setTillToday(t); }).catch(() => { if (live) setTillToday(null); });
+    return () => { live = false; };
+  }, [tillOutlet, refreshLog]);
+
   useLive('today-log', [
     { table: 'cases', filter: `date_logged=eq.${today}` },
     { table: 'day_closes', filter: `date=eq.${today}` },
@@ -62,8 +78,6 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   }, [refreshLog]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const isClosed = !!dayClose;
-
-  const [outletFilter, setOutletFilter] = useState<string>('');
 
   // Staff see only their outlet; manager can filter or see all
   const filteredCases = cases.filter(c => {
@@ -226,7 +240,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
     return (
       `📊 Daily Report — ${format(new Date(today + 'T12:00:00'), 'd MMM yyyy')}\n` +
       `Revenue: ${formatKD(rev)} KD\n` +
-      `Sales: ${s.length}  |  Follow-ups: ${f.length}  |  Lost: ${l.length}  |  Browsing: ${b.length}\n` +
+      `Sales: ${s.length}  |  Interested: ${f.length}  |  Lost opportunities: ${l.length}  |  Browsing: ${b.length}\n` +
       `Conversion: ${conv}%\n` +
       (topStaff ? `Top Performer: ${topStaff} — ${formatKD(topKD)} KD (${staffMap[topStaff].sales} sales)\n` : '') +
       (followUpWins.length > 0
@@ -327,8 +341,8 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
         {[
           { label: 'Sales', value: String(sales.length), color: 'text-emerald-700 bg-emerald-50' },
           { label: 'KD', value: formatKDCompact(revenue), color: 'text-emerald-700 bg-emerald-50' },
-          { label: 'Follow-ups', value: String(followups.length), color: 'text-amber-700 bg-amber-50' },
-          { label: 'Lost', value: String(lost.length), color: 'text-rose-700 bg-rose-50' },
+          { label: 'Interested', value: String(followups.length), color: 'text-amber-700 bg-amber-50' },
+          { label: 'Lost opp.', value: String(lost.length), color: 'text-rose-700 bg-rose-50' },
           { label: 'Browsing', value: String(browsingHeadcount), color: 'text-slate-600 bg-slate-100 hidden lg:block' },
           { label: 'Conv.', value: `${convRate}%`, color: 'text-brand-700 bg-brand-50 hidden lg:block' },
         ].map(({ label, value, color }) => (
@@ -339,12 +353,29 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
         ))}
       </div>
 
+      {/* What the till says, next to what was logged. Manual Sales are the
+          exception, not the record: Lightspeed is. The shared shop login is
+          nobody's till figures, so it is not shown a misleading zero. */}
+      {tillToday && role !== 'staff' && (
+        <div className="flex items-center justify-between gap-3 mb-5 px-3 py-2 rounded-xl bg-slate-50 border border-slate-100 text-xs">
+          <span className="text-slate-500">
+            Lightspeed today{tillToday.scope ? ` · ${tillToday.scope}` : ''}
+          </span>
+          <span className="font-semibold text-slate-800 tabular-nums">
+            {tillToday.sales} {tillToday.sales === 1 ? 'sale' : 'sales'} · {formatKD(tillToday.revenue)} KD
+            {tillToday.as_of && <span className="text-slate-400 font-normal"> · as of {format(new Date(tillToday.as_of), 'HH:mm')}</span>}
+          </span>
+        </div>
+      )}
+
       {/* Case list */}
       {sortedCases.length === 0 ? (
         <div className="text-center py-16 text-slate-400">
           <FileText className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p className="font-medium">No cases logged yet today.</p>
-          <p className="text-sm">Use Quick Entry to log your first case.</p>
+          <p className="font-medium">No visits logged yet today.</p>
+          {panelMode
+            ? <p className="text-sm">Log the first one on the left.</p>
+            : <button type="button" onClick={() => navigate('/entry')} className="btn-primary mt-4 px-6">Log a visit</button>}
         </div>
       ) : (
         <>
@@ -353,7 +384,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-slate-100">
-                  {['Time', 'Type', 'Staff', 'Brand / Product', 'Customer', 'KD', 'Action / Reason', 'Status', ''].map(h => (
+                  {['Time', 'Outcome', 'Staff', 'Brand / Product', 'Customer', 'KD', 'Action / Reason', 'Status', ''].map(h => (
                     <th key={h} className="text-left py-3 px-4 text-xs font-semibold text-slate-400 uppercase tracking-wide whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -697,7 +728,7 @@ function CaseCard({ case_: c, locked, onEdit, onDelete, onDetail }: {
             <p className="font-semibold text-slate-900 text-sm truncate">
               {c.caseType === 'No Interaction' ? (
                 <span className="text-slate-400 font-normal flex items-center gap-1.5">
-                  No Interaction
+                  {caseLabel('No Interaction')}
                   {(c.visitorCount ?? 1) > 1 && (
                     <span className="text-[10px] font-bold px-1.5 py-0.5 bg-slate-100 text-slate-500 rounded-full">{c.visitorCount} visitors</span>
                   )}

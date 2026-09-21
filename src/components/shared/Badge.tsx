@@ -1,4 +1,5 @@
 import type { CaseType, CaseStatus } from '../../types';
+import { caseLabel } from '../../shared/caseLabels';
 
 export function CaseTypeBadge({ type }: { type: CaseType }) {
   const styles: Record<CaseType, string> = {
@@ -9,7 +10,7 @@ export function CaseTypeBadge({ type }: { type: CaseType }) {
   };
   return (
     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold ${styles[type]}`}>
-      {type}
+      {caseLabel(type)}
     </span>
   );
 }

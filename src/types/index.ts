@@ -87,6 +87,10 @@ export interface Case {
   contact?: string;
   /** The number is on the entry but hidden from this login (see cases_visible). */
   contactMasked?: boolean;
+  /** The customer declined to give a name or number; saved honestly rather than invented. */
+  contactDeclined?: boolean;
+  /** When the customer was actually here (ISO). created_at is when it was saved. */
+  interactionAt?: string;
   caseType: CaseType;
   brand?: string;
   productType?: ProductType;

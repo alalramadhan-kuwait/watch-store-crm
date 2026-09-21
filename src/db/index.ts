@@ -19,6 +19,8 @@ interface DbCase {
   contact: string | null;
   /** Set by cases_visible when the number exists but this login may not see it. */
   contact_masked?: boolean;
+  contact_declined?: boolean;
+  interaction_at?: string;
   case_type: string;
   brand: string | null;
   product_type: string | null;
@@ -106,6 +108,8 @@ function caseFromDb(row: DbCase & { sale_items?: DbSaleItem[] }): Case {
     customerName: row.customer_name ?? undefined,
     contact: row.contact ?? undefined,
     contactMasked: row.contact_masked ?? false,
+    contactDeclined: row.contact_declined ?? false,
+    interactionAt: row.interaction_at ?? undefined,
     caseType: row.case_type as CaseType,
     brand: row.brand ?? undefined,
     productType: row.product_type as ProductType ?? undefined,
@@ -141,6 +145,8 @@ function caseToDb(c: Omit<Case, 'id'>): Omit<DbCase, 'id' | 'created_by' | 'crea
     outlet: c.outlet ?? null,
     customer_name: c.customerName ?? null,
     contact: c.contact ?? null,
+    contact_declined: c.contactDeclined ?? false,
+    interaction_at: c.interactionAt ?? undefined,
     case_type: c.caseType,
     brand: c.brand ?? null,
     product_type: c.productType ?? null,
@@ -359,6 +365,15 @@ export async function updateCase(id: string, updates: Partial<Case>): Promise<vo
   if (updates.outlet !== undefined) dbUpdates.outlet = updates.outlet;
   if (updates.customerName !== undefined) dbUpdates.customer_name = updates.customerName;
   if (updates.contact !== undefined) dbUpdates.contact = updates.contact;
+  if (updates.contactDeclined !== undefined) dbUpdates.contact_declined = updates.contactDeclined;
+  /* The visit time moves date_logged and time_logged with it: Today is keyed
+     on the date, and the list is ordered by the time. */
+  if (updates.interactionAt !== undefined) {
+    dbUpdates.interaction_at = updates.interactionAt;
+    const d = new Date(updates.interactionAt);
+    dbUpdates.date_logged = format(d, 'yyyy-MM-dd');
+    dbUpdates.time_logged = format(d, 'HH:mm');
+  }
   if (updates.caseType !== undefined) dbUpdates.case_type = updates.caseType;
   if (updates.brand !== undefined) dbUpdates.brand = updates.brand;
   if (updates.productType !== undefined) dbUpdates.product_type = updates.productType;
@@ -779,4 +794,44 @@ export async function getTeamLeave(from: string, to: string): Promise<LeaveDay[]
     });
   }
   return out;
+}
+
+// ── Customers, from the counter ───────────────────────────────────────────────
+
+export interface PhoneLookup {
+  valid: boolean;
+  e164?: string;
+  known: boolean;
+  /** True when this login may see the customer (Stage B). Absent when unknown. */
+  mine?: boolean;
+  customer_id?: string;
+  name?: string | null;
+  visits?: number;
+  last_visit?: string | null;
+  last_purchase?: string | null;
+  open_followups?: number;
+  birthday?: string | null;
+}
+
+/** What we know about a number being typed. The database decides how much to say. */
+export async function lookupCustomerByPhone(phone: string): Promise<PhoneLookup> {
+  const { data, error } = await supabase.rpc('customer_by_phone', { p_phone: phone });
+  if (error) throw new Error(error.message);
+  return (data ?? { valid: false, known: false }) as PhoneLookup;
+}
+
+/** A new customer record for a number nobody has logged before. No RETURNING:
+ *  the shared device may insert but is not allowed to read customers back. */
+export async function createCustomer(contact: string, displayName?: string): Promise<void> {
+  const { error } = await supabase.from('customers').insert({ contact, display_name: displayName?.trim() || null });
+  if (error && !/duplicate|unique/i.test(error.message)) throw new Error(error.message);
+}
+
+export interface LightspeedToday { sales: number; revenue: number; scope: string | null; as_of: string | null }
+
+/** Today's till figures for an outlet, limited by what this login may see. */
+export async function getLightspeedToday(outlet?: string | null): Promise<LightspeedToday> {
+  const { data, error } = await supabase.rpc('lightspeed_today', { p_outlet: outlet ?? null });
+  if (error) throw new Error(error.message);
+  return (data ?? { sales: 0, revenue: 0, scope: null, as_of: null }) as LightspeedToday;
 }
