@@ -835,3 +835,80 @@ export async function getLightspeedToday(outlet?: string | null): Promise<Lights
   if (error) throw new Error(error.message);
   return (data ?? { sales: 0, revenue: 0, scope: null, as_of: null }) as LightspeedToday;
 }
+
+// ── Home: where you are, who is due, what is coming up ───────────────────────
+
+/**
+ * Record that somebody moved to another shop mid-day.
+ *
+ * The database links it to the open shift and works out who from the login;
+ * on the shared device the selected salesperson is named instead. Only a real
+ * move is logged — the manager flipping between shops to read their figures is
+ * a view, not a journey, and is not sent here.
+ */
+export async function logOutletChange(to: string, from: string | null, employeeId?: string | null): Promise<void> {
+  const { error } = await supabase.rpc('log_outlet_change', {
+    p_to_outlet: to, p_from_outlet: from, p_employee: employeeId ?? null,
+  });
+  if (error) throw new Error(error.message);
+}
+
+export interface Occasion {
+  customerId: string;
+  name: string;
+  phone: string | null;
+  kind: string;
+  label: string;
+  date: string;
+  daysUntil: number;
+  /** The year it first happened, when known — a 40th birthday reads differently. */
+  year: number | null;
+}
+
+/** Birthdays and anniversaries in the next `days`, for the customers this login may see. */
+export async function getUpcomingOccasions(days = 7): Promise<Occasion[]> {
+  const { data, error } = await supabase.rpc('upcoming_occasions', { p_days: days });
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as { customer_id: string; kind: string; label: string; occasion_date: string; days_until: number; occasion_year: number | null }[];
+  if (rows.length === 0) return [];
+  const ids = Array.from(new Set(rows.map(r => r.customer_id)));
+  const { data: people } = await supabase.from('customers')
+    .select('id, display_name, contact, phone_e164').in('id', ids);
+  const byId = new Map((people ?? []).map(p => [p.id as string, p as { display_name: string | null; contact: string | null; phone_e164: string | null }]));
+  return rows.map(r => {
+    const p = byId.get(r.customer_id);
+    return {
+      customerId: r.customer_id,
+      name: p?.display_name?.trim() || p?.contact || 'Customer',
+      phone: p?.phone_e164 ?? p?.contact ?? null,
+      kind: r.kind, label: r.label, date: r.occasion_date, daysUntil: r.days_until, year: r.occasion_year,
+    };
+  }).sort((a, b) => a.daysUntil - b.daysUntil || a.name.localeCompare(b.name));
+}
+
+export interface MyShift { id: string; clockIn: string; clockOut: string | null; location: string | null }
+
+/** This login's own shifts since the start of today (Kuwait), oldest first. */
+export async function getMyShiftsToday(userId: string): Promise<MyShift[]> {
+  const startOfToday = new Date(new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' }) + 'T00:00:00+03:00');
+  const { data } = await supabase.from('attendance_records')
+    .select('id, clock_in, clock_out, location')
+    .eq('user_id', userId)
+    .gte('clock_in', startOfToday.toISOString())
+    .order('clock_in', { ascending: true });
+  return (data ?? []).map(r => ({ id: r.id as string, clockIn: r.clock_in as string, clockOut: (r.clock_out as string | null) ?? null, location: (r.location as string | null) ?? null }));
+}
+
+/**
+ * Roster name → employee id, for the shared shop phone.
+ *
+ * The shared login may not read the employees table, but it must be able to
+ * say which salesperson moved shops or sent a WhatsApp. This is the one
+ * question the database answers it: the names it already shows in "Served by",
+ * and the id that goes with each.
+ */
+export async function getRosterEmployees(): Promise<Map<string, string>> {
+  const { data, error } = await supabase.rpc('roster_employees');
+  if (error) throw new Error(error.message);
+  return new Map(((data ?? []) as { employee_id: string; staff_name: string }[]).map(r => [r.staff_name, r.employee_id]));
+}

@@ -1,5 +1,5 @@
 import { NavLink } from 'react-router-dom';
-import { PlusCircle, ClipboardList, Bell, UserRound, Home, Users, MoreHorizontal } from 'lucide-react';
+import { ClipboardList, Bell, UserRound, Home, Users, MoreHorizontal } from 'lucide-react';
 import { useAuth, canSeePerformance } from '../../context/AuthContext';
 
 /**
@@ -16,18 +16,23 @@ import { useAuth, canSeePerformance } from '../../context/AuthContext';
  * Everything that is opened once a day rather than between customers moved
  * behind More.
  */
+/* Logging a visit is not a tab any more: it is the big button on Home and on
+   Today, which is where somebody is standing when a customer walks in. That
+   freed the slot for Customers, which a salesperson now opens between visits.
+   The manager's Team moved behind More, with its own card kept on Home. */
 const salesTabs = [
-  { to: '/entry',     icon: PlusCircle,      label: 'Entry'      },
+  { to: '/',          icon: Home,            label: 'Home'       },
   { to: '/today',     icon: ClipboardList,   label: 'Today'      },
   { to: '/followups', icon: Bell,            label: 'Follow-ups' },
+  { to: '/crm',       icon: Users,           label: 'Customers'  },
   { to: '/portal',    icon: UserRound,       label: 'Me'         },
 ];
 
 const managerTabs = [
   { to: '/',          icon: Home,            label: 'Home'       },
-  { to: '/entry',     icon: PlusCircle,      label: 'Entry'      },
-  { to: '/team',      icon: Users,           label: 'Team'       },
+  { to: '/today',     icon: ClipboardList,   label: 'Today'      },
   { to: '/followups', icon: Bell,            label: 'Follow-ups' },
+  { to: '/crm',       icon: Users,           label: 'Customers'  },
   { to: '/more',      icon: MoreHorizontal,  label: 'More'       },
 ];
 

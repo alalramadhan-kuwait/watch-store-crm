@@ -14,21 +14,19 @@ export function Sidebar() {
      both: whichever page this role opens on. */
   const perf = canSeePerformance(role);
   const items = [
-    ...(perf
-      ? [{ to: '/',       icon: Home,        label: 'Home'        },
-         { to: '/entry',  icon: PlusCircle,  label: 'Quick Entry' }]
-      : [{ to: '/',       icon: PlusCircle,  label: 'Quick Entry' }]),
+    { to: '/',          icon: Home,          label: 'Home'        },
+    { to: '/entry',     icon: PlusCircle,    label: 'Log a visit' },
     { to: '/today',     icon: ClipboardList, label: "Today's Log" },
-    ...(perf ? [{ to: '/team', icon: Users2, label: 'Team' }] : []),
     { to: '/followups', icon: Bell,          label: 'Follow-ups'  },
+    { to: '/crm',       icon: Users,         label: 'Customers'   },
+    ...(perf ? [{ to: '/team', icon: Users2, label: 'Team' }] : []),
     { to: '/portal',    icon: UserRound,     label: 'My Portal'   },
-    // the store manager runs both shops: the numbers yes, CRM and Settings no
+    // the store manager runs both shops: the numbers yes, Settings no
     ...(perf ? [
       { to: '/manager',  icon: BarChart2,  label: 'Dashboard' },
       { to: '/reports',  icon: FileText,   label: 'Reports'   },
     ] : []),
     ...(role === 'admin' ? [
-      { to: '/crm',      icon: Users,     label: 'CRM'       },
       { to: '/settings', icon: Settings,   label: 'Settings'  },
     ] : []),
   ];

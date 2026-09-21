@@ -6,7 +6,7 @@ import {
 import { useAuth } from '../context/AuthContext';
 import { useAppStore } from '../store';
 import { supabase } from '../lib/supabase';
-import { getSettings, getOpenFollowUps } from '../db';
+import { getSettings, getOpenFollowUps, getUpcomingOccasions } from '../db';
 import { loadStoreDay, loadMonthToDate, loadMonthlyTarget, type StoreDayData } from '../db/storeToday';
 import { useLive } from '../shared/live';
 import { storeDay, standings, STANDING_WORD, type TeamStanding } from '../utils/storeDay';
@@ -46,6 +46,7 @@ export function Home() {
   const [mtd, setMtd] = useState<number | null>(null);
   const [target, setTarget] = useState<number | null>(null);
   const [followUps, setFollowUps] = useState<{ overdue: number; today: number; total: number }>({ overdue: 0, today: 0, total: 0 });
+  const [occasions, setOccasions] = useState(0);
   const [stale, setStale] = useState(false);
   const [loading, setLoading] = useState(true);
   const [sheet, setSheet] = useState(false);
@@ -65,12 +66,14 @@ export function Home() {
   const load = useCallback(async () => {
     if (!outlet) return;
     try {
-      const [d, m, t, ups] = await Promise.all([
+      const [d, m, t, ups, occ] = await Promise.all([
         loadStoreDay(outlet, today),
         loadMonthToDate(outlet, today),
         loadMonthlyTarget(outlet),
         getOpenFollowUps(),
+        getUpcomingOccasions(7).catch(() => []),
       ]);
+      setOccasions(occ.length);
       const mine = ups.filter((c) => sameOutlet(c.outlet, outlet));
       const buckets = mine.map(followUpUrgency);
       setData(d); setMtd(m); setTarget(t);
@@ -126,6 +129,9 @@ export function Home() {
   }
   for (const m of missing) {
     alerts.push({ key: `miss-${m.member.employeeId}`, text: `${m.member.fullName} was due in and has not clocked in`, go: () => navigate('/team') });
+  }
+  if (occasions) {
+    alerts.push({ key: 'occ', text: `${occasions} customer ${occasions > 1 ? 'occasions' : 'occasion'} in the next 7 days`, go: () => navigate('/crm?tab=occasions') });
   }
 
   if (loading && !data) {
@@ -212,7 +218,7 @@ export function Home() {
               the one thing that has to be reachable every evening. */}
           <button onClick={() => navigate('/today')}
             className="flex items-center gap-1 px-3 py-3 -my-1.5 min-h-[44px] rounded-xl text-xs font-semibold text-brand-700 active:bg-brand-50">
-            {data?.cases.length ?? 0} entries
+            {data?.cases.length ?? 0} visits
             <ChevronRight className="w-4 h-4" />
           </button>
         </div>
@@ -220,7 +226,7 @@ export function Home() {
           {formatKDCompact(salesValue)} <span className="text-base font-semibold text-slate-400">KD</span>
         </p>
         <div className="grid grid-cols-3 gap-3 mt-4 text-center">
-          {[['Sales', sales.length], ['Lost', lost.length], ['Interactions', data?.cases.length ?? 0]].map(([l, v]) => (
+          {[['Sales', sales.length], ['Lost opp.', lost.length], ['Visits', data?.cases.length ?? 0]].map(([l, v]) => (
             <div key={l as string}>
               <p className="text-xl font-bold text-slate-900 leading-none">{v as number}</p>
               <p className="text-[11px] text-slate-500 mt-1">{l as string}</p>
@@ -288,7 +294,7 @@ export function Home() {
       {/* ── the one primary action ── */}
       <button onClick={() => navigate('/entry')}
         className="w-full flex items-center justify-center gap-2 py-4 rounded-2xl bg-brand-700 text-white font-bold text-base active:scale-[0.99] transition-transform">
-        <PlusCircle className="w-5 h-5" /> New Entry
+        <PlusCircle className="w-5 h-5" /> Log a visit
       </button>
 
       {sheet && (

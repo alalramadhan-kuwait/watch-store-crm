@@ -1,6 +1,6 @@
 import { Link } from 'react-router-dom';
 import {
-  ClipboardList, BarChart2, FileText, Users, UserRound, Settings as Cog, ChevronRight, LogOut,
+  ClipboardList, BarChart2, FileText, Users, Users2, UserRound, Settings as Cog, ChevronRight, LogOut, PlusCircle,
 } from 'lucide-react';
 import { useAuth, canSeePerformance } from '../context/AuthContext';
 
@@ -20,10 +20,12 @@ export function More() {
     {
       title: 'The shop',
       items: [
-        { to: '/today', icon: ClipboardList, label: 'Today’s log', hint: 'Every entry, and Close Day', show: true },
+        { to: '/entry', icon: PlusCircle, label: 'Log a visit', hint: 'A customer who is here now', show: true },
+        { to: '/today', icon: ClipboardList, label: 'Today’s log', hint: 'Every visit, and Close Day', show: true },
+        { to: '/team', icon: Users2, label: 'Team', hint: 'Who is in, requests, attendance', show: perf },
         { to: '/manager', icon: BarChart2, label: 'Monthly dashboard', hint: 'The month, by person and by brand', show: perf },
         { to: '/reports', icon: FileText, label: 'Reports', hint: 'Daily reports to send on', show: perf },
-        { to: '/crm', icon: Users, label: 'CRM', hint: 'Customers and their history', show: role === 'admin' },
+        { to: '/crm', icon: Users, label: 'Customers', hint: 'Who they are, their history, follow-ups', show: true },
       ],
     },
     {

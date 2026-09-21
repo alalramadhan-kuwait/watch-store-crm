@@ -7,6 +7,7 @@ import { Sidebar } from './components/layout/Sidebar';
 import { LoginPage } from './components/auth/LoginPage';
 import { EntryWithLog } from './components/EntryWithLog';
 import { Home } from './components/Home';
+import { SalesHome } from './components/SalesHome';
 import { Team } from './components/Team';
 import { More } from './components/More';
 import { TodayLog } from './components/TodayLog';
@@ -116,7 +117,7 @@ function AppShell() {
               link and the Home tab all land in the same place. Entry keeps its
               own address, which is what the Entry tab points at for everyone —
               there is one Quick Entry and no manager variant of it. */}
-          <Route path="/" element={canSeePerformance(role) ? <Home /> : <EntryWithLog />} />
+          <Route path="/" element={canSeePerformance(role) ? <Home /> : <SalesHome />} />
           <Route path="/entry" element={<EntryWithLog />} />
           <Route path="/team" element={<ProtectedRoute allow={canSeePerformance}><Team /></ProtectedRoute>} />
           <Route path="/more" element={<More />} />
@@ -124,7 +125,9 @@ function AppShell() {
           <Route path="/followups" element={<FollowUps />} />
           <Route path="/portal" element={<MyPortal />} />
           <Route path="/notifications" element={<Notifications />} />
-          <Route path="/crm" element={<ProtectedRoute><CRM /></ProtectedRoute>} />
+          {/* Customers is for everyone on the floor now; the database decides
+              which customers each login sees, not the route. */}
+          <Route path="/crm" element={<CRM />} />
           <Route path="/manager" element={<ProtectedRoute allow={canSeePerformance}><ManagerDashboard /></ProtectedRoute>} />
           <Route path="/reports" element={<ProtectedRoute allow={canSeePerformance}><Reports /></ProtectedRoute>} />
           <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
