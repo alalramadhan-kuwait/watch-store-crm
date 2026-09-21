@@ -11,3 +11,4 @@ import './workload.test';
 import './punctuality.test';
 import './corrections.test';
 import './requests.test';
+import './phone.test';
