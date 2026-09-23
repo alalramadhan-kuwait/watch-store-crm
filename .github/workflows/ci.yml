@@ -11,6 +11,9 @@ on:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    # the version being built, handed to the deploy job for its release tag
+    outputs:
+      version: ${{ steps.version.outputs.version }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -23,6 +26,9 @@ jobs:
         run: npx tsc --noEmit
       - name: Build
         run: npm run build
+      - name: Read the version
+        id: version
+        run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
       # handed to the deploy job so the site is built exactly once
       - uses: actions/upload-artifact@v4
         with:
@@ -55,3 +61,22 @@ jobs:
           publish_branch: gh-pages
           force_orphan: true
           commit_message: 'Deploy ${{ github.sha }}'
+      # Mark where each version first shipped. A version already tagged is
+      # left alone, so only the deploy that introduces a new number creates
+      # one, and nobody has to remember to. The site is live before this step
+      # runs; a tagging problem warns rather than turning a good deploy red.
+      - name: Tag the release
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: v${{ needs.verify.outputs.version }}
+        run: |
+          code=$(curl -s -o /tmp/tag.json -w '%{http_code}' -X POST \
+            -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${{ github.repository }}/git/refs" \
+            -d "{\"ref\":\"refs/tags/$TAG\",\"sha\":\"$GITHUB_SHA\"}")
+          case "$code" in
+            201) echo "Tagged $TAG at ${GITHUB_SHA::7}" ;;
+            422) echo "$TAG already exists: this deploy did not change the version" ;;
+            *)   echo "::warning::Could not tag $TAG (HTTP $code): $(cat /tmp/tag.json)"; exit 1 ;;
+          esac

@@ -1,0 +1,28 @@
+[
+  {
+    "version": "2.0.0",
+    "date": "2026-09-23",
+    "title": "Customers, visits and the end of the day",
+    "changes": [
+      "Log a customer visit as Browsing, Interested, Lost Opportunity or Manual Sale.",
+      "Set the visit time when you log it late, and correct it afterwards.",
+      "Typing a phone number tells you whether the customer is new, yours, or already known.",
+      "A lost opportunity can be saved when the customer would not give a number.",
+      "Salespeople open on their own Home: the shop, the clock, what is waiting and today's visits.",
+      "New tabs: Home, Today, Follow-ups, Customers and Me. Managers find Team under More.",
+      "Customers: each customer's visits, Lightspeed purchases, notes and dates on one page.",
+      "Send WhatsApp from a customer, a follow-up or a birthday, with English or Arabic templates.",
+      "Birthday and anniversary reminders arrive a week before and on the day.",
+      "Today's log shows what Lightspeed rang up for the shop.",
+      "Colleagues' customer phone numbers are hidden.",
+      "Each salesperson logs in as themselves and sees their own follow-ups.",
+      "My Portal, requests and the notification bell are inside this app.",
+      "Close Day closes only the shop you chose, and offers the summary for WhatsApp.",
+      "The day report PDF is sized for a phone.",
+      "Clocking out works even when the phone cannot find your location.",
+      "Fixed: the app going white on iPhone Safari.",
+      "Fixed: the visit outcome buttons now show which one is chosen.",
+      "The version now shows under the title. Tap it to see this list."
+    ]
+  }
+]

@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
+import { WhatsNewModal, useUnseenRelease, versionLabel } from './WhatsNew';
 import {
-  ClipboardList, BarChart2, FileText, Users, Users2, UserRound, Settings as Cog, ChevronRight, LogOut, PlusCircle,
+  ClipboardList, BarChart2, FileText, Users, Users2, UserRound, Settings as Cog, ChevronRight, LogOut, PlusCircle, Sparkles,
 } from 'lucide-react';
 import { useAuth, canSeePerformance } from '../context/AuthContext';
 
@@ -15,6 +17,8 @@ import { useAuth, canSeePerformance } from '../context/AuthContext';
 export function More() {
   const { profile, role, signOut } = useAuth();
   const perf = canSeePerformance(role);
+  const [notes, setNotes] = useState(false);
+  const unseen = useUnseenRelease();
 
   const groups: { title: string; items: { to: string; icon: typeof FileText; label: string; hint: string; show: boolean }[] }[] = [
     {
@@ -70,6 +74,21 @@ export function More() {
           </div>
         );
       })}
+
+      <div className="card overflow-hidden">
+        <button onClick={() => setNotes(true)} className="w-full flex items-center gap-3 px-4 py-3.5 active:bg-slate-50 text-left">
+          <Sparkles className="w-5 h-5 text-slate-400 shrink-0" />
+          <span className="flex-1 min-w-0">
+            <span className="flex items-center gap-2 font-semibold text-slate-800 text-sm">
+              What's new
+              {unseen && <span className="w-1.5 h-1.5 rounded-full bg-rose-500" aria-hidden />}
+            </span>
+            <span className="block text-xs text-slate-400 truncate tabular-nums">{versionLabel()}</span>
+          </span>
+          <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
+        </button>
+      </div>
+      <WhatsNewModal open={notes} onClose={() => setNotes(false)} />
 
       <button onClick={() => void signOut()}
         className="w-full flex items-center justify-center gap-2 py-3.5 rounded-2xl border-2 border-slate-200 text-slate-600 font-semibold text-sm active:scale-[0.99]">

@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { PlusCircle, ClipboardList, Bell, BarChart2, FileText, Settings, LogOut, Users, UserRound, Home, Users2 } from 'lucide-react';
 import { useAuth, canSeePerformance } from '../../context/AuthContext';
 import { useAppStore } from '../../store';
-import pkg from '../../../package.json';
+import { VersionChip } from '../WhatsNew';
 import { roleLabel } from '../../utils/roles';
 
 export function Sidebar() {
@@ -75,7 +75,9 @@ export function Sidebar() {
           {!sidebarCollapsed && 'Sign Out'}
         </button>
         {!sidebarCollapsed && (
-          <p className="text-center text-[10px] text-slate-300 font-medium mt-1 pb-1">v{pkg.version}{__BUILD_SHA__ && ` · ${__BUILD_SHA__}`}</p>
+          <div className="flex justify-center mt-1 pb-1">
+            <VersionChip className="text-[10px] font-medium text-slate-400" />
+          </div>
         )}
       </div>
     </nav>

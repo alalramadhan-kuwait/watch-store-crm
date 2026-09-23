@@ -44,3 +44,29 @@ After editing anything in it: run `npm run shared:hash`, copy the directory
 (including `__tests__/` and `MANIFEST.json`) to the other repo, and confirm both
 builds print the same foundation hash. `npm run build` checks this and fails if
 they have drifted.
+
+## Releases
+
+Each app has a version (`package.json`) and plain-language notes for it
+(`src/releases.json`, newest first). Staff see both: tapping the version under
+the title opens What's new. `npm run build` fails if the newest notes are not
+for the version in `package.json` (`scripts/release-check.mjs`).
+
+**Bump the version when a change reaches the people using the app**, in the
+same commit as the change:
+
+- **major** (3.0.0) — changes how people do their daily work: a new flow, screens moved.
+- **minor** (2.1.0) — something new they can do.
+- **patch** (2.0.1) — a fix, or an improvement they would barely notice.
+
+Several fixes shipped together can share one patch. Work nobody using the app
+would notice — docs, tests, refactors — needs no bump.
+
+Run `npm version X.Y.Z --no-git-tag-version` so the lockfile follows, then add
+the entry at the top of `src/releases.json`: one short line per change a user
+would notice, in their words rather than ours.
+
+**Do not tag by hand.** When a version first deploys, CI tags that commit
+`vX.Y.Z`. The two apps are numbered independently. SYSTEM.md's Changelog
+remains the technical record of how things changed; the release notes are for
+the people using the app.
