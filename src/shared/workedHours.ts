@@ -104,12 +104,30 @@ export interface DayHours {
  * A day's worth of records, summed. Split shifts add up; a broken record is
  * left out of the total and counted in unusableShifts instead, so a day that is
  * part-recorded reads as part-recorded rather than as a clean number.
+ *
+ * Shifts that overlap count their shared time once. A clock-in that went
+ * through twice ten seconds apart (24 Sep) left two records covering the same
+ * afternoon, and adding them up credited 13h 41m for a 6h 51m day.
  */
 export function dayHours(records: ShiftInput[], now: Date = new Date()): DayHours {
   const parts = records.map((r) => shiftHours(r, now));
   const usable = parts.filter((p) => p.hours !== null);
+  const spans = records
+    .filter((_, i) => parts[i].hours !== null)
+    .map((r) => {
+      const start = ms(r.clockIn);
+      return [start, r.clockOut ? ms(r.clockOut) : Math.max(start, now.getTime())] as const;
+    })
+    .sort((a, b) => a[0] - b[0]);
+  let covered = 0;
+  let reach = -Infinity;
+  for (const [start, end] of spans) {
+    if (end <= reach) continue;
+    covered += end - Math.max(start, reach);
+    reach = end;
+  }
   return {
-    hours: usable.length ? usable.reduce((t, p) => t + (p.hours as number), 0) : null,
+    hours: usable.length ? covered / MS_PER_HOUR : null,
     shifts: parts.length,
     unusableShifts: parts.length - usable.length,
     onTheFloor: parts.some((p) => p.isOpen && !p.isAbandoned),

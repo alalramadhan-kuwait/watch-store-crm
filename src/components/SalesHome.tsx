@@ -11,6 +11,7 @@ import {
   logOutletChange, getRosterEmployees, type Occasion, type MyShift, type LightspeedToday,
 } from '../db';
 import { useLive } from '../shared/live';
+import { dayHours } from '../shared/workedHours';
 import { shopsFrom, sameOutlet } from '../utils/outlet';
 import { followUpUrgency } from '../utils/followUps';
 import { formatKD } from '../utils/formatKD';
@@ -105,7 +106,8 @@ export function SalesHome() {
   }), [myCases]);
 
   const open = shifts.find(s => !s.clockOut) ?? null;
-  const workedMs = shifts.reduce((t, s) => t + (new Date(s.clockOut ?? Date.now()).getTime() - new Date(s.clockIn).getTime()), 0);
+  // Through the one rule, so a clock-in that went through twice is not counted twice.
+  const workedMs = (dayHours(shifts).hours ?? 0) * 3_600_000;
 
   async function moveTo(to: string) {
     if (sameOutlet(to, outlet)) { setSwitching(false); return; }

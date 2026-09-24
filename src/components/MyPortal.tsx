@@ -304,8 +304,11 @@ export function MyPortal() {
         // the evening is not "late" — only the first clock-in is judged.
         isLate: todayRecs.length === 0 && lateClassOf(now.toISOString(), workStart) !== 'On time',
       });
+      // Reload either way: a refusal usually means a shift is already open
+      // (another phone or tab), and the page should show it rather than a stale button.
       if (err) setGeoError(err);
-      else { showToast(`Clocked in at ${matched.name}`, 'success'); await load(); }
+      else showToast(`Clocked in at ${matched.name}`, 'success');
+      await load();
     } catch (err) {
       const e = err as { code?: number; message?: string };
       if (e.code === 1) setGeoError(`${locationBlockedMessage()}\n${CORRECTION_FALLBACK}`);
@@ -557,10 +560,10 @@ export function MyPortal() {
   const startedToday = todayRecs.length > 0;      // has worked at some point today
   const shiftsToday = todayRecs.length;
   // Total across every shift, with the open one still counting up.
-  const workedTodayMs = todayRecs.reduce(
-    (t, r) => t + (new Date(r.clock_out ?? new Date(nowMs).toISOString()).getTime() - new Date(r.clock_in).getTime()),
-    0,
-  );
+  // Through the one rule, so a clock-in that went through twice is not counted twice.
+  const workedTodayMs = (dayHours(
+    todayRecs.map((r) => ({ clockIn: r.clock_in, clockOut: r.clock_out })), new Date(nowMs),
+  ).hours ?? 0) * 3_600_000;
   // Only the first clock-in of the day carries the lateness.
   const lateClass = firstRec ? lateClassOf(firstRec.clock_in, workStart) : null;
   const lateLabel = lateClass && lateClass !== 'On time' && !firstRec?.justified ? lateClass : null;

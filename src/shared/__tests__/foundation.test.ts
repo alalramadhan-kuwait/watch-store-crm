@@ -120,6 +120,26 @@ t('a split shift adds up', () => {
   assert.equal(d.unusableShifts, 0);
 });
 
+t('a clock-in that went through twice is counted once', () => {
+  const d = dayHours([
+    { clockIn: '2026-09-24T06:27:53Z', clockOut: '2026-09-24T13:18:31Z' },
+    { clockIn: '2026-09-24T06:28:03Z', clockOut: '2026-09-24T13:18:45Z' },
+  ], now);
+  assert.equal(formatHours(d.hours), '6h 51m');
+  assert.equal(d.shifts, 2);
+});
+
+t('overlapping shifts count the shared time once, still-open ones included', () => {
+  const at = new Date('2026-09-24T12:00:00Z');
+  const d = dayHours([
+    { clockIn: '2026-09-24T06:00:00Z', clockOut: '2026-09-24T09:00:00Z' },
+    { clockIn: '2026-09-24T07:00:00Z', clockOut: '2026-09-24T08:00:00Z' },
+    { clockIn: '2026-09-24T08:30:00Z', clockOut: null },
+  ], at);
+  assert.equal(d.hours, 6);
+  assert.ok(d.isLive);
+});
+
 t('a part-broken day reports what it knows and flags the rest', () => {
   const d = dayHours([
     { clockIn: '2026-09-17T06:00:00Z', clockOut: '2026-09-17T09:00:00Z' },

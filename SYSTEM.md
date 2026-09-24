@@ -4,7 +4,7 @@
 >
 > **This is a mirror.** The same file lives in both repos (`timekeeper-online/SYSTEM.md` and `watch-store-crm/SYSTEM.md`) because the two apps share one system — keep the two copies identical when you update either.
 >
-> Last updated: **2026-09-23**
+> Last updated: **2026-09-24**
 
 ---
 
@@ -485,7 +485,7 @@ copy `src/shared/` into the other.
 | `caseLabels.ts` | What a stored entry type is called on screen: Browsing, Interested, Lost Opportunity, Manual Sale. | `cases.case_type` (values unchanged) |
 | `messageRules.ts` | A WhatsApp template filled in, the greeting name, the `wa.me` link. | `render_template()`, `message_for()` |
 
-`npm test` runs `src/shared/__tests__` (137 checks on 2026-09-23, no database
+`npm test` runs `src/shared/__tests__` (139 checks on 2026-09-24, no database
 needed) and is part of the build. Where a rule also lives in SQL, its fixtures
 were produced by running the SQL, so the two cannot drift without a test
 failing.
@@ -623,6 +623,7 @@ on; `Unknown` is the correct answer when the data does not carry one.
 
 ## 13. Changelog
 
+- **2026-09-24** — **A clock-in counts once.** Eman's clock-in went through twice, ten seconds apart (two open records, closed 14 s apart at 16:18), and every total added them: My Portal showed 12h 55m at about 3:55 pm for a day begun at 9:27, and `attendance_day_hours` held 13.69 h for a 6.85 h day. A new BEFORE INSERT trigger `attendance_one_open_shift` refuses a clock-in while the same person has an open shift younger than `attendance_abandon_hours()` (older open shifts were never clocked out and do not block), under a per-person advisory lock so simultaneous taps queue; both portals reload after a refusal so the page shows the shift that is already open. `dayHours()` (shared) and the `attendance_day_hours` view now count overlapping time once; across all 173 recorded days only that one day changed. My Portal (both apps) and the shop app's Home clock card now take today's total from `dayHours()` instead of their own sum. The duplicate record itself was left in place. Migration `20260924140835`.
 - **2026-09-23** — **Both apps carry a real version.** The shop app said 1.2.14 for ten days and 69 changes; the back office said 0.1.0 from June onward and showed no version at all. Each app now keeps plain-language notes in `src/releases.json` beside `package.json`'s version, and `scripts/release-check.mjs` (mirrored, run by `npm run build`) fails the build unless the newest notes are for that version, well-formed, newest first. Tapping the version line opens What's new (`src/components/WhatsNew.tsx`), with a dot until this device has opened the notes for the running version — `localStorage` `dsr:whatsNewSeen` / `tk:whatsNewSeen`, prefixed because both apps are served from one origin. The back office gained the `__BUILD_SHA__` build stamp the shop app already had. CI tags `vX.Y.Z` at the deployed commit the first time a version ships (GitHub refs API; 422 means already tagged; any other failure warns and never fails the deploy). Starting points: **shop app 2.0.0, back office 1.0.0.** Routine: CLAUDE.md → Releases.
 
 - **2026-09-21** (later 4) — **The day report belongs to one shop, and reads on a phone.** On the owner's screen the outlet filter changed the list and nothing else: the Close Day preview counted every outlet, and `closeDay` was called with an empty outlet — which locks every shop's entries and files one combined report. Filtered to Avenues (8 sales, 2,338 KD) the preview showed the company (13, 3,302) and closed it. One `reportOutlet` now drives the list, the figures, the close row, the summary and the PDF, and the confirmation names what is being closed (§11). Closing offers the Report Preview on WhatsApp. The PDF moved from A4 to a 100 mm page cut to the height of its content. Also: three of the four DSR outcome buttons had never shown a selected state, because their Tailwind class names were assembled at runtime and stripped from the build (§12).

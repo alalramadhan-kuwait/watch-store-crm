@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.0.1",
+    "date": "2026-09-24",
+    "title": "Hours no longer counted twice",
+    "changes": [
+      "If a clock-in goes through twice, your hours today are no longer added up twice; a second clock-in while you are already clocked in is now refused."
+    ]
+  },
+  {
     "version": "2.0.0",
     "date": "2026-09-23",
     "title": "Customers, visits and the end of the day",
