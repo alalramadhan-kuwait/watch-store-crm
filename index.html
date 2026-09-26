@@ -1,0 +1,143 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <!-- viewport-fit=cover lets the app reach the edges of the screen, which is
+         what makes the safe-area insets in the stylesheet mean anything: the
+         bottom navigation bar sits exactly where the home indicator is. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <!-- The app's chrome is a white bar, so the status bar stays out of the web
+         view with dark text on light, which "default" is exactly. -->
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <!-- The name under the Home Screen icon. Short, and unmistakable next to
+         Timekeeper, which lives on the same phones. -->
+    <meta name="apple-mobile-web-app-title" content="DSR" />
+    <meta name="application-name" content="DSR" />
+    <!-- Matches the fixed white bar at the top of the app. It used to be
+         #0a0a0a, which put a black band above a white header on Android. -->
+    <meta name="theme-color" content="#ffffff" />
+    <meta name="color-scheme" content="light" />
+    <title>DSR — Daily Store Report</title>
+    <link rel="manifest" href="manifest.webmanifest" />
+    <link rel="icon" type="image/png" href="icon-192.png" />
+    <link rel="apple-touch-icon" href="apple-touch-icon.png" />
+    <!-- Launch screens. Without them iOS shows a blank white rectangle while
+         the app starts, which on a phone behind a counter looks like a crash. -->
+    <link rel="apple-touch-startup-image" href="app/splash-se1-portrait.png" media="(device-width:320px) and (device-height:568px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-8-portrait.png" media="(device-width:375px) and (device-height:667px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-8plus-portrait.png" media="(device-width:414px) and (device-height:736px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-x-portrait.png" media="(device-width:375px) and (device-height:812px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-xr-portrait.png" media="(device-width:414px) and (device-height:896px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-xsmax-portrait.png" media="(device-width:414px) and (device-height:896px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-13-portrait.png" media="(device-width:390px) and (device-height:844px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-13promax-portrait.png" media="(device-width:428px) and (device-height:926px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-15-portrait.png" media="(device-width:393px) and (device-height:852px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-15promax-portrait.png" media="(device-width:430px) and (device-height:932px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-16pro-portrait.png" media="(device-width:402px) and (device-height:874px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-16promax-portrait.png" media="(device-width:440px) and (device-height:956px) and (-webkit-device-pixel-ratio:3) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-ipad-portrait.png" media="(device-width:768px) and (device-height:1024px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-ipad-landscape.png" media="(device-width:768px) and (device-height:1024px) and (-webkit-device-pixel-ratio:2) and (orientation:landscape)" />
+    <link rel="apple-touch-startup-image" href="app/splash-ipad10-portrait.png" media="(device-width:810px) and (device-height:1080px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-ipad10-landscape.png" media="(device-width:810px) and (device-height:1080px) and (-webkit-device-pixel-ratio:2) and (orientation:landscape)" />
+    <link rel="apple-touch-startup-image" href="app/splash-ipadair-portrait.png" media="(device-width:820px) and (device-height:1180px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-ipadair-landscape.png" media="(device-width:820px) and (device-height:1180px) and (-webkit-device-pixel-ratio:2) and (orientation:landscape)" />
+    <link rel="apple-touch-startup-image" href="app/splash-ipadpro105-portrait.png" media="(device-width:834px) and (device-height:1112px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-ipadpro105-landscape.png" media="(device-width:834px) and (device-height:1112px) and (-webkit-device-pixel-ratio:2) and (orientation:landscape)" />
+    <link rel="apple-touch-startup-image" href="app/splash-ipadpro11-portrait.png" media="(device-width:834px) and (device-height:1194px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-ipadpro11-landscape.png" media="(device-width:834px) and (device-height:1194px) and (-webkit-device-pixel-ratio:2) and (orientation:landscape)" />
+    <link rel="apple-touch-startup-image" href="app/splash-ipadpro129-portrait.png" media="(device-width:1024px) and (device-height:1366px) and (-webkit-device-pixel-ratio:2) and (orientation:portrait)" />
+    <link rel="apple-touch-startup-image" href="app/splash-ipadpro129-landscape.png" media="(device-width:1024px) and (device-height:1366px) and (-webkit-device-pixel-ratio:2) and (orientation:landscape)" />
+    <script type="module" crossorigin src="/watch-store-crm/assets/index-BZOzuEo1.js"></script>
+    <link rel="stylesheet" crossorigin href="/watch-store-crm/assets/index-_v_b4jry.css">
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- The last line of defence against a blank screen.
+
+         Inline, and before anything else, because the failure it catches is the
+         bundle itself not loading: a device holding a shell from an older build
+         asks for hashed filenames the server deleted at the next deploy, and a
+         page whose only script 404s renders nothing at all. Staff saw a white
+         page and were told to switch browsers, which worked only because Chrome
+         on iOS runs no service worker and so was always fetching fresh.
+
+         First time, it repairs itself silently — caches cleared, worker
+         unregistered, one reload onto the published build. If that did not
+         help, it says so in words with a button, because a message a person can
+         act on beats a white rectangle. -->
+    <script>
+      (function () {
+        var KEY = 'dsr:recovering';
+        var shown = false;
+
+        function clearAndReload() {
+          var go = function () { location.reload(); };
+          var jobs = [];
+          try {
+            if (window.caches && caches.keys) {
+              jobs.push(caches.keys().then(function (ks) {
+                return Promise.all(ks.map(function (k) { return caches.delete(k); }));
+              }));
+            }
+            if (navigator.serviceWorker && navigator.serviceWorker.getRegistrations) {
+              jobs.push(navigator.serviceWorker.getRegistrations().then(function (rs) {
+                return Promise.all(rs.map(function (r) { return r.unregister(); }));
+              }));
+            }
+          } catch (e) { /* private mode, or an API this browser withholds */ }
+          if (!jobs.length) { go(); return; }
+          Promise.all(jobs).then(go, go);
+          setTimeout(go, 4000);          // never leave the reload itself hanging
+        }
+
+        function panel() {
+          if (shown) return;
+          shown = true;
+          var d = document.createElement('div');
+          d.setAttribute('style', 'position:fixed;inset:0;z-index:2147483647;display:flex;'
+            + 'align-items:center;justify-content:center;padding:24px;background:#0f172a;'
+            + 'font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color:#e2e8f0');
+          d.innerHTML =
+            '<div style="max-width:22rem;text-align:center">'
+            + '<p style="margin:0 0 .5rem;font-size:1.05rem;font-weight:600;color:#f8fafc">'
+            + 'The DSR could not start</p>'
+            + '<p style="margin:0 0 1.25rem;color:#94a3b8">This device is holding an old copy of the app. '
+            + 'Reloading clears it and fetches the current one.</p>'
+            + '<button type="button" style="font:inherit;font-weight:600;padding:.6rem 1.4rem;border:0;'
+            + 'border-radius:.6rem;background:#f8fafc;color:#0f172a">Reload</button></div>';
+          document.body.appendChild(d);
+          d.querySelector('button').addEventListener('click', function () {
+            try { sessionStorage.removeItem(KEY); } catch (e) { /* ignore */ }
+            clearAndReload();
+          });
+        }
+
+        // Repair once per visit; a second failure is not a stale cache, so say so.
+        function recover() {
+          var tried = false;
+          try { tried = !!sessionStorage.getItem(KEY); sessionStorage.setItem(KEY, '1'); }
+          catch (e) { tried = true; }          // no storage to remember by: do not loop
+          if (tried) { panel(); return; }
+          clearAndReload();
+        }
+
+        // A script or stylesheet that never arrives — the stale-shell case itself.
+        window.addEventListener('error', function (e) {
+          var t = e.target;
+          if (t && (t.tagName === 'SCRIPT' || t.tagName === 'LINK')) recover();
+        }, true);
+
+        // Everything else that ends in nothing being drawn.
+        window.addEventListener('DOMContentLoaded', function () {
+          setTimeout(function () {
+            var root = document.getElementById('root');
+            if (window.__booted || (root && root.childElementCount > 0)) return;
+            recover();
+          }, 12000);
+        });
+      })();
+    </script>
+  </body>
+</html>
