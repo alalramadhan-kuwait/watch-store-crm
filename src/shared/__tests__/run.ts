@@ -14,3 +14,4 @@ import './requests.test';
 import './phone.test';
 import './labels.test';
 import './message.test';
+import './customers.test';

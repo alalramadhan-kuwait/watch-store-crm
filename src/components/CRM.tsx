@@ -15,13 +15,14 @@ import {
 import { formatKD } from '../utils/formatKD';
 import { caseLabel } from '../shared/caseLabels';
 import { displayPhone } from '../shared/phoneRules';
+import { groupOf, GROUP_LABEL, lastSeen, type CustomerGroup } from '../shared/customerTiers';
 import { Modal } from './shared/Modal';
 import { CaseTypeBadge } from './shared/Badge';
 import { WhatsAppSheet } from './WhatsAppSheet';
 import type { TemplateKey } from '../shared/messageRules';
 import type { CaseType } from '../types';
 
-type Filter = 'all' | 'mine' | 'followups' | 'occasions' | 'vip';
+type Filter = 'top' | 'win_back' | 'new' | 'all' | 'mine' | 'followups' | 'occasions';
 
 const day = (iso: string | null | undefined) => iso ? format(new Date(iso), 'd MMM yyyy') : '—';
 const ago = (iso: string | null) => {
@@ -55,7 +56,9 @@ export function CRM() {
   const [rows, setRows] = useState<CustomerListRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
-  const [filter, setFilter] = useState<Filter>(params.get('tab') === 'occasions' ? 'occasions' : 'all');
+  /* Until the person picks one, a long list opens on the customers worth the day's
+     attention and a short one (a salesperson's own) on everyone. */
+  const [picked, setPicked] = useState<Filter | null>(params.get('tab') === 'occasions' ? 'occasions' : null);
   const openId = params.get('customer');
 
   const load = useCallback(async () => {
@@ -66,27 +69,45 @@ export function CRM() {
   useEffect(() => { void load(); }, [load]);
 
   const everyoneMine = useMemo(() => rows.length > 0 && rows.every(r => r.mine), [rows]);
+  const filter: Filter = picked ?? (rows.length > 300 ? 'top' : 'all');
+  const setFilter = (f: Filter) => setPicked(f);
+
+  const groups = useMemo(() => {
+    const now = new Date();
+    return new Map<string, CustomerGroup>(rows.map(r => [r.id, groupOf(r, now)]));
+  }, [rows]);
+  const counts = useMemo(() => {
+    const n = { top: 0, win_back: 0, new: 0 };
+    for (const g of groups.values()) if (g !== 'other') n[g]++;
+    return n;
+  }, [groups]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     const digits = q.replace(/\D/g, '');
     return rows
       .filter(r => {
-        if (filter === 'mine' && !r.mine) return false;
-        if (filter === 'followups' && r.openFollowups === 0) return false;
-        if (filter === 'occasions' && (r.nextOccasionDays == null || r.nextOccasionDays > 30)) return false;
-        if (filter === 'vip' && !r.isVip) return false;
-        if (!q) return true;
+        /* A search looks at everybody: typing a name must not depend on which
+           group the list happened to open on. */
+        if (!q) {
+          if (filter === 'top' || filter === 'win_back' || filter === 'new') { if (groups.get(r.id) !== filter) return false; }
+          if (filter === 'mine' && !r.mine) return false;
+          if (filter === 'followups' && r.openFollowups === 0) return false;
+          if (filter === 'occasions' && (r.nextOccasionDays == null || r.nextOccasionDays > 30)) return false;
+          return true;
+        }
         return r.name.toLowerCase().includes(q)
           || (digits.length >= 3 && ((r.phoneE164 ?? '').includes(digits) || r.contact.replace(/\D/g, '').includes(digits)));
       })
       .sort((a, b) => {
         if (filter === 'occasions') return (a.nextOccasionDays ?? 999) - (b.nextOccasionDays ?? 999);
-        const la = [a.lastVisit, a.lastPurchase].filter(Boolean).sort().pop() ?? '';
-        const lb = [b.lastVisit, b.lastPurchase].filter(Boolean).sort().pop() ?? '';
+        // The ones that matter most come first: by what they have spent, or for the new, how recently.
+        if (!search && (filter === 'top' || filter === 'win_back')) return b.purchasesKD - a.purchasesKD || a.name.localeCompare(b.name);
+        const la = lastSeen(a) ?? '';
+        const lb = lastSeen(b) ?? '';
         return lb.localeCompare(la) || a.name.localeCompare(b.name);
       });
-  }, [rows, search, filter]);
+  }, [rows, search, filter, groups]);
 
   const openCustomer = (id: string | null) => {
     const next = new URLSearchParams(params);
@@ -113,11 +134,13 @@ export function CRM() {
   }
 
   const chips: { key: Filter; label: string; show: boolean }[] = [
-    { key: 'all', label: 'All', show: true },
+    { key: 'top', label: `Top ${counts.top.toLocaleString()}`, show: rows.length > 300 },
+    { key: 'win_back', label: `Win back ${counts.win_back.toLocaleString()}`, show: rows.length > 300 },
+    { key: 'new', label: `New ${counts.new.toLocaleString()}`, show: rows.length > 300 },
     { key: 'mine', label: 'Mine', show: !everyoneMine && !!salesName },
     { key: 'followups', label: 'Open follow-ups', show: true },
     { key: 'occasions', label: 'Occasions', show: true },
-    { key: 'vip', label: 'VIP', show: true },
+    { key: 'all', label: 'All', show: true },
   ];
 
   return (
@@ -125,7 +148,9 @@ export function CRM() {
       <div className="flex items-end justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Customers</h1>
-          <p className="text-slate-500 text-sm mt-0.5">{rows.length.toLocaleString()} {everyoneMine ? 'you know' : 'you may see'}</p>
+          <p className="text-slate-500 text-sm mt-0.5">
+            {search ? `${filtered.length.toLocaleString()} found in all ${rows.length.toLocaleString()}` : `${filtered.length.toLocaleString()} shown · ${rows.length.toLocaleString()} ${everyoneMine ? 'you know' : 'you may see'}`}
+          </p>
         </div>
       </div>
 
@@ -148,8 +173,9 @@ export function CRM() {
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 text-slate-400">
           <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p className="font-medium">{search ? 'Nobody matches that.' : 'No customers here yet.'}</p>
-          {!search && <p className="text-sm">A customer appears once you have logged a visit or a sale with their number.</p>}
+          <p className="font-medium">{search ? 'Nobody matches that.' : rows.length ? 'Nobody in this group.' : 'No customers here yet.'}</p>
+          {!search && !rows.length && <p className="text-sm">A customer appears once you have logged a visit or a sale with their number.</p>}
+          {!search && rows.length > 0 && filter !== 'all' && <button onClick={() => setFilter('all')} className="mt-2 text-sm font-semibold text-slate-700 underline">Show all customers</button>}
         </div>
       ) : (
         <div className="card divide-y divide-slate-100 overflow-hidden">
@@ -162,10 +188,15 @@ export function CRM() {
                 </p>
                 <p className="text-xs text-slate-500 truncate">
                   {displayPhone(r.phoneE164) ?? r.contact}
-                  {(r.lastVisit || r.lastPurchase) && <> · {ago([r.lastVisit, r.lastPurchase].filter(Boolean).sort().pop()!)}</>}
+                  {lastSeen(r) && <> · {ago(lastSeen(r))}</>}
                   {r.responsible && <> · {r.responsible}</>}
                 </p>
                 <div className="flex flex-wrap gap-1.5 mt-1">
+                  {groups.get(r.id) !== 'other' && groups.get(r.id) !== undefined && (
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full ${groups.get(r.id) === 'top' ? 'bg-slate-900 text-white' : groups.get(r.id) === 'win_back' ? 'bg-sky-50 text-sky-700' : 'bg-violet-50 text-violet-700'}`}>
+                      {GROUP_LABEL[groups.get(r.id)!]}
+                    </span>
+                  )}
                   {r.purchases > 0 && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700">{r.purchases} {r.purchases === 1 ? 'purchase' : 'purchases'} · {formatKD(r.purchasesKD)} KD</span>}
                   {r.openFollowups > 0 && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700">{r.openFollowups} open follow-up{r.openFollowups > 1 ? 's' : ''}</span>}
                   {r.nextOccasionDays != null && r.nextOccasionDays <= 30 && (

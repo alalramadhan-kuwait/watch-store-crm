@@ -1,5 +1,16 @@
 [
   {
+    "version": "2.1.0",
+    "date": "2026-10-01",
+    "title": "Customers: focus on the ones that matter",
+    "changes": [
+      "Customers now opens on Top: customers who spent 1,000 KD or more, or bought 3+ times, and were seen in the last year.",
+      "New filters: Win back (top customers not seen for a year) and New (first purchase in the last 60 days). Each shows how many.",
+      "Searching still looks through every customer.",
+      "Each customer shows a Top, Win back or New tag. The VIP filter is replaced by Top."
+    ]
+  },
+  {
     "version": "2.0.2",
     "date": "2026-10-01",
     "title": "Customers and occasions fixed",

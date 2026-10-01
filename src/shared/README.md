@@ -16,6 +16,7 @@ one schedule reading, one store open/close rule.
 | `workload.ts` | Over a period, who carried how much — and is that fair? |
 | `punctuality.ts` | How late, and how early away — against *their own* shift. |
 | `portalRules.ts` | The portal rules that need nothing plugged in. |
+| `customerTiers.ts` | Which customers are worth the day's attention — top, win back, new? |
 | `live.ts` | Keeping a current-day screen up to date without polling. |
 
 `portal.ts` and `live.ts` are the two files here that talk to the network. It imports the
