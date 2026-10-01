@@ -1,5 +1,14 @@
 [
   {
+    "version": "2.0.2",
+    "date": "2026-10-01",
+    "title": "Customers and occasions fixed",
+    "changes": [
+      "Customers: tapping “3 customer occasions” now shows those customers.",
+      "Customer search now looks through every customer, not just the first 1,000."
+    ]
+  },
+  {
     "version": "2.0.1",
     "date": "2026-09-24",
     "title": "Hours no longer counted twice",

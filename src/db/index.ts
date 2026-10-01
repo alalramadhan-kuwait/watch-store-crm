@@ -929,9 +929,21 @@ export interface CustomerListRow {
 }
 
 export async function getCustomerList(): Promise<CustomerListRow[]> {
-  const { data, error } = await supabase.rpc('customer_list');
-  if (error) throw new Error(error.message);
-  return ((data ?? []) as Record<string, unknown>[]).map(r => ({
+  /* The API returns at most 1,000 rows a request and the owner may see about nine
+     thousand customers, so read the list a page at a time. Reading only the first
+     request left Occasions empty while Home counted three, and made a search
+     reach only a ninth of the customers. customer_list() is ordered by id so the
+     pages do not overlap. */
+  const PAGE = 1000;
+  const all: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase.rpc('customer_list').range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as Record<string, unknown>[];
+    all.push(...page);
+    if (page.length < PAGE) break;
+  }
+  return all.map(r => ({
     id: r.id as string, name: r.name as string, contact: r.contact as string, phoneE164: (r.phone_e164 as string | null) ?? null,
     isVip: !!r.is_vip, responsibleEmployeeId: (r.responsible_employee_id as string | null) ?? null,
     responsible: (r.responsible as string | null) ?? null, mine: !!r.mine,
