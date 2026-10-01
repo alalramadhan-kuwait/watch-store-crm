@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAppStore } from '../store';
 import {
   getSettings, getTodayCases, getOpenFollowUps, getUpcomingOccasions, getMyShiftsToday, getLightspeedToday,
-  logOutletChange, getRosterEmployees, type Occasion, type MyShift, type LightspeedToday,
+  logOutletChange, getRosterEmployees, getTeamWeekSales, type Occasion, type MyShift, type LightspeedToday, type WeekSales,
 } from '../db';
 import { useLive } from '../shared/live';
 import { dayHours } from '../shared/workedHours';
@@ -17,6 +17,8 @@ import { followUpUrgency } from '../utils/followUps';
 import { formatKD } from '../utils/formatKD';
 import { caseLabel } from '../shared/caseLabels';
 import { Modal } from './shared/Modal';
+import { WeekBar } from './WeekTarget';
+import { weekProgress, targetState } from '../shared/weeklyTarget';
 import type { Case } from '../types';
 
 const todayKuwait = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
@@ -60,6 +62,7 @@ export function SalesHome() {
   const [switching, setSwitching] = useState(false);
   const [moving, setMoving] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [week, setWeek] = useState<WeekSales | null>(null);
 
   const today = todayKuwait();
   const outlet = activeOutlet ?? '';
@@ -70,15 +73,19 @@ export function SalesHome() {
   useEffect(() => { if (shared && !mover && lastStaff) setMover(lastStaff); }, [shared, mover, lastStaff]);
 
   const load = useCallback(async () => {
-    const [c, f, o, s, t] = await Promise.all([
+    const wp = weekProgress(todayKuwait());
+    const [c, f, o, s, t, w] = await Promise.all([
       getTodayCases(),
       getOpenFollowUps(),
       getUpcomingOccasions(7).catch(() => [] as Occasion[]),
       user && !shared ? getMyShiftsToday(user.id) : Promise.resolve([] as MyShift[]),
       shared ? Promise.resolve(null) : getLightspeedToday(outlet || null).catch(() => null),
+      // The database returns only my own row to a salesperson, and everyone's to a manager.
+      !shared && salesName ? getTeamWeekSales(wp.start, wp.end).catch(() => [] as WeekSales[]) : Promise.resolve([] as WeekSales[]),
     ]);
+    setWeek(w.find(r => r.staffName === salesName) ?? null);
     setCases(c); setFollowUps(f); setOccasions(o); setShifts(s); setTill(t); setLoaded(true);
-  }, [user, shared, outlet]);
+  }, [user, shared, outlet, salesName]);
 
   useEffect(() => { void load(); }, [load, refreshLog]);
   useLive('sales-home', [
@@ -249,6 +256,25 @@ export function SalesHome() {
           </p>
         )}
       </div>
+
+      {/* ── your week: sales against the weekly target ── */}
+      {personal && week && (() => {
+        const wp = weekProgress(today);
+        return (
+          <div className="card p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-bold text-slate-900">Your week</h2>
+              <span className="text-xs text-slate-400">
+                {new Date(`${wp.start}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}
+                {' – '}
+                {new Date(`${wp.end}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}
+              </span>
+            </div>
+            <WeekBar sales={week.salesKd} target={week.targetKd} count={week.salesCount}
+              state={targetState(week.salesKd, week.targetKd, wp)} week={wp} />
+          </div>
+        );
+      })()}
 
       {/* ── coming up ── */}
       {soon.length > 0 && (

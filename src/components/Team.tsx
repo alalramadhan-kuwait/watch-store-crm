@@ -2,13 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronRight, Users } from 'lucide-react';
 import { useAppStore } from '../store';
 import { supabase } from '../lib/supabase';
-import { getSettings, getTeamAttendance, getTeamDirectory, getTeamLeave } from '../db';
+import { getSettings, getTeamAttendance, getTeamDirectory, getTeamLeave, getTeamWeekSales, setWeeklyTarget, type WeekSales } from '../db';
 import { loadStoreDay } from '../db/storeToday';
 import { standings, STANDING_WORD, type Shift, type TeamStanding, isExpectedOn } from '../utils/storeDay';
 import { workload, fairness, type Fairness } from '../shared/workload';
 import { useLive } from '../shared/live';
 import { shopsFrom, sameOutlet } from '../utils/outlet';
 import { AttendanceSheet } from './ManagerDashboard';
+import { WeekBar } from './WeekTarget';
+import { Modal } from './shared/Modal';
+import { weekProgress, targetState } from '../shared/weeklyTarget';
+import { useAuth, canSeePerformance } from '../context/AuthContext';
 import { TeamRequests } from './TeamRequests';
 import type { AttendanceDay, LeaveDay } from '../db';
 
@@ -54,6 +58,11 @@ export function Team() {
   const [weekDue, setWeekDue] = useState<Map<string, number>>(new Map());
   const [balance, setBalance] = useState<Fairness | null>(null);
   const [sales, setSales] = useState<Map<string, { count: number; kd: number }>>(new Map());
+  const [weekSales, setWeekSales] = useState<Map<string, WeekSales>>(new Map());
+  const [allWeek, setAllWeek] = useState<WeekSales[]>([]);
+  const [editing, setEditing] = useState(false);
+  const { role } = useAuth();
+  const canTarget = canSeePerformance(role);
   const [sheetFor, setSheetFor] = useState<string | null>(null);
   const [month, setMonth] = useState<{ rows: AttendanceDay[]; leave: LeaveDay[] } | null>(null);
   const [loading, setLoading] = useState(true);
@@ -71,12 +80,16 @@ export function Team() {
     setLoading(true);
     const weekStart = satOfWeek(today);
     try {
-      const [day, roster, weekAtt, weekLeave] = await Promise.all([
+      const wp = weekProgress(today);
+      const [day, roster, weekAtt, weekLeave, wSales] = await Promise.all([
         loadStoreDay(outlet, today),
         getTeamDirectory(),
         getTeamAttendance(weekStart, ymdAdd(today, 1)),
         getTeamLeave(weekStart, ymdAdd(today, 1)),
+        getTeamWeekSales(wp.start, wp.end).catch(() => [] as WeekSales[]),
       ]);
+      setAllWeek(wSales);
+      setWeekSales(new Map(wSales.map((w) => [w.staffName, w])));
       const here = roster.filter((r) => sameOutlet(r.location, outlet));
       setRows(standings(here, day.shifts, day.onLeave, today, { workStart, graceMinutes: 60 }));
 
@@ -162,6 +175,9 @@ export function Team() {
         <Users className="w-5 h-5 text-slate-400" />
         <h1 className="text-lg font-bold text-slate-900">Team today</h1>
         {weekTotal > 0 && <span className="ml-auto text-xs text-slate-500">{hm(weekTotal)} this week</span>}
+        {canTarget && allWeek.length > 0 && (
+          <button onClick={() => setEditing(true)} className="text-xs font-semibold text-brand-700 px-2 py-1 rounded-lg active:bg-brand-50">Weekly targets</button>
+        )}
       </div>
 
       {balance?.uneven && balance.busiest && balance.quietest && (
@@ -203,6 +219,19 @@ export function Team() {
               )}
             </div>
 
+            {(() => {
+              const w = weekSales.get(t.member.rosterName);
+              if (!w || (!w.targetKd && !w.salesCount)) return null;
+              const wp = weekProgress(today);
+              return (
+                <div className="mt-3 pt-3 border-t border-slate-100">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Sales this week</p>
+                  <WeekBar compact sales={w.salesKd} target={w.targetKd} count={w.salesCount}
+                    state={targetState(w.salesKd, w.targetKd, wp)} week={wp} />
+                </div>
+              );
+            })()}
+
             <div className="mt-3 pt-3 border-t border-slate-100 grid grid-cols-3 gap-2 text-center">
               <div>
                 <p className="text-base font-bold text-slate-900 leading-none">{t.hoursKnown === null ? '—' : hm(t.hoursToday)}</p>
@@ -225,6 +254,8 @@ export function Team() {
         Nobody is marked missing for a day they were not due in. Days off come from their HR record.
       </p>
 
+      {editing && <TargetsModal rows={allWeek} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); void load(); }} />}
+
       {sheetFor && month && (
         <AttendanceSheet
           name={sheetFor} month={new Date(`${today}T12:00:00+03:00`)}
@@ -233,5 +264,45 @@ export function Team() {
         />
       )}
     </div>
+  );
+}
+
+
+/** Everybody's weekly sales target in one place; blank removes it. */
+function TargetsModal({ rows, onClose, onSaved }: { rows: WeekSales[]; onClose: () => void; onSaved: () => void }) {
+  const [vals, setVals] = useState<Record<string, string>>(
+    Object.fromEntries(rows.map((r) => [r.employeeId, r.targetKd ? String(r.targetKd) : ''])));
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+
+  async function save() {
+    setBusy(true); setErr('');
+    try {
+      for (const r of rows) {
+        const now = vals[r.employeeId] ? Number(vals[r.employeeId]) : null;
+        if (now !== null && !(now > 0)) throw new Error(`${r.staffName}: enter a number above zero, or leave it empty.`);
+        if (now !== r.targetKd) await setWeeklyTarget(r.employeeId, now);
+      }
+      onSaved();
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Could not save.'); setBusy(false); }
+  }
+
+  return (
+    <Modal open onClose={() => !busy && onClose()} title="Weekly sales targets"
+      footer={<button onClick={() => void save()} disabled={busy} className="btn-primary w-full">{busy ? 'Saving…' : 'Save'}</button>}>
+      <p className="text-xs text-slate-500 mb-3">KD per week, Saturday to Friday. Leave a name empty for no target.</p>
+      <div className="space-y-2">
+        {[...rows].sort((a, b) => a.staffName.localeCompare(b.staffName)).map((r) => (
+          <label key={r.employeeId} className="flex items-center gap-3">
+            <span className="flex-1 text-sm font-medium text-slate-800">{r.staffName}</span>
+            <input value={vals[r.employeeId] ?? ''} inputMode="numeric" placeholder="—"
+              onChange={(e) => setVals((v) => ({ ...v, [r.employeeId]: e.target.value.replace(/[^\d.]/g, '') }))}
+              className="input w-28 text-right tabular-nums" />
+            <span className="text-xs text-slate-400 w-6">KD</span>
+          </label>
+        ))}
+      </div>
+      {err && <p className="text-sm text-rose-600 mt-3">{err}</p>}
+    </Modal>
   );
 }

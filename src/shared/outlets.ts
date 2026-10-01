@@ -21,6 +21,8 @@ export type OutletCode = 'avenues' | 'time_gallery' | 'whatsapp' | 'online' | 'h
 export interface Outlet {
   code: OutletCode;
   displayName: string;
+  /** How an Arabic message names it. */
+  displayNameAr: string;
   kind: 'physical' | 'digital';
   /** Appears in sales and revenue reporting. */
   sells: boolean;
@@ -43,10 +45,16 @@ export interface Outlet {
  * Mirrors the `outlets` table. Kept in code as well as in the database so the
  * apps resolve outlets before the registry has loaded, and offline.
  */
+/** Arabic names, for messages. Kept apart from the table, which has no column for them. */
+const ARABIC_NAMES: Record<OutletCode, string> = {
+  avenues: 'الأفنيوز', time_gallery: 'تايم جاليري', whatsapp: 'واتساب', online: 'الموقع الإلكتروني', hq: 'المكتب الرئيسي',
+};
+
 export const OUTLETS: Outlet[] = [
   {
     code: 'avenues',
     displayName: 'Time Keeper - Avenues',
+    displayNameAr: ARABIC_NAMES.avenues,
     kind: 'physical',
     sells: true,
     hasAttendance: true,
@@ -62,6 +70,7 @@ export const OUTLETS: Outlet[] = [
   {
     code: 'time_gallery',
     displayName: 'Time Gallery',
+    displayNameAr: ARABIC_NAMES.time_gallery,
     kind: 'physical',
     sells: true,
     hasAttendance: true,
@@ -77,6 +86,7 @@ export const OUTLETS: Outlet[] = [
   {
     code: 'whatsapp',
     displayName: 'Time Keeper WhatsApp',
+    displayNameAr: ARABIC_NAMES.whatsapp,
     kind: 'digital',
     sells: true,
     hasAttendance: false,
@@ -92,6 +102,7 @@ export const OUTLETS: Outlet[] = [
   {
     code: 'online',
     displayName: 'Time Keeper Online',
+    displayNameAr: ARABIC_NAMES.online,
     kind: 'digital',
     sells: true,
     hasAttendance: false,
@@ -109,6 +120,7 @@ export const OUTLETS: Outlet[] = [
     // open or close the way a shop does.
     code: 'hq',
     displayName: 'Timekeeper HQ',
+    displayNameAr: ARABIC_NAMES.hq,
     kind: 'physical',
     sells: false,
     hasAttendance: true,
@@ -161,6 +173,12 @@ export const sameOutlet = (
   const ra = resolveOutlet(a, registry);
   return ra !== null && ra === resolveOutlet(b, registry);
 };
+
+/** The Arabic name for a value, however it was spelled; the value itself when unknown. */
+export const outletNameAr = (
+  value: string | null | undefined,
+  registry: Outlet[] = OUTLETS,
+): string => outletOf(value, registry)?.displayNameAr ?? (value ?? '');
 
 /** What to show a person. Falls back to the raw value for anything unknown. */
 export const outletName = (
@@ -267,6 +285,7 @@ export const outletsFromRows = (rows: OutletRow[]): Outlet[] =>
   rows.map((r) => ({
     code: r.code as OutletCode,
     displayName: r.display_name,
+    displayNameAr: ARABIC_NAMES[r.code as OutletCode] ?? r.display_name,
     kind: r.kind === 'digital' ? 'digital' : 'physical',
     sells: r.sells,
     hasAttendance: r.has_attendance,

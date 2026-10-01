@@ -1,8 +1,8 @@
 {
-  "foundation": "b0505e424f36519c",
+  "foundation": "18eb31a89c99c4e2",
   "files": {
     "__tests__/corrections.test.ts": "db6cc03877bd5ea6",
-    "__tests__/customers.test.ts": "6d231e391b129045",
+    "__tests__/customers.test.ts": "84c51a26235886b2",
     "__tests__/foundation.test.ts": "c7c9d06beb15f557",
     "__tests__/labels.test.ts": "39009423d91b5c61",
     "__tests__/message.test.ts": "85d021611b46a047",
@@ -16,9 +16,9 @@
     "caseLabels.ts": "0b071875fce1f71c",
     "customerTiers.ts": "b07eb995d5b343de",
     "live.ts": "12a66171598a316e",
-    "messageRules.ts": "4b5d8d191902010c",
+    "messageRules.ts": "6971476b107e1171",
     "notifications.ts": "e94b2c5fb965e316",
-    "outlets.ts": "6cfb59b63c18205c",
+    "outlets.ts": "042f801e6dafc122",
     "phoneRules.ts": "802bd036749002ab",
     "portal.ts": "76c28cabd5f11ebb",
     "portalRules.ts": "5633090e4d89f6ef",
@@ -27,6 +27,7 @@
     "requests.ts": "cb927563a356bbd0",
     "schedule.ts": "0ad746ffc806a36d",
     "storeDay.ts": "3d6c851090aedaa4",
+    "weeklyTarget.ts": "88353e47e7b4da65",
     "workedHours.ts": "cfdaa605b953189c",
     "workload.ts": "1ba6c19212b6f504"
   }

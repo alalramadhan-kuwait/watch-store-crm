@@ -1038,6 +1038,36 @@ export async function removeOccasion(id: number): Promise<void> {
   if (error) throw new Error(error.message);
 }
 
+/** Roster name → the name an Arabic message is signed with. Empty when none is saved. */
+export async function getRosterArabicNames(): Promise<Map<string, string>> {
+  const { data, error } = await supabase.rpc('roster_arabic_names');
+  if (error) throw new Error(error.message);
+  return new Map(((data ?? []) as { staff_name: string; name_ar: string | null }[])
+    .filter(r => r.name_ar).map(r => [r.staff_name, r.name_ar as string]));
+}
+
+// ── Weekly sales targets ─────────────────────────────────────────────────────
+// A salesperson gets only their own row; an owner or manager gets everybody's.
+// The week is Saturday to Friday (src/shared/weeklyTarget.ts).
+
+export interface WeekSales { employeeId: string; staffName: string; salesCount: number; salesKd: number; targetKd: number | null }
+
+export async function getTeamWeekSales(from: string, to: string): Promise<WeekSales[]> {
+  const { data, error } = await supabase.rpc('team_week_sales', { p_from: from, p_to: to });
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as Record<string, unknown>[]).map(r => ({
+    employeeId: r.employee_id as string, staffName: r.staff_name as string,
+    salesCount: Number(r.sales_count ?? 0), salesKd: Number(r.sales_kd ?? 0),
+    targetKd: r.target_kd == null ? null : Number(r.target_kd),
+  }));
+}
+
+/** null (or 0) removes the target. */
+export async function setWeeklyTarget(employeeId: string, kd: number | null): Promise<void> {
+  const { error } = await supabase.rpc('set_weekly_target', { p_employee: employeeId, p_kd: kd });
+  if (error) throw new Error(error.message);
+}
+
 export interface MessageTemplate { key: string; lang: 'en' | 'ar'; title: string; body: string }
 
 export async function getMessageTemplates(): Promise<MessageTemplate[]> {

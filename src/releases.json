@@ -1,5 +1,17 @@
 [
   {
+    "version": "2.2.0",
+    "date": "2026-10-01",
+    "title": "Weekly targets and better Arabic messages",
+    "changes": [
+      "Your week: salespeople now see their sales against a weekly target (Saturday to Friday), with a mark for where the week is today.",
+      "Team: the owner and managers see each person’s week on their card, and can set the targets under “Weekly targets”.",
+      "Arabic WhatsApp messages are rewritten to read naturally, and are signed with your Arabic name.",
+      "The owner now chooses who a WhatsApp message is from, so it is never sent unsigned.",
+      "A message with no product named now says “the watch”, and Arabic messages name the shop in Arabic."
+    ]
+  },
+  {
     "version": "2.1.0",
     "date": "2026-10-01",
     "title": "Customers: focus on the ones that matter",

@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { MessageCircle, X, Languages } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { useAppStore } from '../store';
-import { getMessageTemplates, getRosterEmployees, getSettings, logWhatsAppHandoff, type MessageTemplate } from '../db';
-import { renderTemplate, greetingName, whatsappLink, type TemplateKey, type TemplateLang } from '../shared/messageRules';
+import { getMessageTemplates, getRosterEmployees, getRosterArabicNames, logWhatsAppHandoff, type MessageTemplate } from '../db';
+import { renderTemplate, greetingName, whatsappLink, DEFAULT_PRODUCT, type TemplateKey, type TemplateLang } from '../shared/messageRules';
+import { outletNameAr } from '../shared/outlets';
 
 export interface WhatsAppTarget {
   customerId: string;
@@ -38,9 +39,13 @@ export function WhatsAppSheet({ target, caseId, product, defaultTemplate = 'gene
   const { role, salesName } = useAuth();
   const { activeOutlet, lastStaff, showToast } = useAppStore();
   const shared = role === 'staff';
+  /* The shared phone is nobody, and the owner's own login is not a person on the floor, so both
+     say who the message is from. */
+  const mustName = shared || role === 'admin';
 
   const [templates, setTemplates] = useState<MessageTemplate[]>([]);
   const [roster, setRoster] = useState<string[]>([]);
+  const [arNames, setArNames] = useState<Map<string, string>>(new Map());
   const [sender, setSender] = useState(shared ? lastStaff : (salesName ?? ''));
   const [key, setKey] = useState<string>(defaultTemplate);
   const [lang, setLang] = useState<TemplateLang>('en');
@@ -50,19 +55,23 @@ export function WhatsAppSheet({ target, caseId, product, defaultTemplate = 'gene
 
   useEffect(() => {
     void getMessageTemplates().then(setTemplates).catch(() => setTemplates([]));
-    if (shared) void getSettings().then(s => setRoster(s.staffRoster));
-  }, [shared]);
+    if (mustName) void getRosterEmployees().then(m => setRoster(Array.from(m.keys()))).catch(() => setRoster([]));
+    void getRosterArabicNames().then(setArNames).catch(() => setArNames(new Map()));
+  }, [mustName]);
 
   const keys = useMemo(() => Array.from(new Set(templates.map(t => t.key))), [templates]);
   const titleOf = (k: string) => templates.find(t => t.key === k && t.lang === 'en')?.title ?? k;
   const current = templates.find(t => t.key === key && t.lang === lang) ?? null;
 
+  /* An Arabic message is signed and addressed in Arabic: the sender's Arabic name when one
+     is saved (HR → employee) and the shop's Arabic name. A product that is not named
+     becomes "the watch" rather than leaving a hole in the sentence. */
   const rendered = useMemo(() => current ? renderTemplate(current.body, {
     first_name: greetingName(target.name),
-    salesperson: sender || null,
-    store: activeOutlet,
-    product: product ?? null,
-  }) : '', [current, target.name, sender, activeOutlet, product]);
+    salesperson: (lang === 'ar' ? arNames.get(sender) : null) || sender || null,
+    store: activeOutlet ? (lang === 'ar' ? outletNameAr(activeOutlet) : activeOutlet) : null,
+    product: product ?? DEFAULT_PRODUCT[lang],
+  }) : '', [current, target.name, sender, activeOutlet, product, lang, arNames]);
 
   /* The text follows the template until the salesperson touches it; after
      that it is theirs, and switching language or template starts again. */
@@ -71,15 +80,15 @@ export function WhatsAppSheet({ target, caseId, product, defaultTemplate = 'gene
   function switchLang(l: TemplateLang) { setLang(l); setEdited(false); }
 
   const link = whatsappLink(target.phone, text);
-  const can = !!link && text.trim().length > 0 && (!shared || !!sender);
+  const can = !!link && text.trim().length > 0 && (!mustName || !!sender);
 
   async function open() {
     if (!link) return;
-    if (shared && !sender) { showToast('Choose who is sending first.', 'error'); return; }
+    if (mustName && !sender) { showToast('Choose who is sending first.', 'error'); return; }
     setBusy(true);
     try {
       let employeeId: string | null = null;
-      if (shared) {
+      if (mustName) {
         employeeId = (await getRosterEmployees()).get(sender) ?? null;
         if (!employeeId) throw new Error(`${sender} is not linked to an employee record yet.`);
       }
@@ -112,7 +121,7 @@ export function WhatsAppSheet({ target, caseId, product, defaultTemplate = 'gene
         </div>
 
         <div className="px-5 py-4 space-y-4">
-          {shared && (
+          {mustName && (
             <div>
               <label className="label">Sending as</label>
               <select value={sender} onChange={e => { setSender(e.target.value); setEdited(false); }} className="input">
@@ -144,6 +153,9 @@ export function WhatsAppSheet({ target, caseId, product, defaultTemplate = 'gene
             </div>
             <textarea value={text} onChange={e => { setText(e.target.value); setEdited(true); }} rows={6}
               dir={lang === 'ar' ? 'rtl' : 'ltr'} className="input resize-none text-sm leading-relaxed" />
+            {lang === 'ar' && sender && !arNames.get(sender) && (
+              <p className="text-[11px] text-amber-600 mt-1">No Arabic name is saved for {sender}, so the English one is used.</p>
+            )}
             <p className="text-[11px] text-slate-400 mt-1">
               Read it before you send. WhatsApp opens with this typed in; nothing goes until you press Send there.
             </p>

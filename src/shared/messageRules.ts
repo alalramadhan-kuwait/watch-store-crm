@@ -21,6 +21,13 @@ export type TemplateKey =
   | 'interested_followup' | 'post_sale_checkin' | 'birthday'
   | 'anniversary' | 'back_in_stock' | 'general_followup';
 
+/**
+ * What stands in for the product when a message is not about one in particular,
+ * so "I hope you're enjoying your {{product}}" never reads "…enjoying your ."
+ * Every product is a watch, and the Arabic templates are written for one.
+ */
+export const DEFAULT_PRODUCT: Record<TemplateLang, string> = { en: 'watch', ar: 'الساعة' };
+
 export interface TemplateVars {
   first_name?: string | null;
   salesperson?: string | null;
