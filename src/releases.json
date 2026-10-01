@@ -1,5 +1,13 @@
 [
   {
+    "version": "2.3.1",
+    "date": "2026-10-01",
+    "title": "Weekly target starts at 5",
+    "changes": [
+      "The weekly WhatsApp target starts at 5 customers (it said 20 in the last update). The owner can change it under Team → Weekly targets."
+    ]
+  },
+  {
     "version": "2.3.0",
     "date": "2026-10-01",
     "title": "Your week counts customers messaged",
