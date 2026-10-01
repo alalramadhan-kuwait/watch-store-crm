@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAppStore } from '../store';
 import {
   getSettings, getTodayCases, getOpenFollowUps, getUpcomingOccasions, getMyShiftsToday, getLightspeedToday,
-  logOutletChange, getRosterEmployees, getTeamWeekSales, type Occasion, type MyShift, type LightspeedToday, type WeekSales,
+  logOutletChange, getRosterEmployees, getTeamWeekContacts, type Occasion, type MyShift, type LightspeedToday, type WeekContacts,
 } from '../db';
 import { useLive } from '../shared/live';
 import { dayHours } from '../shared/workedHours';
@@ -62,7 +62,7 @@ export function SalesHome() {
   const [switching, setSwitching] = useState(false);
   const [moving, setMoving] = useState(false);
   const [loaded, setLoaded] = useState(false);
-  const [week, setWeek] = useState<WeekSales | null>(null);
+  const [week, setWeek] = useState<WeekContacts | null>(null);
 
   const today = todayKuwait();
   const outlet = activeOutlet ?? '';
@@ -81,7 +81,7 @@ export function SalesHome() {
       user && !shared ? getMyShiftsToday(user.id) : Promise.resolve([] as MyShift[]),
       shared ? Promise.resolve(null) : getLightspeedToday(outlet || null).catch(() => null),
       // The database returns only my own row to a salesperson, and everyone's to a manager.
-      !shared && salesName ? getTeamWeekSales(wp.start, wp.end).catch(() => [] as WeekSales[]) : Promise.resolve([] as WeekSales[]),
+      !shared && salesName ? getTeamWeekContacts(wp.start, wp.end).catch(() => [] as WeekContacts[]) : Promise.resolve([] as WeekContacts[]),
     ]);
     setWeek(w.find(r => r.staffName === salesName) ?? null);
     setCases(c); setFollowUps(f); setOccasions(o); setShifts(s); setTill(t); setLoaded(true);
@@ -257,7 +257,7 @@ export function SalesHome() {
         )}
       </div>
 
-      {/* ── your week: sales against the weekly target ── */}
+      {/* ── your week: customers messaged against the weekly target ── */}
       {personal && week && (() => {
         const wp = weekProgress(today);
         return (
@@ -270,8 +270,13 @@ export function SalesHome() {
                 {new Date(`${wp.end}T12:00:00Z`).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'UTC' })}
               </span>
             </div>
-            <WeekBar sales={week.salesKd} target={week.targetKd} count={week.salesCount}
-              state={targetState(week.salesKd, week.targetKd, wp)} week={wp} />
+            <p className="text-xs text-slate-500 mb-2">Customers you have messaged on WhatsApp</p>
+            <WeekBar customers={week.customers} target={week.target} messages={week.messages}
+              state={targetState(week.customers, week.target, wp)} week={wp} />
+            <button onClick={() => navigate('/crm')}
+              className="mt-3 w-full py-2.5 rounded-xl border-2 border-slate-200 text-sm font-semibold text-slate-700 active:bg-slate-50">
+              Open your customers
+            </button>
           </div>
         );
       })()}

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronRight, Users } from 'lucide-react';
 import { useAppStore } from '../store';
 import { supabase } from '../lib/supabase';
-import { getSettings, getTeamAttendance, getTeamDirectory, getTeamLeave, getTeamWeekSales, setWeeklyTarget, type WeekSales } from '../db';
+import { getSettings, getTeamAttendance, getTeamDirectory, getTeamLeave, getTeamWeekContacts, setWeeklyContactTarget, type WeekContacts } from '../db';
 import { loadStoreDay } from '../db/storeToday';
 import { standings, STANDING_WORD, type Shift, type TeamStanding, isExpectedOn } from '../utils/storeDay';
 import { workload, fairness, type Fairness } from '../shared/workload';
@@ -58,8 +58,8 @@ export function Team() {
   const [weekDue, setWeekDue] = useState<Map<string, number>>(new Map());
   const [balance, setBalance] = useState<Fairness | null>(null);
   const [sales, setSales] = useState<Map<string, { count: number; kd: number }>>(new Map());
-  const [weekSales, setWeekSales] = useState<Map<string, WeekSales>>(new Map());
-  const [allWeek, setAllWeek] = useState<WeekSales[]>([]);
+  const [weekContacts, setWeekContacts] = useState<Map<string, WeekContacts>>(new Map());
+  const [allWeek, setAllWeek] = useState<WeekContacts[]>([]);
   const [editing, setEditing] = useState(false);
   const { role } = useAuth();
   const canTarget = canSeePerformance(role);
@@ -81,15 +81,15 @@ export function Team() {
     const weekStart = satOfWeek(today);
     try {
       const wp = weekProgress(today);
-      const [day, roster, weekAtt, weekLeave, wSales] = await Promise.all([
+      const [day, roster, weekAtt, weekLeave, wContacts] = await Promise.all([
         loadStoreDay(outlet, today),
         getTeamDirectory(),
         getTeamAttendance(weekStart, ymdAdd(today, 1)),
         getTeamLeave(weekStart, ymdAdd(today, 1)),
-        getTeamWeekSales(wp.start, wp.end).catch(() => [] as WeekSales[]),
+        getTeamWeekContacts(wp.start, wp.end).catch(() => [] as WeekContacts[]),
       ]);
-      setAllWeek(wSales);
-      setWeekSales(new Map(wSales.map((w) => [w.staffName, w])));
+      setAllWeek(wContacts);
+      setWeekContacts(new Map(wContacts.map((w) => [w.staffName, w])));
       const here = roster.filter((r) => sameOutlet(r.location, outlet));
       setRows(standings(here, day.shifts, day.onLeave, today, { workStart, graceMinutes: 60 }));
 
@@ -220,14 +220,14 @@ export function Team() {
             </div>
 
             {(() => {
-              const w = weekSales.get(t.member.rosterName);
-              if (!w || (!w.targetKd && !w.salesCount)) return null;
+              const w = weekContacts.get(t.member.rosterName);
+              if (!w || (!w.target && !w.customers)) return null;
               const wp = weekProgress(today);
               return (
                 <div className="mt-3 pt-3 border-t border-slate-100">
-                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Sales this week</p>
-                  <WeekBar compact sales={w.salesKd} target={w.targetKd} count={w.salesCount}
-                    state={targetState(w.salesKd, w.targetKd, wp)} week={wp} />
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Customers messaged this week</p>
+                  <WeekBar compact customers={w.customers} target={w.target} messages={w.messages}
+                    state={targetState(w.customers, w.target, wp)} week={wp} />
                 </div>
               );
             })()}
@@ -268,10 +268,10 @@ export function Team() {
 }
 
 
-/** Everybody's weekly sales target in one place; blank removes it. */
-function TargetsModal({ rows, onClose, onSaved }: { rows: WeekSales[]; onClose: () => void; onSaved: () => void }) {
+/** Everybody's weekly target (customers to message) in one place; blank removes it. */
+function TargetsModal({ rows, onClose, onSaved }: { rows: WeekContacts[]; onClose: () => void; onSaved: () => void }) {
   const [vals, setVals] = useState<Record<string, string>>(
-    Object.fromEntries(rows.map((r) => [r.employeeId, r.targetKd ? String(r.targetKd) : ''])));
+    Object.fromEntries(rows.map((r) => [r.employeeId, r.target ? String(r.target) : ''])));
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
 
@@ -281,24 +281,24 @@ function TargetsModal({ rows, onClose, onSaved }: { rows: WeekSales[]; onClose: 
       for (const r of rows) {
         const now = vals[r.employeeId] ? Number(vals[r.employeeId]) : null;
         if (now !== null && !(now > 0)) throw new Error(`${r.staffName}: enter a number above zero, or leave it empty.`);
-        if (now !== r.targetKd) await setWeeklyTarget(r.employeeId, now);
+        if (now !== r.target) await setWeeklyContactTarget(r.employeeId, now);
       }
       onSaved();
     } catch (e) { setErr(e instanceof Error ? e.message : 'Could not save.'); setBusy(false); }
   }
 
   return (
-    <Modal open onClose={() => !busy && onClose()} title="Weekly sales targets"
+    <Modal open onClose={() => !busy && onClose()} title="Weekly WhatsApp targets"
       footer={<button onClick={() => void save()} disabled={busy} className="btn-primary w-full">{busy ? 'Saving…' : 'Save'}</button>}>
-      <p className="text-xs text-slate-500 mb-3">KD per week, Saturday to Friday. Leave a name empty for no target.</p>
+      <p className="text-xs text-slate-500 mb-3">Customers each person should message on WhatsApp per week, Saturday to Friday. Leave a name empty for no target.</p>
       <div className="space-y-2">
         {[...rows].sort((a, b) => a.staffName.localeCompare(b.staffName)).map((r) => (
           <label key={r.employeeId} className="flex items-center gap-3">
             <span className="flex-1 text-sm font-medium text-slate-800">{r.staffName}</span>
             <input value={vals[r.employeeId] ?? ''} inputMode="numeric" placeholder="—"
-              onChange={(e) => setVals((v) => ({ ...v, [r.employeeId]: e.target.value.replace(/[^\d.]/g, '') }))}
+              onChange={(e) => setVals((v) => ({ ...v, [r.employeeId]: e.target.value.replace(/\D/g, '') }))}
               className="input w-28 text-right tabular-nums" />
-            <span className="text-xs text-slate-400 w-6">KD</span>
+            <span className="text-xs text-slate-400 w-16">customers</span>
           </label>
         ))}
       </div>

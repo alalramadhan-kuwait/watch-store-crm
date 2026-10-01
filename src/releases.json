@@ -1,5 +1,15 @@
 [
   {
+    "version": "2.3.0",
+    "date": "2026-10-01",
+    "title": "Your week counts customers messaged",
+    "changes": [
+      "Your week now shows how many customers you have messaged on WhatsApp this week, against a target of 20 (Saturday to Friday).",
+      "Team: the owner and managers see each person's count, and set the targets under “Weekly targets”.",
+      "Your week has an “Open your customers” button, which opens the Top list."
+    ]
+  },
+  {
     "version": "2.2.0",
     "date": "2026-10-01",
     "title": "Weekly targets and better Arabic messages",

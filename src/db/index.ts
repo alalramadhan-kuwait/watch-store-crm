@@ -1046,25 +1046,26 @@ export async function getRosterArabicNames(): Promise<Map<string, string>> {
     .filter(r => r.name_ar).map(r => [r.staff_name, r.name_ar as string]));
 }
 
-// ── Weekly sales targets ─────────────────────────────────────────────────────
-// A salesperson gets only their own row; an owner or manager gets everybody's.
-// The week is Saturday to Friday (src/shared/weeklyTarget.ts).
+// ── Weekly contact targets ───────────────────────────────────────────────────
+// How many different customers a person opened WhatsApp for in a Saturday–Friday week
+// (src/shared/weeklyTarget.ts). A salesperson gets only their own row; an owner or
+// manager gets everybody's.
 
-export interface WeekSales { employeeId: string; staffName: string; salesCount: number; salesKd: number; targetKd: number | null }
+export interface WeekContacts { employeeId: string; staffName: string; customers: number; messages: number; target: number | null }
 
-export async function getTeamWeekSales(from: string, to: string): Promise<WeekSales[]> {
-  const { data, error } = await supabase.rpc('team_week_sales', { p_from: from, p_to: to });
+export async function getTeamWeekContacts(from: string, to: string): Promise<WeekContacts[]> {
+  const { data, error } = await supabase.rpc('team_week_contacts', { p_from: from, p_to: to });
   if (error) throw new Error(error.message);
   return ((data ?? []) as Record<string, unknown>[]).map(r => ({
     employeeId: r.employee_id as string, staffName: r.staff_name as string,
-    salesCount: Number(r.sales_count ?? 0), salesKd: Number(r.sales_kd ?? 0),
-    targetKd: r.target_kd == null ? null : Number(r.target_kd),
+    customers: Number(r.customers ?? 0), messages: Number(r.messages ?? 0),
+    target: r.target_customers == null ? null : Number(r.target_customers),
   }));
 }
 
 /** null (or 0) removes the target. */
-export async function setWeeklyTarget(employeeId: string, kd: number | null): Promise<void> {
-  const { error } = await supabase.rpc('set_weekly_target', { p_employee: employeeId, p_kd: kd });
+export async function setWeeklyContactTarget(employeeId: string, target: number | null): Promise<void> {
+  const { error } = await supabase.rpc('set_weekly_contact_target', { p_employee: employeeId, p_target: target });
   if (error) throw new Error(error.message);
 }
 
