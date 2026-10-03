@@ -8,6 +8,7 @@ import { useAppStore } from '../store';
 import { supabase } from '../lib/supabase';
 import { getSettings, getOpenFollowUps, getUpcomingOccasions } from '../db';
 import { loadStoreDay, loadMonthToDate, loadMonthlyTarget, type StoreDayData } from '../db/storeToday';
+import { getStoreSales, syncedLabel, type StoreSales } from '../db';
 import { useLive } from '../shared/live';
 import { storeDay, standings, STANDING_WORD, type TeamStanding } from '../utils/storeDay';
 import { shopsFrom, sameOutlet } from '../utils/outlet';
@@ -44,6 +45,7 @@ export function Home() {
   const [workStart, setWorkStart] = useState('09:00');
   const [data, setData] = useState<StoreDayData | null>(null);
   const [mtd, setMtd] = useState<number | null>(null);
+  const [ls, setLs] = useState<StoreSales | null>(null);
   const [target, setTarget] = useState<number | null>(null);
   const [followUps, setFollowUps] = useState<{ overdue: number; today: number; total: number }>({ overdue: 0, today: 0, total: 0 });
   const [occasions, setOccasions] = useState(0);
@@ -66,13 +68,15 @@ export function Home() {
   const load = useCallback(async () => {
     if (!outlet) return;
     try {
-      const [d, m, t, ups, occ] = await Promise.all([
+      const [d, m, t, ups, occ, lsToday] = await Promise.all([
         loadStoreDay(outlet, today),
         loadMonthToDate(outlet, today),
         loadMonthlyTarget(outlet),
         getOpenFollowUps(),
         getUpcomingOccasions(7).catch(() => []),
+        getStoreSales(outlet, today, today),
       ]);
+      setLs(lsToday);
       setOccasions(occ.length);
       const mine = ups.filter((c) => sameOutlet(c.outlet, outlet));
       const buckets = mine.map(followUpUrgency);
@@ -115,9 +119,12 @@ export function Home() {
   }, [data, outlet, today, workStart]);
 
   const me = team.find((t) => t.member.fullName === profile?.full_name) ?? null;
-  const sales = data?.cases.filter((c) => c.caseType === 'Sale') ?? [];
+  /* Sales are Lightspeed's, not the ones typed into the app (staff were entering each
+     twice). The typed ones stand in only if Lightspeed cannot be read. */
+  const typedSales = data?.cases.filter((c) => c.caseType === 'Sale') ?? [];
   const lost = data?.cases.filter((c) => c.caseType === 'Lost Sale') ?? [];
-  const salesValue = sales.reduce((t, c) => t + (c.amountKd ?? 0), 0);
+  const salesCount = ls ? ls.sales : typedSales.length;
+  const salesValue = ls ? ls.revenue : typedSales.reduce((t, c) => t + (c.amountKd ?? 0), 0);
   const missing = team.filter((t) => t.standing === 'missing');
 
   const alerts: { key: string; text: string; go?: () => void }[] = [];
@@ -223,10 +230,11 @@ export function Home() {
           </button>
         </div>
         <p className="text-3xl font-bold text-slate-900 leading-none">
-          {formatKDCompact(salesValue)} <span className="text-base font-semibold text-slate-400">KD</span>
+          {salesValue === null ? '—' : formatKDCompact(salesValue)} <span className="text-base font-semibold text-slate-400">KD</span>
         </p>
+        <p className="text-[11px] text-slate-400 mt-1.5">{ls ? `From Lightspeed · ${syncedLabel(ls.asOf)}` : 'Lightspeed not reachable: showing sales logged in the app'}</p>
         <div className="grid grid-cols-3 gap-3 mt-4 text-center">
-          {[['Sales', sales.length], ['Lost opp.', lost.length], ['Visits', data?.cases.length ?? 0]].map(([l, v]) => (
+          {[['Sales', salesCount], ['Lost opp.', lost.length], ['Visits', data?.cases.length ?? 0]].map(([l, v]) => (
             <div key={l as string}>
               <p className="text-xl font-bold text-slate-900 leading-none">{v as number}</p>
               <p className="text-[11px] text-slate-500 mt-1">{l as string}</p>

@@ -122,8 +122,13 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
   // Real browsing headcount (visitor_count sums groups logged in one entry)
   const browsingHeadcount = noInteraction.reduce((s, c) => s + (c.visitorCount ?? 1), 0);
-  const total = sales.length + lost.length;
-  const convRate = total > 0 ? Math.round((sales.length / total) * 100) : 0;
+  /* The sales on the tiles are Lightspeed's when this login can see them: they were rung up
+     there, and typing each one in as well meant counting the same sale twice or missing it. */
+  const useTill = !!tillToday && role !== 'staff';
+  const saleCount = useTill ? tillToday!.sales : sales.length;
+  const saleKd = useTill ? tillToday!.revenue : revenue;
+  const total = saleCount + lost.length;
+  const convRate = total > 0 ? Math.round((saleCount / total) * 100) : 0;
 
   /* The PDF gets the FULL outlet-filtered set, follow-up wins included:
      buildDailyStats splits them out itself and prints them in their own log.
@@ -370,8 +375,8 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
       {/* KPI Row */}
       <div className="grid grid-cols-4 gap-2 mb-5 lg:grid-cols-6 lg:gap-3">
         {[
-          { label: 'Sales', value: String(sales.length), color: 'text-emerald-700 bg-emerald-50' },
-          { label: 'KD', value: formatKDCompact(revenue), color: 'text-emerald-700 bg-emerald-50' },
+          { label: 'Sales', value: String(saleCount), color: 'text-emerald-700 bg-emerald-50' },
+          { label: 'KD', value: formatKDCompact(saleKd), color: 'text-emerald-700 bg-emerald-50' },
           { label: 'Interested', value: String(followups.length), color: 'text-amber-700 bg-amber-50' },
           { label: 'Lost opp.', value: String(lost.length), color: 'text-rose-700 bg-rose-50' },
           { label: 'Browsing', value: String(browsingHeadcount), color: 'text-slate-600 bg-slate-100 hidden lg:block' },

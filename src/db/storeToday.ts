@@ -7,6 +7,7 @@
  * utils/storeDay turn one answer into all three views.
  */
 import { supabase } from '../lib/supabase';
+import { getStoreSales } from './index';
 import { getTeamAttendance, getTeamDirectory, getTeamLeave, type TeamMemberHR } from './index';
 import { sameOutlet } from '../utils/outlet';
 import type { Shift, RosterMember } from '../utils/storeDay';
@@ -91,6 +92,10 @@ export async function loadStoreDay(outlet: string, date: string): Promise<StoreD
  *  day because it is one number and changes slowly. */
 export async function loadMonthToDate(outlet: string, date: string): Promise<number> {
   const monthStart = `${date.slice(0, 8)}01`;
+  /* The month's takings are Lightspeed's. The sales typed into the app are the
+     fallback only when Lightspeed cannot be read. */
+  const ls = await getStoreSales(outlet, monthStart, date);
+  if (ls && ls.revenue !== null) return ls.revenue;
   const { data } = await supabase.from('cases_visible')
     .select('outlet, amount_kd, case_type')
     .gte('date_logged', monthStart).lte('date_logged', date).eq('deleted', false);

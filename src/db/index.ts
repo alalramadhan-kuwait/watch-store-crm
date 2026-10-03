@@ -437,6 +437,32 @@ export async function isDayClosed(date: string, outlet = ''): Promise<boolean> {
   return close !== null;
 }
 
+/**
+ * The day's sales for the report: Lightspeed's, because that is where the sale
+ * was rung up. Only when Lightspeed has none for the day — an older date from
+ * before sales were read from the till, or the sync is down — do the sales typed
+ * into the app stand in, and the report says which it used.
+ */
+async function daySales(date: string, outlet: string, cases: Case[]): Promise<{
+  sales: Case[]; count: number; revenue: number | null; source: string;
+  staffSales: Record<string, { count: number; kd: number }>;
+}> {
+  const ls = await getStoreSales(outlet || null, date, date);
+  if (ls && ls.sales > 0) {
+    const staffSales: Record<string, { count: number; kd: number }> = {};
+    for (const p of ls.byPerson) staffSales[p.name] = { count: p.count, kd: p.kd };
+    return { sales: [], count: ls.sales, revenue: ls.revenue, staffSales, source: `, Lightspeed ${syncedLabel(ls.asOf)}` };
+  }
+  const typed = cases.filter(c => c.caseType === 'Sale');
+  const staffSales: Record<string, { count: number; kd: number }> = {};
+  for (const c of typed) {
+    if (!staffSales[c.staff]) staffSales[c.staff] = { count: 0, kd: 0 };
+    staffSales[c.staff].count++;
+    staffSales[c.staff].kd += c.amountKD || 0;
+  }
+  return { sales: typed, count: typed.length, revenue: typed.reduce((t, c) => t + (c.amountKD || 0), 0), staffSales, source: '' };
+}
+
 export async function closeDay(date: string, closedBy: string, outlet = ''): Promise<string> {
   // Fetch cases — filter by outlet if specified
   let query = supabase.from('cases_visible').select('*').eq('date_logged', date).eq('deleted', false);
@@ -458,27 +484,20 @@ export async function closeDay(date: string, closedBy: string, outlet = ''): Pro
   const allRows = (rows ?? []).map(r => caseFromDb(r as DbCase));
   // sales converted from an earlier follow-up are logged separately, not as today's trade
   const cases = allRows.filter(c => !(c.caseType === 'Sale' && c.linkedCaseId));
-  const sales = cases.filter(c => c.caseType === 'Sale');
   const followups = cases.filter(c => c.caseType === 'Follow-up');
   const lost = cases.filter(c => c.caseType === 'Lost Sale');
   const noInteraction = cases.filter(c => c.caseType === 'No Interaction');
-  const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
-  const interactions = sales.length + followups.length + lost.length;
-  const convRate = interactions > 0 ? Math.round((sales.length / interactions) * 100) : 0;
+  const { sales, count: saleCount, revenue, staffSales, source } = await daySales(date, outlet, cases);
+  const interactions = saleCount + followups.length + lost.length;
+  const convRate = interactions > 0 ? Math.round((saleCount / interactions) * 100) : 0;
   // Real footfall = sum of visitorCount (No Interaction may log groups)
   const totalVisitors = cases.reduce((s, c) => s + (c.visitorCount ?? 1), 0);
-  const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
+  const visitorConv = totalVisitors > 0 ? Math.round((saleCount / totalVisitors) * 100) : 0;
 
   const { count: openFU } = await supabase
     .from('cases_visible').select('*', { count: 'exact', head: true })
     .eq('case_type', 'Follow-up').eq('status', 'Open').eq('deleted', false);
 
-  const staffSales: Record<string, { count: number; kd: number }> = {};
-  for (const c of sales) {
-    if (!staffSales[c.staff]) staffSales[c.staff] = { count: 0, kd: 0 };
-    staffSales[c.staff].count++;
-    staffSales[c.staff].kd += c.amountKD || 0;
-  }
   let topStaff = '', topKD = 0;
   for (const [name, d] of Object.entries(staffSales)) {
     if (d.kd > topKD) { topKD = d.kd; topStaff = name; }
@@ -488,7 +507,7 @@ export async function closeDay(date: string, closedBy: string, outlet = ''): Pro
   const summary =
     `📊 Daily Report — ${format(new Date(date + 'T12:00:00'), 'd MMM yyyy')}${outletLabel}\n` +
     `Total Visitors: ${totalVisitors} | Interactions: ${interactions} | Browsing: ${noInteraction.length}\n` +
-    `Total Sales: ${formatKD(revenue)} KD (${sales.length} sale${sales.length !== 1 ? 's' : ''})\n` +
+    `Total Sales: ${revenue === null ? '—' : formatKD(revenue) + ' KD'} (${saleCount} sale${saleCount !== 1 ? 's' : ''}${source})\n` +
     `Follow-ups: ${followups.length} | Lost: ${lost.length}\n` +
     `Conv. (interactions): ${convRate}% | Conv. (visitors): ${visitorConv}%\n` +
     (topStaff ? `Top: ${topStaff} — ${formatKD(topKD)} KD (${staffSales[topStaff].count} sales)\n` : '') +
@@ -511,26 +530,19 @@ export async function rebuildDaySummary(date: string, outlet = ''): Promise<stri
   // sales converted from an earlier follow-up are logged separately, not as today's trade
   const cases = allRows.filter(c => !(c.caseType === 'Sale' && c.linkedCaseId));
 
-  const sales = cases.filter(c => c.caseType === 'Sale');
   const followups = cases.filter(c => c.caseType === 'Follow-up');
   const lost = cases.filter(c => c.caseType === 'Lost Sale');
   const noInteraction = cases.filter(c => c.caseType === 'No Interaction');
-  const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
-  const interactions = sales.length + followups.length + lost.length;
-  const convRate = interactions > 0 ? Math.round((sales.length / interactions) * 100) : 0;
+  const { count: saleCount, revenue, staffSales, source } = await daySales(date, outlet, cases);
+  const interactions = saleCount + followups.length + lost.length;
+  const convRate = interactions > 0 ? Math.round((saleCount / interactions) * 100) : 0;
   const totalVisitors = cases.reduce((s, c) => s + (c.visitorCount ?? 1), 0);
-  const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
+  const visitorConv = totalVisitors > 0 ? Math.round((saleCount / totalVisitors) * 100) : 0;
 
   const { count: openFU } = await supabase
     .from('cases_visible').select('*', { count: 'exact', head: true })
     .eq('case_type', 'Follow-up').eq('status', 'Open').eq('deleted', false);
 
-  const staffSales: Record<string, { count: number; kd: number }> = {};
-  for (const c of sales) {
-    if (!staffSales[c.staff]) staffSales[c.staff] = { count: 0, kd: 0 };
-    staffSales[c.staff].count++;
-    staffSales[c.staff].kd += c.amountKD || 0;
-  }
   let topStaff = '', topKD = 0;
   for (const [name, d] of Object.entries(staffSales)) {
     if (d.kd > topKD) { topKD = d.kd; topStaff = name; }
@@ -540,7 +552,7 @@ export async function rebuildDaySummary(date: string, outlet = ''): Promise<stri
   const summary =
     `📊 Daily Report — ${format(new Date(date + 'T12:00:00'), 'd MMM yyyy')}${outletSuffix}\n` +
     `Total Visitors: ${totalVisitors} | Interactions: ${interactions} | Browsing: ${noInteraction.length}\n` +
-    `Total Sales: ${formatKD(revenue)} KD (${sales.length} sale${sales.length !== 1 ? 's' : ''})\n` +
+    `Total Sales: ${revenue === null ? '—' : formatKD(revenue) + ' KD'} (${saleCount} sale${saleCount !== 1 ? 's' : ''}${source})\n` +
     `Follow-ups: ${followups.length} | Lost: ${lost.length}\n` +
     `Conv. (interactions): ${convRate}% | Conv. (visitors): ${visitorConv}%\n` +
     (topStaff ? `Top: ${topStaff} — ${formatKD(topKD)} KD (${staffSales[topStaff].count} sales)\n` : '') +
@@ -830,6 +842,57 @@ export async function createCustomer(contact: string, displayName?: string): Pro
 }
 
 export interface LightspeedToday { sales: number; revenue: number; scope: string | null; as_of: string | null }
+
+/**
+ * Sales for a shop and a range of days, straight from Lightspeed.
+ *
+ * Staff used to type every sale in as well as ringing it up, so the same sale
+ * was entered twice and the typed copy was the one that went missing: over 30
+ * days Lightspeed held about a fifth more sales than the app did. Everything
+ * that reports sales now reads them here. `revenue` is null on the shared shop
+ * phone, which never shows takings. `asOf` is when the sales sync last ran, so a
+ * screen can say how fresh the figure is.
+ */
+export interface StoreSales {
+  sales: number; revenue: number | null; asOf: string | null;
+  byPerson: { name: string; count: number; kd: number }[];
+}
+export async function getStoreSales(outlet: string | null, from: string, to: string): Promise<StoreSales | null> {
+  const { data, error } = await supabase.rpc('store_day_sales', { p_outlet: outlet || null, p_from: from, p_to: to });
+  if (error || !data) return null;
+  const d = data as { sales: number; revenue: number | null; as_of: string | null; by_person: { name: string; count: number; kd: number }[] };
+  return {
+    sales: Number(d.sales ?? 0), revenue: d.revenue == null ? null : Number(d.revenue), asOf: d.as_of ?? null,
+    byPerson: (d.by_person ?? []).map(p => ({ name: p.name, count: Number(p.count), kd: Number(p.kd) })),
+  };
+}
+
+/** "synced 14:20" — when Lightspeed's sales were last read. */
+export function syncedLabel(asOf: string | null | undefined): string {
+  if (!asOf) return 'not synced yet';
+  return `synced ${new Date(asOf).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kuwait' })}`;
+}
+
+// ── Follow-ups that look like they have bought ───────────────────────────────
+
+export interface FollowUpSaleMatch {
+  caseId: string; customerName: string | null; product: string | null; followedUpOn: string;
+  saleId: string; saleAt: string; saleKd: number; soldBy: string | null; receipt: string | null;
+}
+export async function getFollowUpSaleMatches(): Promise<FollowUpSaleMatch[]> {
+  const { data, error } = await supabase.rpc('follow_up_sale_matches');
+  if (error) return [];
+  return ((data ?? []) as Record<string, unknown>[]).map(r => ({
+    caseId: r.case_id as string, customerName: (r.customer_name as string | null) ?? null, product: (r.product as string | null) ?? null,
+    followedUpOn: r.followed_up_on as string, saleId: r.sale_id as string, saleAt: r.sale_at as string,
+    saleKd: Number(r.sale_kd ?? 0), soldBy: (r.sold_by as string | null) ?? null, receipt: (r.receipt as string | null) ?? null,
+  }));
+}
+/** One tap: yes marks the follow-up Won; no remembers the answer so it is not asked again. */
+export async function answerFollowUpSale(caseId: string, saleId: string, bought: boolean): Promise<void> {
+  const { error } = await supabase.rpc('answer_follow_up_sale', { p_case: caseId, p_sale: saleId, p_bought: bought });
+  if (error) throw new Error(error.message);
+}
 
 /** Today's till figures for an outlet, limited by what this login may see. */
 export async function getLightspeedToday(outlet?: string | null): Promise<LightspeedToday> {

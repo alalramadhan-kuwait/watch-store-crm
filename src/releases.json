@@ -1,5 +1,17 @@
 [
   {
+    "version": "3.0.0",
+    "date": "2026-10-03",
+    "title": "No more typing sales in twice",
+    "changes": [
+      "Sales now come from Lightspeed. Ring the sale up at the till and the app counts it; you no longer enter it again.",
+      "Every sales figure says when it was last updated from Lightspeed, for example “synced 14:20”.",
+      "Manual Sale is now a small link under the visit buttons, for a sale that was never rung up in Lightspeed.",
+      "Follow-ups: when a customer you followed up buys, a “Did they buy?” card appears. Tap Yes to mark it won.",
+      "Team, Home, Today’s Log, Follow-ups and the manager screen all use Lightspeed’s sales."
+    ]
+  },
+  {
     "version": "2.3.1",
     "date": "2026-10-01",
     "title": "Weekly target starts at 5",

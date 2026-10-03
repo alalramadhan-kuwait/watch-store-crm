@@ -3,7 +3,7 @@ import { format, startOfMonth, endOfMonth, addMonths, subMonths, eachDayOfInterv
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { TrendingUp, Users, AlertCircle, DollarSign, FileText, X, ChevronLeft, ChevronRight, Clock, CalendarDays } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
-import { getCasesForRange, getSettings, getEffectiveItems, getTeamAttendance, getTeamLeave } from '../db';
+import { getCasesForRange, getSettings, getEffectiveItems, getTeamAttendance, getTeamLeave, getStoreSales, syncedLabel, type StoreSales } from '../db';
 import type { AttendanceDay, LeaveDay } from '../db';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
 import { CaseTypeBadge } from './shared/Badge';
@@ -82,7 +82,7 @@ function summariseAttendance(rows: AttendanceDay[], leave: LeaveDay[], monthStar
  * Per-person KPIs for a set of cases — the same shape whether the range is one
  * day or one month, so the manager reads his team the same way in both views.
  */
-function buildTeam(cases: Case[]) {
+function buildTeam(cases: Case[], ls?: StoreSales | null) {
   // formula the daily PDF prints, so the manager and the report agree. It is
   // deliberately not sales ÷ every case: browsing visits are footfall, not a
   // chance that was lost.
@@ -116,6 +116,15 @@ function buildTeam(cases: Case[]) {
       if (c.promisedCallback && c.promisedCallback < today) p.overdueFU++;
     }
   }
+  /* Sales and takings are Lightspeed's, credited to whoever rang them up. Anyone who
+     sold but logged no visits (the online and WhatsApp desk) still appears. */
+  if (ls) {
+    for (const p of Object.values(staffMap)) { p.sales = 0; p.kd = 0; }
+    for (const p of ls.byPerson) {
+      const row = (staffMap[p.name] ??= blank(p.name));
+      row.sales = p.count; row.kd = p.kd;
+    }
+  }
   return Object.values(staffMap)
     .map((d) => {
       const decided = d.sales + d.lost;
@@ -145,6 +154,7 @@ function MonthView() {
   const rangeEnd = format(endOfMonth(month), 'yyyy-MM-dd');
   const isThisMonth = format(month, 'yyyy-MM') === format(new Date(), 'yyyy-MM');
   const [cases, setCases] = useState<Case[]>([]);
+  const [ls, setLs] = useState<StoreSales | null>(null);
   const [drillDown, setDrillDown] = useState<DrillDown | null>(null);
 
   function drillInto(title: string, filteredCases: Case[]) {
@@ -158,11 +168,13 @@ function MonthView() {
   const load = useCallback(async () => {
     // `to` is exclusive for attendance, so ask for the first of the next month
     const nextMonth = format(startOfMonth(addMonths(month, 1)), 'yyyy-MM-dd');
-    const [data, att, lv] = await Promise.all([
+    const [data, att, lv, lsMonth] = await Promise.all([
       getCasesForRange(rangeStart, rangeEnd),
       getTeamAttendance(rangeStart, nextMonth),
       getTeamLeave(rangeStart, rangeEnd),
+      getStoreSales(null, rangeStart, rangeEnd),
     ]);
+    setLs(lsMonth);
     setCases(data);
     setAttendance(att);
     setLeave(lv);
@@ -174,14 +186,19 @@ function MonthView() {
     const sales = cases.filter(c => c.caseType === 'Sale');
     const followups = cases.filter(c => c.caseType === 'Follow-up');
     const lost = cases.filter(c => c.caseType === 'Lost Sale');
-    const revenue = sales.reduce((s, c) => s + (c.amountKD || 0), 0);
+    /* The count and the takings are Lightspeed's when it has any for the month. The brand
+       tables below still come from the sales typed in the app (Lightspeed's line items are
+       not read here yet), so after Manual Sale is retired they only cover older sales. */
+    const useLs = !!ls && ls.sales > 0;
+    const saleCount = useLs ? ls!.sales : sales.length;
+    const revenue = useLs && ls!.revenue !== null ? ls!.revenue : sales.reduce((s, c) => s + (c.amountKD || 0), 0);
     const totalVisitors = cases.reduce((s, c) => s + (c.visitorCount ?? 1), 0);
-    const interactions = sales.length + followups.length + lost.length;
-    const convRate = interactions > 0 ? Math.round((sales.length / interactions) * 100) : 0;
-    const visitorConv = totalVisitors > 0 ? Math.round((sales.length / totalVisitors) * 100) : 0;
+    const interactions = saleCount + followups.length + lost.length;
+    const convRate = interactions > 0 ? Math.round((saleCount / interactions) * 100) : 0;
+    const visitorConv = totalVisitors > 0 ? Math.round((saleCount / totalVisitors) * 100) : 0;
     const interactionRate = totalVisitors > 0 ? Math.round((interactions / totalVisitors) * 100) : 0;
 
-    const leaderboard = buildTeam(cases);
+    const leaderboard = buildTeam(cases, useLs ? ls : null);
     const attendanceBy = summariseAttendance(attendance, leave, rangeStart, rangeEnd);
 
     const lostReasonMap: Record<string, number> = {};
@@ -228,13 +245,13 @@ function MonthView() {
     for (const c of followups) { const k = c.brand || c.product; if (k) followUpBrands[k] = (followUpBrands[k] || 0) + 1; }
 
     return {
-      sales, followups, lost, revenue, convRate, visitorConv, interactionRate, totalVisitors,
+      sales, saleCount, followups, lost, revenue, convRate, visitorConv, interactionRate, totalVisitors,
       leaderboard, attendanceBy, lostReasons, brandSales, brandLost,
       topLostProducts: Object.entries(lostBrands).sort((a, b) => b[1] - a[1]).slice(0, 5),
       topFollowUpProducts: Object.entries(followUpBrands).sort((a, b) => b[1] - a[1]).slice(0, 5),
       openFollowUps: followups.filter(c => c.status === 'Open').length,
     };
-  }, [cases, attendance, leave, rangeStart, rangeEnd]);
+  }, [cases, ls, attendance, leave, rangeStart, rangeEnd]);
 
 
   return (
@@ -249,6 +266,7 @@ function MonthView() {
           <div className="font-bold text-slate-900 leading-tight">{format(month, 'MMMM yyyy')}</div>
           <div className="text-[11px] text-slate-400">
             {isThisMonth ? `1–${format(new Date(), 'd MMM')} · so far` : 'full month'}
+            {ls && ls.sales > 0 && <> · sales from Lightspeed, {syncedLabel(ls.asOf)}</>}
           </div>
         </div>
         <button onClick={() => setMonth(m => startOfMonth(addMonths(m, 1)))}

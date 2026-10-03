@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ChevronRight, Users } from 'lucide-react';
 import { useAppStore } from '../store';
 import { supabase } from '../lib/supabase';
-import { getSettings, getTeamAttendance, getTeamDirectory, getTeamLeave, getTeamWeekContacts, setWeeklyContactTarget, type WeekContacts } from '../db';
+import { getSettings, getTeamAttendance, getTeamDirectory, getTeamLeave, getTeamWeekContacts, setWeeklyContactTarget, getStoreSales, syncedLabel, type WeekContacts } from '../db';
 import { loadStoreDay } from '../db/storeToday';
 import { standings, STANDING_WORD, type Shift, type TeamStanding, isExpectedOn } from '../utils/storeDay';
 import { workload, fairness, type Fairness } from '../shared/workload';
@@ -58,6 +58,7 @@ export function Team() {
   const [weekDue, setWeekDue] = useState<Map<string, number>>(new Map());
   const [balance, setBalance] = useState<Fairness | null>(null);
   const [sales, setSales] = useState<Map<string, { count: number; kd: number }>>(new Map());
+  const [salesAsOf, setSalesAsOf] = useState<string | null | undefined>(undefined);
   const [weekContacts, setWeekContacts] = useState<Map<string, WeekContacts>>(new Map());
   const [allWeek, setAllWeek] = useState<WeekContacts[]>([]);
   const [editing, setEditing] = useState(false);
@@ -119,11 +120,20 @@ export function Team() {
       setWeekHours(new Map(loads.map((l) => [l.who, l.hours ?? 0])));
       setBalance(fairness(loads));
 
+      /* Sales are Lightspeed's, credited to whoever rang them up; the ones typed into
+         the app stand in only if Lightspeed cannot be read. */
       const byStaff = new Map<string, { count: number; kd: number }>();
-      for (const c of day.cases) {
-        if (c.caseType !== 'Sale') continue;
-        const cur = byStaff.get(c.staff) ?? { count: 0, kd: 0 };
-        byStaff.set(c.staff, { count: cur.count + 1, kd: cur.kd + (c.amountKd ?? 0) });
+      const ls = await getStoreSales(outlet, today, today);
+      if (ls) {
+        for (const p of ls.byPerson) byStaff.set(p.name, { count: p.count, kd: p.kd });
+        setSalesAsOf(ls.asOf);
+      } else {
+        setSalesAsOf(undefined);
+        for (const c of day.cases) {
+          if (c.caseType !== 'Sale') continue;
+          const cur = byStaff.get(c.staff) ?? { count: 0, kd: 0 };
+          byStaff.set(c.staff, { count: cur.count + 1, kd: cur.kd + (c.amountKd ?? 0) });
+        }
       }
       setSales(byStaff);
     } finally { setLoading(false); }
@@ -252,6 +262,7 @@ export function Team() {
 
       <p className="text-[11px] text-slate-400">
         Nobody is marked missing for a day they were not due in. Days off come from their HR record.
+        {salesAsOf !== undefined && <> Sales are from Lightspeed, {syncedLabel(salesAsOf)}.</>}
       </p>
 
       {editing && <TargetsModal rows={allWeek} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); void load(); }} />}

@@ -741,14 +741,20 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
               </button>
             ))}
           </div>
-          {/* Manual Sale stays, off the main path, for the transition */}
-          <button type="button" onClick={() => setEntryType('Sale')}
-            aria-pressed={entryType === 'Sale'}
-            className={`mt-2 w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl border text-xs font-semibold transition-colors
-              ${entryType === 'Sale' ? 'type-btn-sale-active border-2' : 'border-dashed border-slate-300 text-slate-500 hover:bg-slate-50'}`}>
-            <ShoppingBag className="w-3.5 h-3.5" /> {caseLabel('Sale')}
-            <span className="font-normal text-slate-400">· until POS matching is live</span>
-          </button>
+          {/* Sales are read from Lightspeed now, so there is nothing to type in after ringing one up.
+              This stays only for a sale that was not rung up there, and is a quiet link on purpose. */}
+          {entryType === 'Sale' ? (
+            <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2.5 text-xs text-amber-800">
+              <p className="font-semibold">A sale that is not in Lightspeed</p>
+              <p className="mt-0.5">Sales you ring up at the till are counted automatically. Only log one here if it was never rung up there.</p>
+              <button type="button" onClick={() => setEntryType('No Interaction')} className="mt-1.5 font-semibold underline">Never mind, go back</button>
+            </div>
+          ) : (
+            <button type="button" onClick={() => setEntryType('Sale')}
+              className="mt-3 w-full text-center text-[11px] text-slate-400 underline underline-offset-2 py-1">
+              Sale not rung up in Lightspeed?
+            </button>
+          )}
           {errors.entryType && <p className="text-rose-500 text-xs mt-1">{errors.entryType}</p>}
         </div>
 

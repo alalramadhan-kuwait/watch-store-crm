@@ -8,7 +8,7 @@ import { useAuth } from '../context/AuthContext';
 import { useAppStore } from '../store';
 import {
   getSettings, getTodayCases, getOpenFollowUps, getUpcomingOccasions, getMyShiftsToday, getLightspeedToday,
-  logOutletChange, getRosterEmployees, getTeamWeekContacts, type Occasion, type MyShift, type LightspeedToday, type WeekContacts,
+  logOutletChange, getRosterEmployees, getTeamWeekContacts, syncedLabel, type Occasion, type MyShift, type LightspeedToday, type WeekContacts,
 } from '../db';
 import { useLive } from '../shared/live';
 import { dayHours } from '../shared/workedHours';
@@ -236,7 +236,7 @@ export function SalesHome() {
             [caseLabel('No Interaction'), counts.browsing, 'text-slate-700'],
             [caseLabel('Follow-up'), counts.interested, 'text-amber-700'],
             ['Lost opp.', counts.lost, 'text-rose-700'],
-            [caseLabel('Sale'), counts.manual, 'text-emerald-700'],
+            [till ? 'Sales' : caseLabel('Sale'), till ? till.sales : counts.manual, 'text-emerald-700'],
           ] as const).map(([l, v, tone]) => (
             <div key={l}>
               <p className={`text-xl font-bold leading-none ${tone}`}>{v}</p>
@@ -246,7 +246,7 @@ export function SalesHome() {
         </div>
         {till && (
           <p className="text-xs text-slate-500 mt-4 pt-3 border-t border-slate-100 flex items-baseline justify-between">
-            <span>Lightspeed today</span>
+            <span>Lightspeed today · {syncedLabel(till.as_of)}</span>
             <span className="font-semibold text-slate-800 tabular-nums">{till.sales} {till.sales === 1 ? 'sale' : 'sales'} · {formatKD(till.revenue)} KD</span>
           </p>
         )}

@@ -2,7 +2,7 @@ import { Fragment, useState, useEffect, useCallback, useMemo, useRef } from 'rea
 import { canActForOtherStaff } from '../utils/roles';
 import { format, isToday, isBefore, differenceInDays, startOfDay, startOfMonth } from 'date-fns';
 import { Phone, MessageCircle, CheckCircle, XCircle, UserX, ChevronDown, Filter, BarChart2, TrendingUp, Pencil, Plus, ShieldAlert} from 'lucide-react';
-import { getOpenFollowUps, getSettings, updateCase, insertCase, nextCaseId, getBrands, getCasesForRange, getUpcomingOccasions, type Occasion } from '../db';
+import { getOpenFollowUps, getSettings, updateCase, insertCase, nextCaseId, getBrands, getStoreSales, syncedLabel, getFollowUpSaleMatches, answerFollowUpSale, type FollowUpSaleMatch, getUpcomingOccasions, type Occasion } from '../db';
 import { WhatsAppSheet } from './WhatsAppSheet';
 import { normalizePhone } from '../shared/phoneRules';
 import { useNavigate } from 'react-router-dom';
@@ -37,7 +37,9 @@ export function FollowUps() {
      as Won appears here: it writes a real Sale under the same person. The
      follow-up row it came from is still typed Follow-up, so nothing is counted
      twice. */
-  const [monthSales, setMonthSales] = useState<{ count: number; kd: number } | null>(null);
+  const [monthSales, setMonthSales] = useState<{ count: number; kd: number; asOf: string | null } | null>(null);
+  const [matches, setMatches] = useState<FollowUpSaleMatch[]>([]);
+  const [matchBusy, setMatchBusy] = useState<string | null>(null);
   const [brandFilter, setBrandFilter] = useState('');
   const [productTypeFilter, setProductTypeFilter] = useState('');
   const [urgencyFilter, setUrgencyFilter] = useState('');
@@ -110,7 +112,8 @@ export function FollowUps() {
     let cancelled = false;
     (async () => {
       const now = new Date();
-      const rows = await getCasesForRange(format(startOfMonth(now), 'yyyy-MM-dd'), format(now, 'yyyy-MM-dd'));
+      /* This month's sales come from Lightspeed, credited to whoever rang them up. */
+      const ls = await getStoreSales(null, format(startOfMonth(now), 'yyyy-MM-dd'), format(now, 'yyyy-MM-dd'));
       if (cancelled) return;
       /* `!salesFor` means two different things and only one of them is "show
          everything". For somebody who may see the whole shop it is "no colleague
@@ -120,11 +123,26 @@ export function FollowUps() {
          that way. Without a name there is no personal figure, so there is no
          card. */
       if (!canSeeEveryone && !salesFor) { setMonthSales(null); return; }
-      const mine = rows.filter(c => c.caseType === 'Sale' && (!salesFor || c.staff === salesFor));
-      setMonthSales({ count: mine.length, kd: mine.reduce((sum, c) => sum + (c.amountKD || 0), 0) });
+      if (!ls) { setMonthSales(null); return; }
+      const mine = salesFor ? ls.byPerson.filter(p => p.name === salesFor) : ls.byPerson;
+      setMonthSales({ count: mine.reduce((t, p) => t + p.count, 0), kd: mine.reduce((t, p) => t + p.kd, 0), asOf: ls.asOf });
     })();
     return () => { cancelled = true; };
   }, [salesFor, canSeeEveryone]);
+
+  /* Follow-ups whose customer has since bought in Lightspeed: one tap to confirm, not a form. */
+  const loadMatches = useCallback(() => { void getFollowUpSaleMatches().then(setMatches); }, []);
+  useEffect(() => { loadMatches(); }, [loadMatches, followUps.length]);
+  async function answer(m: FollowUpSaleMatch, bought: boolean) {
+    setMatchBusy(m.caseId);
+    try {
+      await answerFollowUpSale(m.caseId, m.saleId, bought);
+      setMatches(list => list.filter(x => x.caseId !== m.caseId));
+      if (bought) setFollowUps(list => list.filter(c => c.id !== m.caseId));
+    } catch (e) {
+      showToast(e instanceof Error ? e.message : 'Could not save that.', 'error');
+    } finally { setMatchBusy(null); }
+  }
 
   // Analytics computed from the scoped list (regardless of the other filters)
   const overdue = useMemo(() => scoped.filter(c => followUpUrgency(c) === 'overdue').length, [scoped]);
@@ -383,6 +401,43 @@ export function FollowUps() {
         </div>
       )}
 
+      {/* Did they buy? A follow-up whose customer has since bought in Lightspeed. One tap to close
+          it as won; "not this one" is remembered so the same sale is not asked about again. */}
+      {matches.length > 0 && (
+        <div className="mb-4 rounded-2xl border border-emerald-200 bg-emerald-50/70 p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <CheckCircle className="w-4 h-4 text-emerald-600" />
+            <h2 className="font-bold text-slate-900 text-sm">Did they buy? <span className="font-normal text-slate-500">· {matches.length}</span></h2>
+          </div>
+          <div className="space-y-3">
+            {matches.slice(0, 5).map(m => (
+              <div key={m.caseId} className="bg-white rounded-xl border border-emerald-100 p-3">
+                <p className="text-sm text-slate-800">
+                  <span className="font-semibold">{m.customerName ?? 'This customer'}</span> bought{' '}
+                  <span className="font-semibold tabular-nums">{formatKDCompact(m.saleKd)} KD</span>{' '}
+                  on {new Date(m.saleAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', timeZone: 'Asia/Kuwait' })}
+                </p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  {m.soldBy ? `Rung up by ${m.soldBy}` : 'In Lightspeed'}{m.receipt ? ` · receipt ${m.receipt}` : ''}
+                  {m.product ? ` · you followed up about ${m.product}` : ''}
+                </p>
+                <div className="flex gap-2 mt-2.5">
+                  <button disabled={matchBusy === m.caseId} onClick={() => void answer(m, true)}
+                    className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white text-sm font-semibold disabled:opacity-50 active:scale-[0.98]">
+                    Yes, mark as won
+                  </button>
+                  <button disabled={matchBusy === m.caseId} onClick={() => void answer(m, false)}
+                    className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-600 text-sm font-semibold disabled:opacity-50">
+                    Not this one
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+          {matches.length > 5 && <p className="text-[11px] text-slate-400 mt-2">{matches.length - 5} more after these.</p>}
+        </div>
+      )}
+
       {/* Sales so far this month — the reason the board is worth working.
           Deliberately not a sixth KPI tile: those count the follow-up list,
           this counts what has actually been sold. */}
@@ -401,7 +456,7 @@ export function FollowUps() {
               {formatKDCompact(monthSales.kd)} <span className="text-sm font-semibold text-white/70">KD</span>
             </p>
             <p className="text-[11px] text-white/60 mt-1">
-              {monthSales.count} {monthSales.count === 1 ? 'sale' : 'sales'}
+              {monthSales.count} {monthSales.count === 1 ? 'sale' : 'sales'} · {syncedLabel(monthSales.asOf)}
             </p>
           </div>
         </div>
