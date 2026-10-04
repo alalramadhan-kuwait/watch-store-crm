@@ -4,7 +4,7 @@ import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 
 import { TrendingUp, Users, AlertCircle, DollarSign, FileText, X, ChevronLeft, ChevronRight, Clock, CalendarDays } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { activeChannels, channelLine } from '../utils/channels';
-import { getCasesForRange, getSettings, getEffectiveItems, getTeamAttendance, getTeamLeave, getStoreSales, syncedLabel, type StoreSales } from '../db';
+import { getCasesForRange, getSettings, getEffectiveItems, getTeamAttendance, getTeamLeave, getStoreSales, syncedLabel, visitorsOnDay, type StoreSales } from '../db';
 import type { AttendanceDay, LeaveDay } from '../db';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
 import { CaseTypeBadge } from './shared/Badge';
@@ -193,7 +193,9 @@ function MonthView() {
     const useLs = !!ls && ls.sales > 0;
     const saleCount = useLs ? ls!.sales : sales.length;
     const revenue = useLs && ls!.revenue !== null ? ls!.revenue : sales.reduce((s, c) => s + (c.amountKD || 0), 0);
-    const totalVisitors = cases.reduce((s, c) => s + (c.visitorCount ?? 1), 0);
+    /* Buyers are not logged as visits any more, so with the till's count each sale is one more visitor;
+       counting only the logged visits made conversion read too high, even past 100%. */
+    const totalVisitors = visitorsOnDay(cases, saleCount, useLs);
     const interactions = saleCount + followups.length + lost.length;
     const convRate = interactions > 0 ? Math.round((saleCount / interactions) * 100) : 0;
     const visitorConv = totalVisitors > 0 ? Math.round((saleCount / totalVisitors) * 100) : 0;

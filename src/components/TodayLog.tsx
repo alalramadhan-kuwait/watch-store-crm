@@ -4,9 +4,10 @@ import { format } from 'date-fns';
 import { Edit2, Trash2, Lock, Share2, FileText, ShieldAlert, ChevronDown, ChevronUp, Layers, MapPin, UserRound, MessageCircle } from 'lucide-react';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
 import { activeChannels, channelLine } from '../utils/channels';
-import { getTodayCases, getDayClose, closeDay, getSettings, updateCase, rebuildDaySummary, getCasesByDate, getLightspeedToday, type LightspeedToday } from '../db';
+import { getTodayCases, getDayClose, closeDay, getSettings, updateCase, rebuildDaySummary, getCasesByDate, getLightspeedToday, syncedLabel, type LightspeedToday } from '../db';
 import { useNavigate } from 'react-router-dom';
 import { caseLabel } from '../shared/caseLabels';
+import { outletName } from '../shared/outlets';
 import { generatePDF, shareReport, downloadReport, buildDailyStats } from '../utils/report';
 import { useAppStore } from '../store';
 import { useAuth } from '../context/AuthContext';
@@ -396,11 +397,11 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
       {tillToday && role !== 'staff' && (
         <div className="flex items-center justify-between gap-3 mb-5 px-3 py-2 rounded-xl bg-slate-50 border border-slate-100 text-xs">
           <span className="text-slate-500">
-            Lightspeed today{tillToday.scope ? ` · ${tillToday.scope}` : ''}
+            Lightspeed today{tillToday.scope ? ` · ${outletName(tillToday.scope)}` : ''}
           </span>
           <span className="font-semibold text-slate-800 tabular-nums">
             {tillToday.sales} {tillToday.sales === 1 ? 'sale' : 'sales'} · {formatKD(tillToday.revenue)} KD
-            {tillToday.as_of && <span className="text-slate-400 font-normal"> · as of {format(new Date(tillToday.as_of), 'HH:mm')}</span>}
+            {tillToday.as_of && <span className="text-slate-400 font-normal"> · {syncedLabel(tillToday.as_of)}</span>}
           </span>
         </div>
       )}

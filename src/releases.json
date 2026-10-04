@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.0.2",
+    "date": "2026-10-04",
+    "title": "Safer attendance, truer conversion",
+    "changes": [
+      "Conversion on the day report and the manager screen is now worked out against every person who came in, buyers included. It could read too high, even over 100%, because buyers were no longer logged as visits.",
+      "A clock-out can be set once. To change it afterwards, ask for a correction in My Portal.",
+      "Today’s Log shows the shop’s name and the update time in Kuwait time."
+    ]
+  },
+  {
     "version": "3.0.1",
     "date": "2026-10-04",
     "title": "Online orders no longer count as a shop sale",

@@ -438,20 +438,32 @@ export async function isDayClosed(date: string, outlet = ''): Promise<boolean> {
 }
 
 /**
+ * Visitors on a day. Sales are Lightspeed's and nobody logs the buyer as a visit any more, so
+ * when the sales are the till's each one counts as at least one visitor on top of the visits
+ * that were logged. Counting only the logged visits made 3 sales out of 3 logged visitors read
+ * "100% conversion" when six people had walked in. When the sales are the typed ones (the till
+ * could not be read) they are already among the cases, so nothing is added.
+ */
+export function visitorsOnDay(cases: Case[], saleCount: number, fromTill: boolean): number {
+  const logged = cases.reduce((s, c) => s + (fromTill && c.caseType === 'Sale' ? 0 : (c.visitorCount ?? 1)), 0);
+  return fromTill ? logged + saleCount : logged;
+}
+
+/**
  * The day's sales for the report: Lightspeed's, because that is where the sale
  * was rung up. Only when Lightspeed has none for the day — an older date from
  * before sales were read from the till, or the sync is down — do the sales typed
  * into the app stand in, and the report says which it used.
  */
 async function daySales(date: string, outlet: string, cases: Case[]): Promise<{
-  sales: Case[]; count: number; revenue: number | null; source: string;
+  sales: Case[]; count: number; revenue: number | null; source: string; fromTill: boolean;
   staffSales: Record<string, { count: number; kd: number }>;
 }> {
   const ls = await getStoreSales(outlet || null, date, date);
   if (ls && ls.sales > 0) {
     const staffSales: Record<string, { count: number; kd: number }> = {};
     for (const p of ls.byPerson) staffSales[p.name] = { count: p.count, kd: p.kd };
-    return { sales: [], count: ls.sales, revenue: ls.revenue, staffSales, source: `, Lightspeed ${syncedLabel(ls.asOf)}` };
+    return { sales: [], count: ls.sales, revenue: ls.revenue, staffSales, fromTill: true, source: `, Lightspeed ${syncedLabel(ls.asOf)}` };
   }
   const typed = cases.filter(c => c.caseType === 'Sale');
   const staffSales: Record<string, { count: number; kd: number }> = {};
@@ -460,7 +472,7 @@ async function daySales(date: string, outlet: string, cases: Case[]): Promise<{
     staffSales[c.staff].count++;
     staffSales[c.staff].kd += c.amountKD || 0;
   }
-  return { sales: typed, count: typed.length, revenue: typed.reduce((t, c) => t + (c.amountKD || 0), 0), staffSales, source: '' };
+  return { sales: typed, count: typed.length, revenue: typed.reduce((t, c) => t + (c.amountKD || 0), 0), staffSales, fromTill: false, source: '' };
 }
 
 export async function closeDay(date: string, closedBy: string, outlet = ''): Promise<string> {
@@ -487,11 +499,11 @@ export async function closeDay(date: string, closedBy: string, outlet = ''): Pro
   const followups = cases.filter(c => c.caseType === 'Follow-up');
   const lost = cases.filter(c => c.caseType === 'Lost Sale');
   const noInteraction = cases.filter(c => c.caseType === 'No Interaction');
-  const { sales, count: saleCount, revenue, staffSales, source } = await daySales(date, outlet, cases);
+  const { sales, count: saleCount, revenue, staffSales, source, fromTill } = await daySales(date, outlet, cases);
   const interactions = saleCount + followups.length + lost.length;
   const convRate = interactions > 0 ? Math.round((saleCount / interactions) * 100) : 0;
-  // Real footfall = sum of visitorCount (No Interaction may log groups)
-  const totalVisitors = cases.reduce((s, c) => s + (c.visitorCount ?? 1), 0);
+  // Real footfall = logged visitors (groups count) plus one for each sale the till rang up
+  const totalVisitors = visitorsOnDay(cases, saleCount, fromTill);
   const visitorConv = totalVisitors > 0 ? Math.round((saleCount / totalVisitors) * 100) : 0;
 
   const { count: openFU } = await supabase
@@ -533,10 +545,10 @@ export async function rebuildDaySummary(date: string, outlet = ''): Promise<stri
   const followups = cases.filter(c => c.caseType === 'Follow-up');
   const lost = cases.filter(c => c.caseType === 'Lost Sale');
   const noInteraction = cases.filter(c => c.caseType === 'No Interaction');
-  const { count: saleCount, revenue, staffSales, source } = await daySales(date, outlet, cases);
+  const { count: saleCount, revenue, staffSales, source, fromTill } = await daySales(date, outlet, cases);
   const interactions = saleCount + followups.length + lost.length;
   const convRate = interactions > 0 ? Math.round((saleCount / interactions) * 100) : 0;
-  const totalVisitors = cases.reduce((s, c) => s + (c.visitorCount ?? 1), 0);
+  const totalVisitors = visitorsOnDay(cases, saleCount, fromTill);
   const visitorConv = totalVisitors > 0 ? Math.round((saleCount / totalVisitors) * 100) : 0;
 
   const { count: openFU } = await supabase
