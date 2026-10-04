@@ -18,7 +18,7 @@ import { CaseTypeBadge, DayStatusBadge } from './shared/Badge';
 import { Modal, ConfirmModal } from './shared/Modal';
 import type { Case, AppSettings, DayClose, CaseStatus } from '../types';
 import { QuickEntryEdit } from './QuickEntryEdit';
-import { TillSalesList } from './TillSales';
+import { LatestSaleCard } from './TillSales';
 
 const today = format(new Date(), 'yyyy-MM-dd');
 const yesterday = format(new Date(Date.now() - 86400000), 'yyyy-MM-dd');
@@ -392,28 +392,9 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
         ))}
       </div>
 
-      {/* What the till says, next to what was logged. Manual Sales are the
-          exception, not the record: Lightspeed is. The shared shop login is
-          nobody's till figures, so it is not shown a misleading zero. */}
-      {tillToday && role !== 'staff' && (
-        <div className="flex items-center justify-between gap-3 mb-5 px-3 py-2 rounded-xl bg-slate-50 border border-slate-100 text-xs">
-          <span className="text-slate-500">
-            Lightspeed today{tillToday.scope ? ` · ${outletName(tillToday.scope)}` : ''}
-          </span>
-          <span className="font-semibold text-slate-800 tabular-nums">
-            {tillToday.sales} {tillToday.sales === 1 ? 'sale' : 'sales'} · {formatKD(tillToday.revenue)} KD
-            {tillToday.as_of && <span className="text-slate-400 font-normal"> · {syncedLabel(tillToday.as_of)}</span>}
-          </span>
-        </div>
-      )}
-      {tillToday && role !== 'staff' && <TillSalesList scope={tillToday.scope} count={tillToday.sales} />}
-      {/* Online and WhatsApp orders are not rung up in a shop, so choosing a shop will never
-          show them. Say where they went rather than leaving a sale nobody can find. */}
-      {tillToday && role !== 'staff' && activeChannels(tillToday.channels).length > 0 && (
-        <p className="-mt-3 mb-5 px-3 text-xs text-slate-500">
-          Not in a shop: {activeChannels(tillToday.channels).map(channelLine).join(' · ')}
-        </p>
-      )}
+      {/* What the till rang up last. Manual Sales are the exception, not the record: Lightspeed is.
+          The shared shop login is nobody's till figures, so it is not shown a misleading zero. */}
+      {tillToday && role !== 'staff' && <LatestSaleCard till={tillToday} overseer={role === 'admin' || role === 'manager'} />}
 
       {/* Case list */}
       {sortedCases.length === 0 ? (

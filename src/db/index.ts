@@ -921,18 +921,23 @@ export async function getLightspeedToday(outlet?: string | null): Promise<Lights
   return (data ?? { sales: 0, revenue: 0, scope: null, as_of: null }) as LightspeedToday;
 }
 
-/** One sale as the till rang it up, for the list behind "Lightspeed today". */
+/** One sale as the till rang it up, for the card and the list behind "Latest sale". */
 export interface TillSale {
   id: string; at: string; receipt: string | null; kd: number; scope: string | null; isReturn: boolean;
+  /** The salesman credited with the sale. Null when the till login is nobody's (shared or a channel). */
   soldBy: string | null; customer: string | null; payments: string[]; note: string | null;
-  items: { name: string; qty: number; kd: number }[];
+  items: { name: string | null; brand: string | null; qty: number; kd: number }[];
 }
 const TILL_COUNTS = ['CLOSED', 'ONACCOUNT_CLOSED', 'LAYBY_CLOSED', 'PICKED_UP_CLOSED', 'DISPATCHED_CLOSED', 'ONACCOUNT', 'LAYBY'];
 
 /**
  * Today's sales behind the till figure, newest first. Same day and same statuses as
  * lightspeed_today, so the list adds up to the number above it. The database decides
- * what this login may read; a seller sees the sales credited to them.
+ * what this login may read; a seller sees the shop sales credited to them.
+ *
+ * "Sold by" follows the same rule the credits do: the salesperson on the sale line when
+ * the line has one, otherwise the till login, and only when that Lightspeed user is an
+ * employee (a shared login or a channel account is nobody).
  */
 export async function getTillSales(scope: string | null): Promise<TillSale[]> {
   let q = supabase.from('lightspeed_sales')
@@ -944,25 +949,33 @@ export async function getTillSales(scope: string | null): Promise<TillSale[]> {
   const rows = (data ?? []) as Record<string, unknown>[];
   if (!rows.length) return [];
   const ids = rows.map(r => r.id as string);
-  const uids = [...new Set(rows.map(r => r.user_id as string | null).filter((x): x is string => !!x))];
   const cids = [...new Set(rows.map(r => r.customer_id as string | null).filter((x): x is string => !!x))];
-  const [it, us, cu] = await Promise.all([
-    supabase.from('lightspeed_sale_items').select('sale_id,name,sku,quantity,price_total,sequence').in('sale_id', ids).order('sequence'),
-    uids.length ? supabase.from('lightspeed_users').select('lightspeed_user_id,display_name').in('lightspeed_user_id', uids) : Promise.resolve({ data: [] }),
+  const it = await supabase.from('lightspeed_sale_items')
+    .select('sale_id,name,brand,sku,quantity,price_total,sequence,salesperson_id').in('sale_id', ids).order('sequence');
+  const itemRows = (it.data ?? []) as Record<string, unknown>[];
+  const uids = [...new Set([
+    ...rows.map(r => r.user_id as string | null), ...itemRows.map(r => r.salesperson_id as string | null),
+  ].filter((x): x is string => !!x))];
+  const [us, cu] = await Promise.all([
+    uids.length ? supabase.from('lightspeed_users').select('lightspeed_user_id,display_name,kind').in('lightspeed_user_id', uids) : Promise.resolve({ data: [] }),
     cids.length ? supabase.from('lightspeed_customers').select('id,name,first_name,last_name').in('id', cids) : Promise.resolve({ data: [] }),
   ]);
-  const who = new Map(((us.data ?? []) as Record<string, string>[]).map(u => [u.lightspeed_user_id, u.display_name]));
+  const who = new Map(((us.data ?? []) as Record<string, string>[]).filter(u => u.kind === 'employee').map(u => [u.lightspeed_user_id, u.display_name]));
   const cust = new Map(((cu.data ?? []) as Record<string, string | null>[]).map(c => [c.id as string, (c.name || [c.first_name, c.last_name].filter(Boolean).join(' ')) || null]));
   const items = new Map<string, TillSale['items']>();
-  for (const r of ((it.data ?? []) as Record<string, unknown>[])) {
-    const list = items.get(r.sale_id as string) ?? [];
-    list.push({ name: (r.name as string | null) ?? (r.sku ? `Item ${r.sku}` : 'Item'), qty: Number(r.quantity ?? 1), kd: Number(r.price_total ?? 0) });
-    items.set(r.sale_id as string, list);
+  const lineSeller = new Map<string, string>();
+  for (const r of itemRows) {
+    const sid = r.sale_id as string;
+    const list = items.get(sid) ?? [];
+    list.push({ name: (r.name as string | null) || null, brand: (r.brand as string | null) ?? null, qty: Number(r.quantity ?? 1), kd: Number(r.price_total ?? 0) });
+    items.set(sid, list);
+    const by = r.salesperson_id ? who.get(r.salesperson_id as string) : undefined;
+    if (by && !lineSeller.has(sid)) lineSeller.set(sid, by);
   }
   return rows.map(r => ({
     id: r.id as string, at: r.sale_date as string, receipt: (r.receipt_number ?? r.invoice_number ?? null) as string | null,
     kd: Number(r.total_price_incl ?? 0), scope: (r.scope_code as string | null) ?? null, isReturn: !!r.return_for,
-    soldBy: r.user_id ? (who.get(r.user_id as string) ?? null) : null,
+    soldBy: lineSeller.get(r.id as string) ?? (r.user_id ? (who.get(r.user_id as string) ?? null) : null),
     customer: r.customer_id ? (cust.get(r.customer_id as string) ?? null) : null,
     payments: ((r.payments as { name?: string; amount?: number }[] | null) ?? []).map(p => p.name ? `${p.name}${p.amount != null ? ` ${formatKD(Number(p.amount))}` : ''}` : '').filter(Boolean),
     note: (r.note as string | null) || null,

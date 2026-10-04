@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.3.0",
+    "date": "2026-10-04",
+    "title": "The latest sale on Today",
+    "changes": [
+      "Today now shows the latest sale: what was sold, how much, the time and who sold it. Tap it to read every sale of the day.",
+      "The line that repeated the sales count is gone."
+    ]
+  },
+  {
     "version": "3.2.0",
     "date": "2026-10-04",
     "title": "See the sales behind the number",
