@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.4.0",
+    "date": "2026-10-04",
+    "title": "Manual sales are checked against the till",
+    "changes": [
+      "A sale you typed in as a Manual Sale now says whether the till already has it: “Already in the till (#2298). No need to type it.”",
+      "If it is not in the till, it says so, so you can ring it up. The manager is told at the end of the day about any that never reached the till.",
+      "The Manual Sale form now reminds you to ring every sale on the till first."
+    ]
+  },
+  {
     "version": "3.3.0",
     "date": "2026-10-04",
     "title": "The latest sale on Today",

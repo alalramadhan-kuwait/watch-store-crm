@@ -4,7 +4,7 @@ import { format } from 'date-fns';
 import { Edit2, Trash2, Lock, Share2, FileText, ShieldAlert, ChevronDown, ChevronUp, Layers, MapPin, UserRound, MessageCircle } from 'lucide-react';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
 import { activeChannels, channelLine } from '../utils/channels';
-import { getTodayCases, getDayClose, closeDay, getSettings, updateCase, rebuildDaySummary, getCasesByDate, getLightspeedToday, syncedLabel, type LightspeedToday } from '../db';
+import { getTodayCases, getDayClose, closeDay, getSettings, updateCase, rebuildDaySummary, getCasesByDate, getLightspeedToday, getManualSaleChecks, type ManualSaleCheck, type LightspeedToday } from '../db';
 import { useNavigate } from 'react-router-dom';
 import { caseLabel } from '../shared/caseLabels';
 import { outletName } from '../shared/outlets';
@@ -18,7 +18,7 @@ import { CaseTypeBadge, DayStatusBadge } from './shared/Badge';
 import { Modal, ConfirmModal } from './shared/Modal';
 import type { Case, AppSettings, DayClose, CaseStatus } from '../types';
 import { QuickEntryEdit } from './QuickEntryEdit';
-import { LatestSaleCard } from './TillSales';
+import { LatestSaleCard, ManualSaleNote } from './TillSales';
 
 const today = format(new Date(), 'yyyy-MM-dd');
 const yesterday = format(new Date(Date.now() - 86400000), 'yyyy-MM-dd');
@@ -49,6 +49,8 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
      against what Lightspeed actually rang up. The database limits it to the
      sales this login is allowed to see. */
   const [tillToday, setTillToday] = useState<LightspeedToday | null>(null);
+  /* Typed Manual Sales, read against the till (by case id). */
+  const [saleChecks, setSaleChecks] = useState<Record<string, ManualSaleCheck>>({});
 
   const [outletFilter, setOutletFilter] = useState<string>('');
 
@@ -82,6 +84,11 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
     getLightspeedToday(tillOutlet).then(t => { if (live) setTillToday(t); }).catch(() => { if (live) setTillToday(null); });
     return () => { live = false; };
   }, [tillOutlet, refreshLog]);
+  useEffect(() => {
+    let live = true;
+    getManualSaleChecks().then(c => { if (live) setSaleChecks(c); });
+    return () => { live = false; };
+  }, [refreshLog, tillToday?.as_of, cases.length]);
 
   useLive('today-log', [
     { table: 'cases', filter: `date_logged=eq.${today}` },
@@ -443,6 +450,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
                             <>
                               <span className="font-semibold truncate block">{c.brand || '—'}</span>
                               <span className="text-xs text-slate-400">{c.productType || ''}</span>
+                              {c.caseType === 'Sale' && <ManualSaleNote check={c.id ? saleChecks[c.id] : undefined} asOf={tillToday?.as_of} />}
                               {c.caseType === 'Lost Sale' && c.product && c.product !== c.brand && (
                                 <span className="text-xs text-slate-400 truncate block">{c.product}</span>
                               )}
@@ -513,7 +521,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
           {/* Mobile cards */}
           <div className="lg:hidden space-y-3 mb-6">
             {sortedCases.map(c => (
-              <CaseCard key={c.id} case_={c} locked={isClosed && role !== 'admin'} onEdit={() => setEditCase(c)} onDelete={() => setDeleteCase(c)} onDetail={() => setDetailCase(c)} />
+              <CaseCard key={c.id} check={c.id ? saleChecks[c.id] : undefined} asOf={tillToday?.as_of} case_={c} locked={isClosed && role !== 'admin'} onEdit={() => setEditCase(c)} onDelete={() => setDeleteCase(c)} onDetail={() => setDetailCase(c)} />
             ))}
           </div>
         </>
@@ -740,8 +748,8 @@ function StatusBadge({ status }: { status: CaseStatus }) {
   );
 }
 
-function CaseCard({ case_: c, locked, onEdit, onDelete, onDetail }: {
-  case_: Case; locked: boolean; onEdit: () => void; onDelete: () => void; onDetail: () => void;
+function CaseCard({ case_: c, locked, onEdit, onDelete, onDetail, check, asOf }: {
+  check?: ManualSaleCheck; asOf?: string | null; case_: Case; locked: boolean; onEdit: () => void; onDelete: () => void; onDetail: () => void;
 }) {
   const [expanded, setExpanded] = useState(false);
   const isMultiItem = c.caseType === 'Sale' && c.saleItems && c.saleItems.length > 1;
@@ -788,6 +796,7 @@ function CaseCard({ case_: c, locked, onEdit, onDelete, onDetail }: {
             )}
             {c.followUpAction && <span className="text-amber-700">· {c.followUpAction}</span>}
           </div>
+          {c.caseType === 'Sale' && <ManualSaleNote check={check} asOf={asOf} />}
           {c.caseType === 'Follow-up' && c.notes && (
             <p className="text-[11px] text-slate-500 italic mt-1 leading-snug">"{c.notes}"</p>
           )}

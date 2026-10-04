@@ -983,6 +983,18 @@ export async function getTillSales(scope: string | null): Promise<TillSale[]> {
   }));
 }
 
+/** Whether a typed Manual Sale has turned up in Lightspeed (same outlet, same amount, within hours). */
+export interface ManualSaleCheck { matched: boolean; receipt: string | null; loggedAt: string }
+export async function getManualSaleChecks(): Promise<Record<string, ManualSaleCheck>> {
+  const { data, error } = await supabase.rpc('manual_sale_checks', { p_date: null });
+  if (error) return {};
+  const out: Record<string, ManualSaleCheck> = {};
+  for (const r of (data ?? []) as Record<string, unknown>[]) {
+    out[r.case_uuid as string] = { matched: !!r.matched, receipt: (r.receipt as string | null) ?? null, loggedAt: r.logged_at as string };
+  }
+  return out;
+}
+
 // ── Home: where you are, who is due, what is coming up ───────────────────────
 
 /**

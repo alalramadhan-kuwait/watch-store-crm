@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ChevronRight, Undo2 } from 'lucide-react';
-import { getTillSales, type LightspeedToday, type TillSale } from '../db';
+import { getTillSales, type LightspeedToday, type ManualSaleCheck, type TillSale } from '../db';
 import { formatKD } from '../utils/formatKD';
 import { outletName } from '../shared/outlets';
 import { activeChannels } from '../utils/channels';
@@ -125,4 +125,19 @@ export function LatestSaleCard({ till, overseer }: { till: LightspeedToday; over
       </Modal>
     </div>
   );
+}
+
+/**
+ * A typed Manual Sale, read against the till. Typing a sale the till already holds is double
+ * entry; a sale the till never gets is cash and stock nobody recorded.
+ */
+export function ManualSaleNote({ check, asOf }: { check: ManualSaleCheck | undefined; asOf: string | null | undefined }) {
+  if (!check) return null;
+  if (check.matched) {
+    return <p className="mt-1 text-xs font-medium text-emerald-700">Already in the till{check.receipt ? ` (#${check.receipt})` : ''}. No need to type it.</p>;
+  }
+  const waiting = !asOf || new Date(asOf).getTime() < new Date(check.loggedAt).getTime();
+  return waiting
+    ? <p className="mt-1 text-xs text-slate-400">Waiting for the till to catch up…</p>
+    : <p className="mt-1 text-xs font-medium text-amber-600">Not in the till. Ring it up on the till.</p>;
 }

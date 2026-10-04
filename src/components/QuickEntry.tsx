@@ -810,6 +810,9 @@ export function QuickEntry({ panelMode = false }: { panelMode?: boolean }) {
         {/* ── Manual Sale ──────────────────────────────────────────────── */}
         {isSale && (
           <div className="space-y-5">
+            <p className="rounded-xl bg-amber-50 border border-amber-100 px-3 py-2 text-xs text-amber-800 leading-snug">
+              Ring every sale on the till. Lightspeed already counts it here. Use Manual Sale only when the till is down.
+            </p>
             <SaleItemsEditor items={saleItems} onChange={setSaleItems} brands={brands} errors={errors} />
             {customerFields(false, false, false)}
             {!showNotes ? (
