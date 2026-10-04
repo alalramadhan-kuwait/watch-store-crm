@@ -4,7 +4,7 @@ import {
   FileText, Share2, Download, Calendar, ChevronDown, ChevronUp,
   Clock, User, Loader2, ShieldAlert, Trash2, Store, Layers,
 } from 'lucide-react';
-import { getAllDayCloses, getCasesByDate, updateCase, rebuildDaySummary, getSettings, deleteFullDayReport } from '../db';
+import { getAllDayCloses, getCasesByDate, updateCase, rebuildDaySummary, getSettings, deleteFullDayReport, getReportTill } from '../db';
 import { generatePDF, downloadReport, shareReport } from '../utils/report';
 import { formatKD } from '../utils/formatKD';
 import { useAppStore } from '../store';
@@ -58,7 +58,8 @@ export function Reports() {
         showToast(`No entries for ${date}${outlet ? ` at ${outlet}` : ''}.`, 'info');
         return;
       }
-      const pdfUri = generatePDF(date, filteredForPDF, outlet || undefined);
+      const till = await getReportTill(date, outlet || null).catch(() => null);
+      const pdfUri = generatePDF(date, filteredForPDF, outlet || undefined, till);
       downloadReport(date, pdfUri, outlet || undefined);
     } catch {
       showToast('Failed to generate PDF.', 'error');
@@ -93,7 +94,8 @@ export function Reports() {
         showToast(`No entries for ${date}${outlet ? ` at ${outlet}` : ''}.`, 'info');
         return;
       }
-      const pdfUri = generatePDF(date, filteredForPDF, outlet || undefined);
+      const till = await getReportTill(date, outlet || null).catch(() => null);
+      const pdfUri = generatePDF(date, filteredForPDF, outlet || undefined, till);
       const result = await shareReport(date, pdfUri, outlet || undefined);
       if (result === 'cancelled') return; // user dismissed the share sheet
       showToast(result === 'shared' ? 'Report shared!' : 'PDF downloaded.', 'success');

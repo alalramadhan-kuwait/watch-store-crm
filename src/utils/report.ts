@@ -5,6 +5,8 @@ import { format } from 'date-fns';
 import type { Case } from '../types';
 import { formatKD } from './formatKD';
 import { getEffectiveItems } from './saleItems';
+import type { ReportTill } from '../db';
+import { outletName } from '../shared/outlets';
 
 // ── Hourly traffic builder (Google Maps-style popular times) ─────────────────
 export function buildHourlyTraffic(cases: Case[]): { hour: number; label: string; count: number }[] {
@@ -177,9 +179,44 @@ const clip = (s: string | undefined, n: number) =>
  * how much room the day actually needs, then again on a page cut to that
  * height. That is what makes the report end where the content ends.
  */
-function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[]): number {
-  const { sales, followups, lost, revenue, convRate, staffMap, brandSalesMap, typeSalesMap, dayCases, followUpWins, followUpWinRevenue } =
-    buildDailyStats(cases);
+function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till: ReportTill | null): number {
+  const stats = buildDailyStats(cases);
+  const { sales: typedSales, followups, lost, staffMap: typedStaffMap, dayCases, followUpWins, followUpWinRevenue } = stats;
+  let { brandSalesMap, typeSalesMap } = stats;
+
+  /* Lightspeed is where the sale was rung up, so when it holds the day's sales they are the
+     report's sales: the same figures the tiles and Close Day use. Sales typed into the app are
+     then a note-to-self, not a second count. Without Lightspeed's sales (an old day, the sync
+     down) the report falls back to the typed ones, as it always did. */
+  const saleCount = till ? till.count : typedSales.length;
+  const revenueText = till ? (till.revenue == null ? '—' : formatKD(till.revenue)) : formatKD(stats.revenue);
+  const convTotal = saleCount + lost.length;
+  const convRate = till ? (convTotal > 0 ? Math.round((saleCount / convTotal) * 100) : 0) : stats.convRate;
+  const tillTime = (iso: string) =>
+    new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Asia/Kuwait' });
+
+  // Staff: sales and KD from the till, the visit counts from what was logged.
+  const staffMap: Record<string, { sales: number; kd: number | null; followups: number; lost: number }> = {};
+  for (const [name, d] of Object.entries(typedStaffMap)) {
+    staffMap[name] = { sales: till ? 0 : d.sales, kd: till ? 0 : d.kd, followups: d.followups, lost: d.lost };
+  }
+  if (till) {
+    for (const p of till.byPerson) {
+      if (!staffMap[p.name]) staffMap[p.name] = { sales: 0, kd: 0, followups: 0, lost: 0 };
+      staffMap[p.name].sales = p.count;
+      staffMap[p.name].kd = till.revenue == null ? null : p.kd;
+    }
+    // Brands come from the till's own lines, and only the lines that carry a brand.
+    brandSalesMap = {}; typeSalesMap = {};
+    for (const sale of till.sales ?? []) {
+      if (sale.isReturn) continue;
+      for (const it of sale.items) {
+        if (!it.brand) continue;
+        const b = brandSalesMap[it.brand] ?? (brandSalesMap[it.brand] = { count: 0, kd: 0 });
+        b.count += it.qty; b.kd += it.kd;
+      }
+    }
+  }
 
   const contentBottom = pageH - FOOTER_H - 3;
   let curY = CONTENT_TOP;
@@ -211,11 +248,13 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[]): num
   };
 
   // ── Headline figures: three across, two down ─────────────────────────────
-  const totalVisitors = dayCases.reduce((s, c) =>
-    s + (c.caseType === 'No Interaction' ? (c.visitorCount ?? 1) : 1), 0);
+  // With the till, the sales typed in are not visits of their own: each till sale is one visitor.
+  const logged = dayCases.reduce((s, c) =>
+    s + (c.caseType === 'No Interaction' ? (c.visitorCount ?? 1) : till && c.caseType === 'Sale' ? 0 : 1), 0);
+  const totalVisitors = till ? logged + till.count : logged;
   const kpis = [
-    { label: 'Revenue (KD)', value: formatKD(revenue) },
-    { label: 'Sales', value: String(sales.length) },
+    { label: 'Revenue (KD)', value: revenueText },
+    { label: 'Sales', value: String(saleCount) },
     { label: 'Conversion', value: `${convRate}%` },
     { label: 'Interested', value: String(followups.length) },
     { label: 'Lost opp.', value: String(lost.length) },
@@ -242,8 +281,27 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[]): num
   });
   curY += Math.ceil(kpis.length / kpiCols) * (kpiH + kpiGap) + 4;
 
+  // ── Sales by shop: only when the report spans shops ──────────────────────
+  if (till && till.byOutlet.length > 0) {
+    const startY = heading('Sales by outlet', till.channels.some(c => c.sales > 0)
+      ? `Not in the shops: ${till.channels.filter(c => c.sales > 0).map(c => `${c.name.replace(/^Time Keeper\s+/i, '')} ${c.sales}${c.revenue == null ? '' : ` · ${formatKD(c.revenue)} KD`}`).join('  ·  ')}`
+      : undefined);
+    autoTable(doc, {
+      ...tableBase, startY,
+      head: [['Outlet', 'Sales', 'KD']],
+      body: till.byOutlet.map(o => [o.name.replace(/^Time Keeper\s*-\s*/i, ''), String(o.count), o.kd == null ? '—' : formatKD(o.kd)]),
+      columnStyles: { 0: { cellWidth: 'auto' }, 1: { cellWidth: 12, halign: 'right' }, 2: { cellWidth: 20, halign: 'right' } },
+    });
+    tableEnd();
+  }
+
   // ── Store traffic ────────────────────────────────────────────────────────
-  const traffic = buildHourlyTraffic(dayCases);
+  // Till sales add to the hour they were rung; the typed copies would count them twice.
+  const trafficCases: Case[] = till && till.sales
+    ? [...dayCases.filter(c => c.caseType !== 'Sale'),
+       ...till.sales.filter(x => !x.isReturn).map(x => ({ caseType: 'Sale', timeLogged: tillTime(x.at) }) as Case)]
+    : dayCases;
+  const traffic = buildHourlyTraffic(trafficCases);
   if (traffic.length > 0) {
     const chartH = 24;
     ensureSpace(8 + chartH + 6);
@@ -310,8 +368,8 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[]): num
   {
     const startY = heading('Staff');
     const rows = Object.entries(staffMap)
-      .sort(([, a], [, b]) => b.kd - a.kd || b.sales - a.sales)
-      .map(([name, d]) => [name, String(d.sales), formatKD(d.kd), String(d.followups), String(d.lost)]);
+      .sort(([, a], [, b]) => (b.kd ?? 0) - (a.kd ?? 0) || b.sales - a.sales)
+      .map(([name, d]) => [name, String(d.sales), d.kd == null ? '—' : formatKD(d.kd), String(d.followups), String(d.lost)]);
     autoTable(doc, {
       ...tableBase, startY,
       head: [['Staff', 'Sales', 'KD', 'Int.', 'Lost']],
@@ -337,7 +395,9 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[]): num
   };
   const brandRows = rowsOf(brandSalesMap);
   if (brandRows.length) {
-    const startY = heading('Brands sold', 'per item — a basket counts under each of its brands');
+    const startY = heading('Brands sold', till
+      ? 'from Lightspeed lines that carry a brand — lines without one are in the sales log'
+      : 'per item — a basket counts under each of its brands');
     autoTable(doc, { ...tableBase, startY, head: [['Brand', 'Items', 'KD']], body: brandRows, columnStyles: breakdownCols });
     tableEnd();
   }
@@ -366,6 +426,26 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[]): num
     tableEnd();
   }
 
+  // ── The till's sales, one by one ─────────────────────────────────────────
+  if (till && till.sales && till.sales.length > 0) {
+    const startY = heading('Sales from Lightspeed',
+      `${till.count} counted · ${till.asOf ? `read at ${tillTime(till.asOf)}` : 'time of last read unknown'}`);
+    autoTable(doc, {
+      ...tableBase, startY,
+      head: [['Time', 'Sold by / outlet', 'Items', 'KD']],
+      body: [...till.sales].sort((a, b) => a.at.localeCompare(b.at)).map(x => [
+        tillTime(x.at),
+        [x.soldBy ?? '—', till.byOutlet.length > 0 && x.scope ? outletName(x.scope).replace(/^Time Keeper\s*-\s*/i, '') : undefined].filter(Boolean).join('\n'),
+        x.isReturn ? 'Return' : (x.items.map(i => `${i.qty !== 1 ? `${i.qty} × ` : ''}${i.name ?? 'Item'}`).join('; ') || '—').slice(0, 120),
+        formatKD(x.kd),
+      ]),
+      styles: { ...tableBase.styles, fontSize: 6.8, cellPadding: 1.1 },
+      headStyles: { ...tableBase.headStyles, fontSize: 6.3 },
+      columnStyles: { 0: { cellWidth: 9 }, 1: { cellWidth: 22 }, 2: { cellWidth: 'auto' }, 3: { cellWidth: 14, halign: 'right' } },
+    });
+    tableEnd();
+  }
+
   // ── Every visit ──────────────────────────────────────────────────────────
   // A browsing visit with nothing written about it is footfall, already in the
   // count and the chart above; printing it would be a row of dashes. Customer
@@ -385,13 +465,15 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[]): num
         if (items.length > 1) item = `${items[0].brand || items[0].product || '—'} +${items.length - 1} more`;
         else if (c.caseType === 'Lost Sale' && c.product && c.product !== c.brand) item = [c.brand, c.product].filter(Boolean).join(' — ');
         else item = c.brand || c.product || '—';
+        const typedCopy = !!till && c.caseType === 'Sale';
         const detail = [
           item,
+          typedCopy ? `Typed in the app: ${c.amountKD ? formatKD(c.amountKD) : '—'} KD (the till's sale is counted above)` : undefined,
           c.customerName || undefined,
           c.lostReason ? `Reason: ${c.lostReason}` : undefined,
           clip(c.notes, 90) || undefined,
         ].filter(Boolean).join('\n');
-        return [c.timeLogged || '—', `${c.staff}\n${caseLabel(c.caseType)}`, detail, c.amountKD ? formatKD(c.amountKD) : '—'];
+        return [c.timeLogged || '—', `${c.staff}\n${caseLabel(c.caseType)}`, detail, c.amountKD && !typedCopy ? formatKD(c.amountKD) : '—'];
       });
     autoTable(doc, {
       ...tableBase, startY,
@@ -410,7 +492,7 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[]): num
   return curY;
 }
 
-export function generatePDF(date: string, cases: Case[], outlet?: string): string {
+export function generatePDF(date: string, cases: Case[], outlet?: string, till: ReportTill | null = null): string {
   const displayDate = format(new Date(date + 'T12:00:00'), 'd MMMM yyyy');
   // Store time, whatever the device is set to — this is a business record.
   const generatedAt = new Intl.DateTimeFormat('en-GB', {
@@ -419,7 +501,7 @@ export function generatePDF(date: string, cases: Case[], outlet?: string): strin
 
   const build = (pageH: number) => {
     const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [PAGE_W, pageH] });
-    const endY = renderBody(doc, pageH, date, cases);
+    const endY = renderBody(doc, pageH, date, cases, till);
     return { doc, endY };
   };
 

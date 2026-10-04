@@ -4,7 +4,7 @@ import { format } from 'date-fns';
 import { Edit2, Trash2, Lock, Share2, FileText, ShieldAlert, ChevronDown, ChevronUp, Layers, MapPin, UserRound, MessageCircle } from 'lucide-react';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
 import { activeChannels, channelLine } from '../utils/channels';
-import { getTodayCases, getDayClose, closeDay, getSettings, updateCase, rebuildDaySummary, getCasesByDate, getLightspeedToday, getManualSaleChecks, type ManualSaleCheck, type LightspeedToday } from '../db';
+import { getTodayCases, getDayClose, closeDay, getSettings, updateCase, rebuildDaySummary, getCasesByDate, getLightspeedToday, getManualSaleChecks, getReportTill, type ManualSaleCheck, type LightspeedToday } from '../db';
 import { useNavigate } from 'react-router-dom';
 import { caseLabel } from '../shared/caseLabels';
 import { outletName } from '../shared/outlets';
@@ -150,21 +150,28 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
 
   // Generate (or regenerate) the PDF whenever the day is closed AND case data changes
   useEffect(() => {
-    if (isClosed && reportCases.length > 0) {
+    if (!(isClosed && reportCases.length > 0)) return;
+    let live = true;
+    (async () => {
       try {
-        setPdfUri(generatePDF(today, reportCases, reportOutlet || undefined));
+        const till = await getReportTill(today, reportOutlet || null).catch(() => null);
+        if (!live) return;
+        setPdfUri(generatePDF(today, reportCases, reportOutlet || undefined, till));
         setPdfError(null);
       } catch (err) {
+        if (!live) return;
         setPdfUri(null);
         setPdfError(err instanceof Error ? err.message : 'Could not build the PDF');
       }
-    }
+    })();
+    return () => { live = false; };
   }, [isClosed, casesSig, reportOutlet]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /** Rebuild the PDF on demand (used by the retry button). */
-  function buildPdfNow() {
+  async function buildPdfNow() {
     try {
-      setPdfUri(generatePDF(today, reportCases, reportOutlet || undefined));
+      const till = await getReportTill(today, reportOutlet || null).catch(() => null);
+      setPdfUri(generatePDF(today, reportCases, reportOutlet || undefined, till));
       setPdfError(null);
     } catch (err) {
       setPdfError(err instanceof Error ? err.message : 'Could not build the PDF');
@@ -201,7 +208,8 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
         showToast(`No entries for ${reportDate}${reportOutlet ? ` at ${reportOutlet}` : ''}.`, 'info');
         return;
       }
-      const uri = generatePDF(reportDate, scoped, reportOutlet || undefined);
+      const till = await getReportTill(reportDate, reportOutlet || null).catch(() => null);
+      const uri = generatePDF(reportDate, scoped, reportOutlet || undefined, till);
       if (mode === 'download') {
         downloadReport(reportDate, uri, reportOutlet || undefined);
         showToast('PDF downloaded.', 'success');
@@ -248,7 +256,10 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
       // regenerate PDF from fresh filtered data
       const fresh = await getCasesByDate(today);
       const freshFiltered = reportOutlet ? fresh.filter(c => sameOutlet(c.outlet, reportOutlet)) : fresh;
-      if (freshFiltered.length > 0) setPdfUri(generatePDF(today, freshFiltered, reportOutlet || undefined));
+      if (freshFiltered.length > 0) {
+        const till = await getReportTill(today, reportOutlet || null).catch(() => null);
+        setPdfUri(generatePDF(today, freshFiltered, reportOutlet || undefined, till));
+      }
     }
   }
 

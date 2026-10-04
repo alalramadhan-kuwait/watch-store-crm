@@ -6,7 +6,7 @@ import { formatKD } from '../utils/formatKD';
 import { shiftHours } from '../shared/workedHours';
 import { scheduleFromRow, type Schedule, type ScheduleRow } from '../shared/schedule';
 import { todayKuwait } from '../shared/portalRules';
-import { sellingOutlets } from '../shared/outlets';
+import { sellingOutlets, resolveOutlet } from '../shared/outlets';
 
 // ── DB row types ──────────────────────────────────────────────────────────────
 
@@ -939,10 +939,10 @@ const TILL_COUNTS = ['CLOSED', 'ONACCOUNT_CLOSED', 'LAYBY_CLOSED', 'PICKED_UP_CL
  * the line has one, otherwise the till login, and only when that Lightspeed user is an
  * employee (a shared login or a channel account is nobody).
  */
-export async function getTillSales(scope: string | null): Promise<TillSale[]> {
+export async function getTillSales(scope: string | null, date: string = todayKuwait()): Promise<TillSale[]> {
   let q = supabase.from('lightspeed_sales')
     .select('id,sale_date,receipt_number,invoice_number,total_price_incl,scope_code,return_for,user_id,customer_id,payments,note')
-    .eq('sale_day', todayKuwait()).in('status', TILL_COUNTS).order('sale_date', { ascending: false }).limit(100);
+    .eq('sale_day', date).in('status', TILL_COUNTS).order('sale_date', { ascending: false }).limit(100);
   q = scope ? q.eq('scope_code', scope) : q.in('scope_code', sellingOutlets().filter(o => o.kind === 'physical').map(o => o.code));
   const { data, error } = await q;
   if (error) throw new Error(error.message);
@@ -993,6 +993,34 @@ export async function getManualSaleChecks(): Promise<Record<string, ManualSaleCh
     out[r.case_uuid as string] = { matched: !!r.matched, receipt: (r.receipt as string | null) ?? null, loggedAt: r.logged_at as string };
   }
   return out;
+}
+
+/**
+ * Everything the PDF needs from the till for one day: the figures the tiles and Close Day use,
+ * the shops side by side when no shop is chosen, and each sale when this login can read them all.
+ */
+export interface ReportTill {
+  count: number; revenue: number | null; asOf: string | null;
+  byPerson: { name: string; count: number; kd: number }[];
+  /** With no shop chosen: each shop's own sales. Empty when one shop was chosen. */
+  byOutlet: { code: string; name: string; count: number; kd: number | null }[];
+  /** Online and WhatsApp, listed apart because no shop rang them up. */
+  channels: ChannelSales[];
+  /** Every counted sale of the day, or null when this login can see only some of them. */
+  sales: TillSale[] | null;
+}
+export async function getReportTill(date: string, outlet: string | null): Promise<ReportTill | null> {
+  const ls = await getStoreSales(outlet || null, date, date);
+  if (!ls || ls.sales === 0) return null;
+  const shopsToList = outlet ? [] : sellingOutlets().filter(o => o.kind === 'physical');
+  const parts = await Promise.all(shopsToList.map(async o => ({ o, s: await getStoreSales(o.code, date, date) })));
+  const byOutlet = parts
+    .filter(p => p.s && p.s.sales > 0)
+    .map(p => ({ code: p.o.code, name: p.o.displayName, count: p.s!.sales, kd: p.s!.revenue }));
+  const scope = outlet ? resolveOutlet(outlet) : null;
+  const list = await getTillSales(scope, date).catch(() => null);
+  const complete = !!list && list.filter(x => !x.isReturn).length === ls.sales;
+  return { count: ls.sales, revenue: ls.revenue, asOf: ls.asOf, byPerson: ls.byPerson, byOutlet, channels: ls.channels, sales: complete ? list : null };
 }
 
 // ── Home: where you are, who is due, what is coming up ───────────────────────
