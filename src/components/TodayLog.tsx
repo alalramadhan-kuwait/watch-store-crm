@@ -18,6 +18,7 @@ import { CaseTypeBadge, DayStatusBadge } from './shared/Badge';
 import { Modal, ConfirmModal } from './shared/Modal';
 import type { Case, AppSettings, DayClose, CaseStatus } from '../types';
 import { QuickEntryEdit } from './QuickEntryEdit';
+import { TillSalesList } from './TillSales';
 
 const today = format(new Date(), 'yyyy-MM-dd');
 const yesterday = format(new Date(Date.now() - 86400000), 'yyyy-MM-dd');
@@ -405,6 +406,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
           </span>
         </div>
       )}
+      {tillToday && role !== 'staff' && <TillSalesList scope={tillToday.scope} count={tillToday.sales} />}
       {/* Online and WhatsApp orders are not rung up in a shop, so choosing a shop will never
           show them. Say where they went rather than leaving a sale nobody can find. */}
       {tillToday && role !== 'staff' && activeChannels(tillToday.channels).length > 0 && (

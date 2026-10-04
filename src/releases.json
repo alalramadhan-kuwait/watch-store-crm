@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.2.0",
+    "date": "2026-10-04",
+    "title": "See the sales behind the number",
+    "changes": [
+      "Under the Lightspeed line on Today, tap “See the sale” to read each sale: time, receipt, who rang it, the customer, what was bought and how it was paid."
+    ]
+  },
+  {
     "version": "3.1.0",
     "date": "2026-10-04",
     "title": "Alerts on your phone",

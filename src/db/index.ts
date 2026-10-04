@@ -5,6 +5,8 @@ import { STAFF_DEFAULT, LOST_REASONS_DEFAULT, FOLLOWUP_ACTIONS_DEFAULT, CHANNELS
 import { formatKD } from '../utils/formatKD';
 import { shiftHours } from '../shared/workedHours';
 import { scheduleFromRow, type Schedule, type ScheduleRow } from '../shared/schedule';
+import { todayKuwait } from '../shared/portalRules';
+import { sellingOutlets } from '../shared/outlets';
 
 // ── DB row types ──────────────────────────────────────────────────────────────
 
@@ -917,6 +919,55 @@ export async function getLightspeedToday(outlet?: string | null): Promise<Lights
   const { data, error } = await supabase.rpc('lightspeed_today', { p_outlet: outlet ?? null });
   if (error) throw new Error(error.message);
   return (data ?? { sales: 0, revenue: 0, scope: null, as_of: null }) as LightspeedToday;
+}
+
+/** One sale as the till rang it up, for the list behind "Lightspeed today". */
+export interface TillSale {
+  id: string; at: string; receipt: string | null; kd: number; scope: string | null; isReturn: boolean;
+  soldBy: string | null; customer: string | null; payments: string[]; note: string | null;
+  items: { name: string; qty: number; kd: number }[];
+}
+const TILL_COUNTS = ['CLOSED', 'ONACCOUNT_CLOSED', 'LAYBY_CLOSED', 'PICKED_UP_CLOSED', 'DISPATCHED_CLOSED', 'ONACCOUNT', 'LAYBY'];
+
+/**
+ * Today's sales behind the till figure, newest first. Same day and same statuses as
+ * lightspeed_today, so the list adds up to the number above it. The database decides
+ * what this login may read; a seller sees the sales credited to them.
+ */
+export async function getTillSales(scope: string | null): Promise<TillSale[]> {
+  let q = supabase.from('lightspeed_sales')
+    .select('id,sale_date,receipt_number,invoice_number,total_price_incl,scope_code,return_for,user_id,customer_id,payments,note')
+    .eq('sale_day', todayKuwait()).in('status', TILL_COUNTS).order('sale_date', { ascending: false }).limit(100);
+  q = scope ? q.eq('scope_code', scope) : q.in('scope_code', sellingOutlets().filter(o => o.kind === 'physical').map(o => o.code));
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+  const rows = (data ?? []) as Record<string, unknown>[];
+  if (!rows.length) return [];
+  const ids = rows.map(r => r.id as string);
+  const uids = [...new Set(rows.map(r => r.user_id as string | null).filter((x): x is string => !!x))];
+  const cids = [...new Set(rows.map(r => r.customer_id as string | null).filter((x): x is string => !!x))];
+  const [it, us, cu] = await Promise.all([
+    supabase.from('lightspeed_sale_items').select('sale_id,name,sku,quantity,price_total,sequence').in('sale_id', ids).order('sequence'),
+    uids.length ? supabase.from('lightspeed_users').select('lightspeed_user_id,display_name').in('lightspeed_user_id', uids) : Promise.resolve({ data: [] }),
+    cids.length ? supabase.from('lightspeed_customers').select('id,name,first_name,last_name').in('id', cids) : Promise.resolve({ data: [] }),
+  ]);
+  const who = new Map(((us.data ?? []) as Record<string, string>[]).map(u => [u.lightspeed_user_id, u.display_name]));
+  const cust = new Map(((cu.data ?? []) as Record<string, string | null>[]).map(c => [c.id as string, (c.name || [c.first_name, c.last_name].filter(Boolean).join(' ')) || null]));
+  const items = new Map<string, TillSale['items']>();
+  for (const r of ((it.data ?? []) as Record<string, unknown>[])) {
+    const list = items.get(r.sale_id as string) ?? [];
+    list.push({ name: (r.name as string | null) ?? (r.sku ? `Item ${r.sku}` : 'Item'), qty: Number(r.quantity ?? 1), kd: Number(r.price_total ?? 0) });
+    items.set(r.sale_id as string, list);
+  }
+  return rows.map(r => ({
+    id: r.id as string, at: r.sale_date as string, receipt: (r.receipt_number ?? r.invoice_number ?? null) as string | null,
+    kd: Number(r.total_price_incl ?? 0), scope: (r.scope_code as string | null) ?? null, isReturn: !!r.return_for,
+    soldBy: r.user_id ? (who.get(r.user_id as string) ?? null) : null,
+    customer: r.customer_id ? (cust.get(r.customer_id as string) ?? null) : null,
+    payments: ((r.payments as { name?: string; amount?: number }[] | null) ?? []).map(p => p.name ? `${p.name}${p.amount != null ? ` ${formatKD(Number(p.amount))}` : ''}` : '').filter(Boolean),
+    note: (r.note as string | null) || null,
+    items: items.get(r.id as string) ?? [],
+  }));
 }
 
 // ── Home: where you are, who is due, what is coming up ───────────────────────
