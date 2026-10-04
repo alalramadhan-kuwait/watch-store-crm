@@ -3,6 +3,7 @@ import { format, startOfMonth, endOfMonth, addMonths, subMonths, eachDayOfInterv
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { TrendingUp, Users, AlertCircle, DollarSign, FileText, X, ChevronLeft, ChevronRight, Clock, CalendarDays } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
+import { activeChannels, channelLine } from '../utils/channels';
 import { getCasesForRange, getSettings, getEffectiveItems, getTeamAttendance, getTeamLeave, getStoreSales, syncedLabel, type StoreSales } from '../db';
 import type { AttendanceDay, LeaveDay } from '../db';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
@@ -268,6 +269,11 @@ function MonthView() {
             {isThisMonth ? `1–${format(new Date(), 'd MMM')} · so far` : 'full month'}
             {ls && ls.sales > 0 && <> · sales from Lightspeed, {syncedLabel(ls.asOf)}</>}
           </div>
+          {activeChannels(ls?.channels).length > 0 && (
+            <div className="text-[11px] text-slate-400 mt-0.5">
+              Shops only. Not in the figures: {activeChannels(ls?.channels).map(channelLine).join(' · ')}
+            </div>
+          )}
         </div>
         <button onClick={() => setMonth(m => startOfMonth(addMonths(m, 1)))}
           disabled={isThisMonth}

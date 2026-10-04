@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.0.1",
+    "date": "2026-10-04",
+    "title": "Online orders no longer count as a shop sale",
+    "changes": [
+      "Today’s Log on “All outlets” showed a sale that you could not find in any shop. It was an online order. Totals for all outlets now count the shops only.",
+      "Online and WhatsApp orders show on their own line under the Lightspeed total, for example “Not in a shop: Time Keeper Online 1 sale · 298 KD”.",
+      "The manager screen says the same: the month’s figures are the shops, with Online and WhatsApp listed next to them."
+    ]
+  },
+  {
     "version": "3.0.0",
     "date": "2026-10-03",
     "title": "No more typing sales in twice",

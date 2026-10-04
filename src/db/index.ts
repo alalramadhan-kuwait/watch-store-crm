@@ -841,7 +841,10 @@ export async function createCustomer(contact: string, displayName?: string): Pro
   if (error && !/duplicate|unique/i.test(error.message)) throw new Error(error.message);
 }
 
-export interface LightspeedToday { sales: number; revenue: number; scope: string | null; as_of: string | null }
+/** Online and WhatsApp sell too, but they are not a shop: they sit beside the shop totals, never inside them. */
+export interface ChannelSales { code: string; name: string; sales: number; revenue: number | null }
+
+export interface LightspeedToday { sales: number; revenue: number; scope: string | null; as_of: string | null; channels?: ChannelSales[] }
 
 /**
  * Sales for a shop and a range of days, straight from Lightspeed.
@@ -856,14 +859,17 @@ export interface LightspeedToday { sales: number; revenue: number; scope: string
 export interface StoreSales {
   sales: number; revenue: number | null; asOf: string | null;
   byPerson: { name: string; count: number; kd: number }[];
+  /** With no shop chosen, `sales` and `revenue` are the shops only; Online and WhatsApp are listed here. */
+  channels: ChannelSales[];
 }
 export async function getStoreSales(outlet: string | null, from: string, to: string): Promise<StoreSales | null> {
   const { data, error } = await supabase.rpc('store_day_sales', { p_outlet: outlet || null, p_from: from, p_to: to });
   if (error || !data) return null;
-  const d = data as { sales: number; revenue: number | null; as_of: string | null; by_person: { name: string; count: number; kd: number }[] };
+  const d = data as { sales: number; revenue: number | null; as_of: string | null; by_person: { name: string; count: number; kd: number }[]; channels?: ChannelSales[] };
   return {
     sales: Number(d.sales ?? 0), revenue: d.revenue == null ? null : Number(d.revenue), asOf: d.as_of ?? null,
     byPerson: (d.by_person ?? []).map(p => ({ name: p.name, count: Number(p.count), kd: Number(p.kd) })),
+    channels: (d.channels ?? []).map(c => ({ code: c.code, name: c.name, sales: Number(c.sales), revenue: c.revenue == null ? null : Number(c.revenue) })),
   };
 }
 

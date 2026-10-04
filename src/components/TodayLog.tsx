@@ -3,6 +3,7 @@ import { canActForOtherStaff } from '../utils/roles';
 import { format } from 'date-fns';
 import { Edit2, Trash2, Lock, Share2, FileText, ShieldAlert, ChevronDown, ChevronUp, Layers, MapPin, UserRound, MessageCircle } from 'lucide-react';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
+import { activeChannels, channelLine } from '../utils/channels';
 import { getTodayCases, getDayClose, closeDay, getSettings, updateCase, rebuildDaySummary, getCasesByDate, getLightspeedToday, type LightspeedToday } from '../db';
 import { useNavigate } from 'react-router-dom';
 import { caseLabel } from '../shared/caseLabels';
@@ -402,6 +403,13 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
             {tillToday.as_of && <span className="text-slate-400 font-normal"> · as of {format(new Date(tillToday.as_of), 'HH:mm')}</span>}
           </span>
         </div>
+      )}
+      {/* Online and WhatsApp orders are not rung up in a shop, so choosing a shop will never
+          show them. Say where they went rather than leaving a sale nobody can find. */}
+      {tillToday && role !== 'staff' && activeChannels(tillToday.channels).length > 0 && (
+        <p className="-mt-3 mb-5 px-3 text-xs text-slate-500">
+          Not in a shop: {activeChannels(tillToday.channels).map(channelLine).join(' · ')}
+        </p>
       )}
 
       {/* Case list */}
