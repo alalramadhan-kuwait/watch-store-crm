@@ -34,6 +34,7 @@ try { sessionStorage.removeItem('dsr:recovering'); } catch { /* private mode */ 
 if ('serviceWorker' in navigator) {
   navigator.serviceWorker.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'stale-shell') window.location.reload();
+    if (e.data && e.data.type === 'nav' && typeof e.data.hash === 'string') window.location.hash = e.data.hash;
   });
 }
 

@@ -16,6 +16,7 @@ import { useNavigate } from 'react-router-dom';
 import { Bell, CheckCheck } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import { loadMyNotifications, markRead, routeFor, type FeedNotif } from '../shared/notifications';
+import { PushCard } from './PushCard';
 
 /**
  * Back-office destinations, translated to this app's.
@@ -85,6 +86,8 @@ export function Notifications() {
           </button>
         )}
       </div>
+
+      {role !== 'staff' && <PushCard />}
 
       {rows === null ? (
         <p className="py-10 text-center text-sm text-slate-400">Loading…</p>

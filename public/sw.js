@@ -140,3 +140,35 @@ self.addEventListener('fetch', (event) => {
     }
   })());
 });
+
+/* ── Phone alerts (Web Push) ─────────────────────────────────────────
+   The delivery job sends { title, body, url } for whoever the event is for. The url it
+   writes is the back office's routing; here every alert opens the notification centre,
+   which lists the same thing and knows where each item belongs. */
+self.addEventListener('push', (event) => {
+  let data = {};
+  try { data = event.data ? event.data.json() : {}; } catch (_e) { data = { body: event.data && event.data.text() }; }
+  event.waitUntil(self.registration.showNotification(data.title || 'Time Keeper', {
+    body: data.body || '',
+    icon: 'icon-192.png',
+    badge: 'icon-192.png',
+    data: { url: '#/notifications' },
+    tag: data.tag || undefined,
+  }));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const hash = '#/notifications';
+  const target = self.registration.scope + hash;
+  event.waitUntil((async () => {
+    const cls = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const c of cls) {
+      try { await c.focus(); } catch (_e) { /* ignore */ }
+      try { c.postMessage({ type: 'nav', hash }); } catch (_e) { /* ignore */ }   // re-routes an open PWA on iOS
+      try { if (c.navigate) await c.navigate(target); } catch (_e) { /* ignore */ }
+      return;
+    }
+    await self.clients.openWindow(target);
+  })());
+});

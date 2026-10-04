@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.1.0",
+    "date": "2026-10-04",
+    "title": "Alerts on your phone",
+    "changes": [
+      "Turn on alerts and your phone buzzes for a decided request, a customer’s birthday or an overdue follow-up, even when the app is closed. Find it on Home and under the bell.",
+      "On iPhone, first add the app to your home screen (Share, then Add to Home Screen) and open it from there. The card walks you through it."
+    ]
+  },
+  {
     "version": "3.0.2",
     "date": "2026-10-04",
     "title": "Safer attendance, truer conversion",

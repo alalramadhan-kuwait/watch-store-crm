@@ -18,6 +18,7 @@ import { formatKD } from '../utils/formatKD';
 import { caseLabel } from '../shared/caseLabels';
 import { Modal } from './shared/Modal';
 import { WeekBar } from './WeekTarget';
+import { PushCard } from './PushCard';
 import { weekProgress, targetState } from '../shared/weeklyTarget';
 import type { Case } from '../types';
 
@@ -158,6 +159,9 @@ export function SalesHome() {
           {new Date().toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Asia/Kuwait' })}
         </p>
       </div>
+
+      {/* A person's own phone can be told things; the shared shop phone has nobody to tell. */}
+      {!shared && <PushCard compact />}
 
       {/* ── where, and on the clock ── */}
       <div className="card p-4 space-y-3">
