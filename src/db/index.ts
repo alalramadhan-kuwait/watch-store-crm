@@ -995,9 +995,31 @@ export async function getManualSaleChecks(): Promise<Record<string, ManualSaleCh
   return out;
 }
 
+/** One of the outlet's sales on the day report. `kd` is null on the shared shop login, which never shows takings. */
+export interface ReportSale {
+  id: string; at: string; receipt: string | null; kd: number | null; scope: string | null; isReturn: boolean;
+  soldBy: string | null; items: { name: string | null; brand: string | null; qty: number; kd: number | null }[];
+}
+
+/**
+ * Every counted sale of the day for the outlet (or all shops), whoever rang it. The report is the outlet's,
+ * not the signed-in person's, so this reads through a database function instead of the sales table, which
+ * shows a salesman only his own.
+ */
+export async function getDaySaleList(outlet: string | null, date: string): Promise<ReportSale[]> {
+  const { data, error } = await supabase.rpc('store_day_sale_list', { p_outlet: outlet || null, p_date: date });
+  if (error) throw new Error(error.message);
+  type Row = { id: string; at: string; receipt: string | null; kd: number | null; scope: string | null; is_return: boolean; sold_by: string | null;
+    items: { name: string | null; brand: string | null; qty: number; kd: number | null }[] };
+  return ((data ?? []) as Row[]).map(r => ({
+    id: r.id, at: r.at, receipt: r.receipt, kd: r.kd == null ? null : Number(r.kd), scope: r.scope, isReturn: !!r.is_return, soldBy: r.sold_by,
+    items: (r.items ?? []).map(i => ({ name: i.name, brand: i.brand, qty: Number(i.qty ?? 1), kd: i.kd == null ? null : Number(i.kd) })),
+  }));
+}
+
 /**
  * Everything the PDF needs from the till for one day: the figures the tiles and Close Day use,
- * the shops side by side when no shop is chosen, and each sale when this login can read them all.
+ * the shops side by side when no shop is chosen, and each sale of the outlet.
  */
 export interface ReportTill {
   count: number; revenue: number | null; asOf: string | null;
@@ -1006,8 +1028,8 @@ export interface ReportTill {
   byOutlet: { code: string; name: string; count: number; kd: number | null }[];
   /** Online and WhatsApp, listed apart because no shop rang them up. */
   channels: ChannelSales[];
-  /** Every counted sale of the day, or null when this login can see only some of them. */
-  sales: TillSale[] | null;
+  /** Every counted sale of the day, or null when the list could not be read or does not add up to the count. */
+  sales: ReportSale[] | null;
 }
 export async function getReportTill(date: string, outlet: string | null): Promise<ReportTill | null> {
   const ls = await getStoreSales(outlet || null, date, date);
@@ -1017,8 +1039,7 @@ export async function getReportTill(date: string, outlet: string | null): Promis
   const byOutlet = parts
     .filter(p => p.s && p.s.sales > 0)
     .map(p => ({ code: p.o.code, name: p.o.displayName, count: p.s!.sales, kd: p.s!.revenue }));
-  const scope = outlet ? resolveOutlet(outlet) : null;
-  const list = await getTillSales(scope, date).catch(() => null);
+  const list = await getDaySaleList(outlet, date).catch(() => null);
   const complete = !!list && list.filter(x => !x.isReturn).length === ls.sales;
   return { count: ls.sales, revenue: ls.revenue, asOf: ls.asOf, byPerson: ls.byPerson, byOutlet, channels: ls.channels, sales: complete ? list : null };
 }

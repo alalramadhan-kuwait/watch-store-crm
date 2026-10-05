@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.5.2",
+    "date": "2026-10-05",
+    "title": "The PDF covers the whole outlet",
+    "changes": [
+      "The PDF report now lists every sale of the outlet, whoever rang it, not only your own. The totals already covered the whole outlet."
+    ]
+  },
+  {
     "version": "3.5.1",
     "date": "2026-10-05",
     "title": "Alerts that belong to the shop app",

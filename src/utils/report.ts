@@ -198,7 +198,7 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
   // Staff: sales and KD from the till, the visit counts from what was logged.
   const staffMap: Record<string, { sales: number; kd: number | null; followups: number; lost: number }> = {};
   for (const [name, d] of Object.entries(typedStaffMap)) {
-    staffMap[name] = { sales: till ? 0 : d.sales, kd: till ? 0 : d.kd, followups: d.followups, lost: d.lost };
+    staffMap[name] = { sales: till ? 0 : d.sales, kd: till ? (till.revenue == null ? null : 0) : d.kd, followups: d.followups, lost: d.lost };
   }
   if (till) {
     for (const p of till.byPerson) {
@@ -213,7 +213,7 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
       for (const it of sale.items) {
         if (!it.brand) continue;
         const b = brandSalesMap[it.brand] ?? (brandSalesMap[it.brand] = { count: 0, kd: 0 });
-        b.count += it.qty; b.kd += it.kd;
+        b.count += it.qty; b.kd += it.kd ?? 0;
       }
     }
   }
@@ -387,7 +387,7 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
   const rowsOf = (m: Breakdown) => Object.entries(m)
     .map(([k, s]) => ({ k, ...s }))
     .sort((a, b) => b.kd - a.kd || b.count - a.count)
-    .map(({ k, count, kd }) => [k, String(count), formatKD(kd)]);
+    .map(({ k, count, kd }) => [k, String(count), till && till.revenue == null ? '—' : formatKD(kd)]);
   const breakdownCols = {
     0: { cellWidth: 'auto' as const },
     1: { cellWidth: 12, halign: 'right' as const },
@@ -437,7 +437,7 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
         tillTime(x.at),
         [x.soldBy ?? '—', till.byOutlet.length > 0 && x.scope ? outletName(x.scope).replace(/^Time Keeper\s*-\s*/i, '') : undefined].filter(Boolean).join('\n'),
         x.isReturn ? 'Return' : (x.items.map(i => `${i.qty !== 1 ? `${i.qty} × ` : ''}${i.name ?? 'Item'}`).join('; ') || '—').slice(0, 120),
-        formatKD(x.kd),
+        x.kd == null ? '—' : formatKD(x.kd),
       ]),
       styles: { ...tableBase.styles, fontSize: 6.8, cellPadding: 1.1 },
       headStyles: { ...tableBase.headStyles, fontSize: 6.3 },
