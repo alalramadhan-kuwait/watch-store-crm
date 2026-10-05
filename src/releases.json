@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.5.1",
+    "date": "2026-10-05",
+    "title": "Alerts that belong to the shop app",
+    "changes": [
+      "Your phone now gets shop alerts here (requests, birthdays, nudges, manual sales the till never saw) and office alerts in the Time Keeper app, not the same alert in both."
+    ]
+  },
+  {
     "version": "3.5.0",
     "date": "2026-10-04",
     "title": "The PDF report shows the till's sales",

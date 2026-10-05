@@ -33,6 +33,8 @@ const WHERE: Record<string, string> = {
   '/team': '/team',
   // a customer's page is the same address in both apps
   '/crm': '/crm',
+  // the shop app's own home, for alerts about the shop itself (e.g. a manual sale the till never saw)
+  '/': '/',
 };
 
 const ago = (iso: string) => {

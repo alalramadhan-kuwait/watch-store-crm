@@ -47,6 +47,9 @@ export async function pushState(): Promise<PushState> {
   if (Notification.permission !== 'granted') return 'off';
   const reg = await navigator.serviceWorker.getRegistration();
   const sub = await reg?.pushManager.getSubscription();
+  /* A phone that turned alerts on before subscriptions carried an app name was recorded as the
+     back office's. Say so once it opens this app, so its alerts are the shop's and not both. */
+  if (sub) void supabase.from('push_subscriptions').update({ app: 'dsr' }).eq('endpoint', sub.endpoint).neq('app', 'dsr');
   return sub ? 'on' : 'off';
 }
 
@@ -63,7 +66,7 @@ export async function enablePush(): Promise<{ ok: boolean; error?: string }> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return { ok: false, error: 'You are not signed in.' };
   const { error } = await supabase.from('push_subscriptions').upsert(
-    { user_id: user.id, endpoint: sub.endpoint, p256dh: j.keys?.p256dh, auth: j.keys?.auth, ua: navigator.userAgent },
+    { user_id: user.id, endpoint: sub.endpoint, p256dh: j.keys?.p256dh, auth: j.keys?.auth, ua: navigator.userAgent, app: 'dsr' },
     { onConflict: 'endpoint' },
   );
   if (error) return { ok: false, error: error.message };
