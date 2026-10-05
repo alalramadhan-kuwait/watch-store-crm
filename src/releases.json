@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.5.3",
+    "date": "2026-10-05",
+    "title": "The PDF shows its version",
+    "changes": [
+      "The footer of the PDF report now shows which version of the app made it, so a report that looks out of date is easy to explain."
+    ]
+  },
+  {
     "version": "3.5.2",
     "date": "2026-10-05",
     "title": "The PDF covers the whole outlet",

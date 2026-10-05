@@ -7,6 +7,7 @@ import { formatKD } from './formatKD';
 import { getEffectiveItems } from './saleItems';
 import type { ReportTill } from '../db';
 import { outletName } from '../shared/outlets';
+import releases from '../releases.json';
 
 // ── Hourly traffic builder (Google Maps-style popular times) ─────────────────
 export function buildHourlyTraffic(cases: Case[]): { hour: number; label: string; count: number }[] {
@@ -161,6 +162,11 @@ function drawFooter(doc: jsPDF, pageH: number, page: number, pages: number, gene
   doc.setTextColor(170, 170, 170);
   doc.text('TIME KEEPER', ML, pageH - 3.5);
   doc.setCharSpace(0);
+  // which build made this report: the first thing to ask when a report looks wrong on somebody's phone
+  doc.setFontSize(5);
+  doc.setTextColor(95, 95, 95);
+  doc.text(`v${releases[0].version}`, ML + 22, pageH - 3.5);
+  doc.setFontSize(6);
   doc.setTextColor(120, 120, 120);
   const right = pages > 1 ? `${generatedAt}  ·  ${page}/${pages}` : generatedAt;
   doc.text(right, CONTENT_R, pageH - 3.5, { align: 'right' });
