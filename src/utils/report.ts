@@ -37,6 +37,30 @@ export function buildHourlyTraffic(cases: Case[]): { hour: number; label: string
   return result;
 }
 
+/** One hour of the day, split by what each visit came to. */
+export interface HourMix { hour: number; label: string; sale: number; interested: number; lost: number; browsing: number; total: number }
+export function buildHourlyMix(cases: Case[]): HourMix[] {
+  const by: Record<number, HourMix> = {};
+  for (const c of cases) {
+    const hour = parseInt((c.timeLogged || '').split(':')[0], 10);
+    if (isNaN(hour) || hour < 0 || hour > 23) continue;
+    const m = by[hour] ?? (by[hour] = { hour, label: '', sale: 0, interested: 0, lost: 0, browsing: 0, total: 0 });
+    if (c.caseType === 'Sale') m.sale++;
+    else if (c.caseType === 'Follow-up') m.interested++;
+    else if (c.caseType === 'Lost Sale') m.lost++;
+    else m.browsing += c.caseType === 'No Interaction' ? (c.visitorCount ?? 1) : 1;
+    m.total = m.sale + m.interested + m.lost + m.browsing;
+  }
+  const hours = Object.keys(by).map(Number);
+  if (!hours.length) return [];
+  const out: HourMix[] = [];
+  for (let h = Math.min(...hours); h <= Math.max(...hours); h++) {
+    const label = h === 0 ? '12am' : h === 12 ? '12pm' : h > 12 ? `${h - 12}pm` : `${h}am`;
+    out.push({ ...(by[h] ?? { hour: h, sale: 0, interested: 0, lost: 0, browsing: 0, total: 0 }), label });
+  }
+  return out;
+}
+
 type Breakdown = Record<string, { count: number; kd: number }>;
 
 export function buildDailyStats(cases: Case[]) {
@@ -333,11 +357,22 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
     ? [...dayCases.filter(c => c.caseType !== 'Sale'),
        ...till.sales.filter(x => !x.isReturn).map(x => ({ caseType: 'Sale', timeLogged: tillTime(x.at) }) as Case)]
     : dayCases;
-  const traffic = buildHourlyTraffic(trafficCases);
-  if (traffic.length > 0) {
-    const chartH = 24;
-    ensureSpace(8 + chartH + 6);
-    const peak = traffic.reduce((mx, t) => t.count > mx.count ? t : mx, traffic[0]);
+  const mix = buildHourlyMix(trafficCases);
+  if (mix.length > 0) {
+    /* Stacked by what each visit came to, so the chart answers "busy with what" as well as
+       "how busy": sales at the base where the eye lands, then interested, lost, and browsing on top.
+       The four colours pass a colour-blind separation check, and the legend carries each total,
+       so colour is never the only key. */
+    const SERIES: { key: 'sale' | 'interested' | 'lost' | 'browsing'; label: string; rgb: RGB }[] = [
+      { key: 'sale', label: 'Sales', rgb: [4, 120, 87] },
+      { key: 'interested', label: 'Interested', rgb: [217, 119, 6] },
+      { key: 'lost', label: 'Lost', rgb: [225, 29, 72] },
+      { key: 'browsing', label: 'Browsing', rgb: [2, 132, 199] },
+    ];
+    const chartH = 34, legendH = 6;
+    ensureSpace(8 + chartH + legendH + 6);
+    const peak = mix.reduce((mx, t) => t.total > mx.total ? t : mx, mix[0]);
+    const visitors = mix.reduce((n, t) => n + t.total, 0);
 
     doc.setFillColor(...HUE.sky.fg);
     doc.roundedRect(ML, curY - 3, 1.1, 3.6, 0.5, 0.5, 'F');
@@ -348,54 +383,94 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
     doc.setFontSize(6);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...MUTED);
-    doc.text(`${totalVisitors} visitors  ·  busiest ${peak.label} (${peak.count})`, CONTENT_R, curY, { align: 'right' });
+    doc.text(`${visitors} visitor${visitors === 1 ? '' : 's'}  ·  busiest ${peak.label} (${peak.total})`, CONTENT_R, curY, { align: 'right' });
 
-    const chartX = ML, chartY = curY + 3, chartW = CONTENT_R - ML;
-    const labelRowH = 7;
-    const barAreaH = chartH - labelRowH - 4;
-    const maxCount = Math.max(...traffic.map(t => t.count), 1);
-    const slotW = chartW / traffic.length;
-    const barW = slotW * 0.62;
-    const halfGap = (slotW - barW) / 2;
-
+    const boxX = ML, boxY = curY + 3, boxW = CONTENT_R - ML;
     doc.setFillColor(248, 250, 252);
-    doc.roundedRect(chartX, chartY, chartW, chartH, 1.6, 1.6, 'F');
-    doc.setDrawColor(224, 231, 238);
-    doc.setLineWidth(0.15);
-    [0.33, 0.66].forEach(frac => {
-      const lineY = chartY + 2 + barAreaH * (1 - frac);
-      doc.line(chartX + 2, lineY, chartX + chartW - 2, lineY);
+    doc.roundedRect(boxX, boxY, boxW, chartH, 1.8, 1.8, 'F');
+
+    const padX = 2.5, topPad = 5, labelRowH = 5.5;
+    const plotX = boxX + padX, plotW = boxW - padX * 2;
+    const baseY = boxY + chartH - labelRowH;
+    const plotH = baseY - (boxY + topPad);
+    const maxTotal = Math.max(...mix.map(t => t.total), 1);
+    // a ceiling on a round number, so the gridlines mean something
+    const step = maxTotal <= 4 ? 1 : maxTotal <= 10 ? 2 : maxTotal <= 25 ? 5 : 10;
+    const ceil = Math.ceil(maxTotal / step) * step;
+    const yOf = (v: number) => baseY - (v / ceil) * plotH;
+
+    // recessive gridlines, their values at the left edge
+    doc.setLineWidth(0.12);
+    doc.setDrawColor(226, 232, 240);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(4.4);
+    doc.setTextColor(148, 163, 184);
+    for (let v = step; v <= ceil; v += step) {
+      const gy = yOf(v);
+      doc.line(plotX + 3, gy, plotX + plotW, gy);
+      doc.text(String(v), plotX + 1.8, gy + 0.6, { align: 'right' });
+    }
+    doc.setDrawColor(203, 213, 225);
+    doc.setLineWidth(0.2);
+    doc.line(plotX + 3, baseY, plotX + plotW, baseY);
+
+    const slotX0 = plotX + 3, slotW = (plotW - 3) / mix.length;
+    const barW = Math.min(slotW * 0.62, 7.5);
+    const gap = 0.35;                         // a thin surface gap between stacked segments
+    const everyLabel = mix.length <= 12;
+    mix.forEach((t, i) => {
+      const cx = slotX0 + i * slotW + slotW / 2;
+      const x = cx - barW / 2;
+      const isPeak = t === peak && t.total > 0;
+      if (t.total === 0) {
+        doc.setFillColor(226, 232, 240);
+        doc.roundedRect(x, baseY - 0.8, barW, 0.8, 0.3, 0.3, 'F');
+      } else {
+        let y = baseY;
+        const parts = SERIES.filter(sr => t[sr.key] > 0);
+        parts.forEach((sr, k) => {
+          const h = (t[sr.key] / ceil) * plotH;
+          const top = k === parts.length - 1;
+          const segH = Math.max(h - (top ? 0 : gap), 0.4);
+          doc.setFillColor(...sr.rgb);
+          if (top) {
+            // a rounded data end at the top, square where it meets the segment below
+            const r = Math.min(0.9, segH / 2, barW / 2);
+            doc.roundedRect(x, y - segH, barW, segH, r, r, 'F');
+            doc.rect(x, y - Math.min(segH, r), barW, Math.min(segH, r), 'F');
+          } else {
+            doc.rect(x, y - segH, barW, segH, 'F');
+          }
+          y -= h;
+        });
+        doc.setFont('helvetica', isPeak ? 'bold' : 'normal');
+        doc.setFontSize(isPeak ? 5.6 : 5);
+        doc.setTextColor(...(isPeak ? INK : MUTED));
+        doc.text(String(t.total), cx, yOf(t.total) - 1, { align: 'center' });
+      }
+      if (everyLabel || i % 2 === 0 || isPeak) {
+        doc.setFont('helvetica', isPeak ? 'bold' : 'normal');
+        doc.setFontSize(4.6);
+        doc.setTextColor(...(isPeak ? INK : MUTED));
+        doc.text(t.label, cx, baseY + 3.6, { align: 'center' });
+      }
     });
 
-    traffic.forEach((t, i) => {
-      const barX = chartX + i * slotW + halfGap;
-      const barH = t.count > 0 ? Math.max((t.count / maxCount) * barAreaH, 1.2) : 0;
-      const barY = chartY + 2 + barAreaH - barH;
-      const isPeak = t.count === peak.count && t.count > 0;
-      if (barH > 0) {
-        if (isPeak) doc.setFillColor(...TEAL);
-        else {
-          const k = t.count / maxCount;
-          doc.setFillColor(Math.round(20 + (1 - k) * 100), Math.round(184 - (1 - k) * 60), Math.round(166 - (1 - k) * 50));
-        }
-        doc.roundedRect(barX, barY, barW, barH, 0.5, 0.5, 'F');
-        doc.setFontSize(isPeak ? 5.5 : 5);
-        doc.setFont('helvetica', isPeak ? 'bold' : 'normal');
-        doc.setTextColor(isPeak ? 15 : 90, isPeak ? 118 : 105, isPeak ? 110 : 125);
-        doc.text(String(t.count), barX + barW / 2, barY - 1.1, { align: 'center' });
-      } else {
-        doc.setFillColor(232, 237, 243);
-        doc.roundedRect(barX, chartY + 2 + barAreaH - 1, barW, 1, 0.2, 0.2, 'F');
-      }
-      // Every other hour is labelled: at this width all of them collide.
-      if (i % 2 === 0 || isPeak) {
-        doc.setFontSize(4.8);
-        doc.setFont('helvetica', isPeak ? 'bold' : 'normal');
-        doc.setTextColor(isPeak ? 15 : 110, isPeak ? 118 : 120, isPeak ? 110 : 140);
-        doc.text(t.label, barX + barW / 2, chartY + chartH - 2, { align: 'center' });
-      }
+    // the legend: each outcome present, with its day total
+    const totals = SERIES.map(sr => ({ ...sr, n: mix.reduce((a, t) => a + t[sr.key], 0) })).filter(sr => sr.n > 0);
+    let lx = ML + 0.5;
+    const ly = boxY + chartH + 3.6;
+    doc.setFontSize(5.6);
+    doc.setFont('helvetica', 'normal');
+    totals.forEach((sr) => {
+      doc.setFillColor(...sr.rgb);
+      doc.roundedRect(lx, ly - 2.1, 2.4, 2.4, 0.5, 0.5, 'F');
+      doc.setTextColor(...INK);
+      const txt = `${sr.label} ${sr.n}`;
+      doc.text(txt, lx + 3.3, ly - 0.2);
+      lx += 3.3 + doc.getTextWidth(txt) + 4;
     });
-    curY = chartY + chartH + 6;
+    curY = boxY + chartH + legendH + 5;
   }
 
   // ── Staff ────────────────────────────────────────────────────────────────

@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.5.5",
+    "date": "2026-10-07",
+    "title": "A clearer store traffic chart",
+    "changes": [
+      "The Store Traffic chart in the PDF now shows, for every hour, what the visits came to: sales, interested, lost and browsing, each in its own colour, with the day's totals underneath."
+    ]
+  },
+  {
     "version": "3.5.4",
     "date": "2026-10-07",
     "title": "A more colourful day report",
