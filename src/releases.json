@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.5.4",
+    "date": "2026-10-07",
+    "title": "A more colourful day report",
+    "changes": [
+      "The PDF report uses the same colours as the app: sales in green, interested in amber, lost in red, so the day reads at a glance.",
+      "Each section has its own colour, and every visit shows its outcome in colour."
+    ]
+  },
+  {
     "version": "3.5.3",
     "date": "2026-10-05",
     "title": "The PDF shows its version",

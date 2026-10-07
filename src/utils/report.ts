@@ -124,6 +124,24 @@ const TEAL: [number, number, number] = [15, 118, 110];
 const INK: [number, number, number] = [30, 41, 59];
 const MUTED: [number, number, number] = [100, 116, 139];
 
+/* One colour per kind of thing, the same ones the app uses on its tiles (sales green, interested
+   amber, lost rose), so a reader who knows the screen reads the report at a glance. Each has a strong
+   shade for text and headers and a pale tint for tiles and alternate rows. */
+type RGB = [number, number, number];
+const HUE = {
+  teal:   { fg: TEAL as RGB,            bg: [236, 253, 250] as RGB },
+  green:  { fg: [4, 120, 87] as RGB,    bg: [236, 253, 245] as RGB },
+  indigo: { fg: [67, 56, 202] as RGB,   bg: [238, 242, 255] as RGB },
+  amber:  { fg: [180, 83, 9] as RGB,    bg: [255, 251, 235] as RGB },
+  rose:   { fg: [190, 18, 60] as RGB,   bg: [255, 241, 242] as RGB },
+  sky:    { fg: [3, 105, 161] as RGB,   bg: [240, 249, 255] as RGB },
+  violet: { fg: [109, 40, 217] as RGB,  bg: [245, 243, 255] as RGB },
+  slate:  { fg: [51, 65, 85] as RGB,    bg: [248, 250, 252] as RGB },
+};
+type Hue = keyof typeof HUE;
+/** The colour an outcome is drawn in, wherever it appears. */
+const OUTCOME_HUE: Record<string, Hue> = { Sale: 'green', 'Lost Sale': 'rose', 'Follow-up': 'amber', 'No Interaction': 'slate' };
+
 function drawHeader(doc: jsPDF, displayDate: string, page: number, outlet?: string) {
   doc.setFillColor(10, 10, 10);
   doc.rect(0, 0, PAGE_W, HEADER_H, 'F');
@@ -163,12 +181,9 @@ function drawFooter(doc: jsPDF, pageH: number, page: number, pages: number, gene
   doc.text('TIME KEEPER', ML, pageH - 3.5);
   doc.setCharSpace(0);
   // which build made this report: the first thing to ask when a report looks wrong on somebody's phone
-  doc.setFontSize(5);
-  doc.setTextColor(95, 95, 95);
-  doc.text(`v${releases[0].version}`, ML + 22, pageH - 3.5);
-  doc.setFontSize(6);
   doc.setTextColor(120, 120, 120);
-  const right = pages > 1 ? `${generatedAt}  ·  ${page}/${pages}` : generatedAt;
+  const made = `${generatedAt}  ·  v${releases[0].version}`;
+  const right = pages > 1 ? `${made}  ·  ${page}/${pages}` : made;
   doc.text(right, CONTENT_R, pageH - 3.5, { align: 'right' });
 }
 
@@ -231,12 +246,15 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
     if (curY + h > contentBottom) { doc.addPage(); curY = CONTENT_TOP; }
   };
   /** Section heading, optional note on the line beneath. Returns the table's start y. */
-  const heading = (title: string, note?: string) => {
+  const heading = (title: string, note?: string, hue: Hue = 'teal') => {
     ensureSpace(4 + MIN_TABLE_H);
+    // a short bar in the section's colour, so each section is found by colour as well as by name
+    doc.setFillColor(...HUE[hue].fg);
+    doc.roundedRect(ML, curY - 3, 1.1, 3.6, 0.5, 0.5, 'F');
     doc.setFontSize(9.5);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...INK);
-    doc.text(title, ML, curY);
+    doc.text(title, ML + 2.6, curY);
     if (!note) return curY + 2.5;
     doc.setFontSize(6);
     doc.setFont('helvetica', 'normal');
@@ -252,30 +270,38 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
     margin: { left: ML, right: ML, top: CONTENT_TOP, bottom: pageH - contentBottom },
     styles: { fontSize: 7.5, cellPadding: 1.3, overflow: 'linebreak' as const },
   };
+  /** A table dressed in one colour: its header in the strong shade, every other row in the tint. */
+  const tinted = (hue: Hue) => ({
+    ...tableBase,
+    headStyles: { ...tableBase.headStyles, fillColor: HUE[hue].fg },
+    alternateRowStyles: { fillColor: HUE[hue].bg },
+  });
 
   // ── Headline figures: three across, two down ─────────────────────────────
   // With the till, the sales typed in are not visits of their own: each till sale is one visitor.
   const logged = dayCases.reduce((s, c) =>
     s + (c.caseType === 'No Interaction' ? (c.visitorCount ?? 1) : till && c.caseType === 'Sale' ? 0 : 1), 0);
   const totalVisitors = till ? logged + till.count : logged;
-  const kpis = [
-    { label: 'Revenue (KD)', value: revenueText },
-    { label: 'Sales', value: String(saleCount) },
-    { label: 'Conversion', value: `${convRate}%` },
-    { label: 'Interested', value: String(followups.length) },
-    { label: 'Lost opp.', value: String(lost.length) },
-    { label: 'Visitors', value: String(totalVisitors) },
+  const kpis: { label: string; value: string; hue: Hue }[] = [
+    { label: 'Revenue (KD)', value: revenueText, hue: 'teal' },
+    { label: 'Sales', value: String(saleCount), hue: 'green' },
+    { label: 'Conversion', value: `${convRate}%`, hue: 'indigo' },
+    { label: 'Interested', value: String(followups.length), hue: 'amber' },
+    { label: 'Lost opp.', value: String(lost.length), hue: 'rose' },
+    { label: 'Visitors', value: String(totalVisitors), hue: 'sky' },
   ];
   const kpiCols = 3, kpiGap = 2.5, kpiH = 13;
   const kpiW = (CONTENT_R - ML - kpiGap * (kpiCols - 1)) / kpiCols;
   kpis.forEach((kpi, i) => {
     const x = ML + (i % kpiCols) * (kpiW + kpiGap);
     const y = curY + Math.floor(i / kpiCols) * (kpiH + kpiGap);
-    doc.setFillColor(240, 253, 250);
+    doc.setFillColor(...HUE[kpi.hue].bg);
     doc.roundedRect(x, y, kpiW, kpiH, 1.6, 1.6, 'F');
+    doc.setFillColor(...HUE[kpi.hue].fg);
+    doc.roundedRect(x + kpiW / 2 - 4, y + 0.9, 8, 0.8, 0.4, 0.4, 'F');
     // Revenue can run to five figures; shrink to fit rather than overflow the tile.
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(...TEAL);
+    doc.setTextColor(...HUE[kpi.hue].fg);
     let size = 11;
     doc.setFontSize(size);
     while (doc.getTextWidth(kpi.value) > kpiW - 3 && size > 6) { size -= 0.5; doc.setFontSize(size); }
@@ -293,7 +319,7 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
       ? `Not in the shops: ${till.channels.filter(c => c.sales > 0).map(c => `${c.name.replace(/^Time Keeper\s+/i, '')} ${c.sales}${c.revenue == null ? '' : ` · ${formatKD(c.revenue)} KD`}`).join('  ·  ')}`
       : undefined);
     autoTable(doc, {
-      ...tableBase, startY,
+      ...tinted('teal'), startY,
       head: [['Outlet', 'Sales', 'KD']],
       body: till.byOutlet.map(o => [o.name.replace(/^Time Keeper\s*-\s*/i, ''), String(o.count), o.kd == null ? '—' : formatKD(o.kd)]),
       columnStyles: { 0: { cellWidth: 'auto' }, 1: { cellWidth: 12, halign: 'right' }, 2: { cellWidth: 20, halign: 'right' } },
@@ -313,10 +339,12 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
     ensureSpace(8 + chartH + 6);
     const peak = traffic.reduce((mx, t) => t.count > mx.count ? t : mx, traffic[0]);
 
+    doc.setFillColor(...HUE.sky.fg);
+    doc.roundedRect(ML, curY - 3, 1.1, 3.6, 0.5, 0.5, 'F');
     doc.setFontSize(9.5);
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(...INK);
-    doc.text('Store Traffic', ML, curY);
+    doc.text('Store Traffic', ML + 2.6, curY);
     doc.setFontSize(6);
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(...MUTED);
@@ -372,18 +400,23 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
 
   // ── Staff ────────────────────────────────────────────────────────────────
   {
-    const startY = heading('Staff');
+    const startY = heading('Staff', undefined, 'indigo');
     const rows = Object.entries(staffMap)
       .sort(([, a], [, b]) => (b.kd ?? 0) - (a.kd ?? 0) || b.sales - a.sales)
       .map(([name, d]) => [name, String(d.sales), d.kd == null ? '—' : formatKD(d.kd), String(d.followups), String(d.lost)]);
     autoTable(doc, {
-      ...tableBase, startY,
+      ...tinted('indigo'), startY,
       head: [['Staff', 'Sales', 'KD', 'Int.', 'Lost']],
       body: rows.length ? rows : [['—', '0', '0.000', '0', '0']],
       columnStyles: {
         0: { cellWidth: 'auto' }, 1: { cellWidth: 10, halign: 'right' },
         2: { cellWidth: 17, halign: 'right' }, 3: { cellWidth: 9, halign: 'right' },
         4: { cellWidth: 9, halign: 'right' },
+      },
+      didParseCell: (d: any) => {
+        if (d.section !== 'body' || d.cell.raw === '0' || d.cell.raw === '—') return;
+        const hue: Hue | null = d.column.index === 1 || d.column.index === 2 ? 'green' : d.column.index === 3 ? 'amber' : d.column.index === 4 ? 'rose' : null;
+        if (hue) { d.cell.styles.textColor = HUE[hue].fg; d.cell.styles.fontStyle = 'bold'; }
       },
     });
     tableEnd();
@@ -403,24 +436,23 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
   if (brandRows.length) {
     const startY = heading('Brands sold', till
       ? 'from Lightspeed lines that carry a brand — lines without one are in the sales log'
-      : 'per item — a basket counts under each of its brands');
-    autoTable(doc, { ...tableBase, startY, head: [['Brand', 'Items', 'KD']], body: brandRows, columnStyles: breakdownCols });
+      : 'per item — a basket counts under each of its brands', 'violet');
+    autoTable(doc, { ...tinted('violet'), startY, head: [['Brand', 'Items', 'KD']], body: brandRows, columnStyles: breakdownCols });
     tableEnd();
   }
   const typeRows = rowsOf(typeSalesMap);
   if (typeRows.length) {
-    const startY = heading('Product types');
-    autoTable(doc, { ...tableBase, startY, head: [['Type', 'Items', 'KD']], body: typeRows, columnStyles: breakdownCols });
+    const startY = heading('Product types', undefined, 'violet');
+    autoTable(doc, { ...tinted('violet'), startY, head: [['Type', 'Items', 'KD']], body: typeRows, columnStyles: breakdownCols });
     tableEnd();
   }
 
   // ── Follow-ups closed today, kept out of the day's figures ───────────────
   if (followUpWins.length > 0) {
     const startY = heading('Follow-ups won',
-      `${followUpWins.length} closed today · ${formatKD(followUpWinRevenue)} KD — from earlier visits, not counted above`);
+      `${followUpWins.length} closed today · ${formatKD(followUpWinRevenue)} KD — from earlier visits, not counted above`, 'amber');
     autoTable(doc, {
-      ...tableBase, startY,
-      headStyles: { ...tableBase.headStyles, fillColor: [124, 58, 237] as [number, number, number] },
+      ...tinted('amber'), startY,
       head: [['Time', 'Customer / item', 'KD']],
       body: [...followUpWins].sort((a, b) => timeKey(a).localeCompare(timeKey(b))).map(c => [
         c.timeLogged || '—',
@@ -435,9 +467,9 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
   // ── The till's sales, one by one ─────────────────────────────────────────
   if (till && till.sales && till.sales.length > 0) {
     const startY = heading('Sales from Lightspeed',
-      `${till.count} counted · ${till.asOf ? `read at ${tillTime(till.asOf)}` : 'time of last read unknown'}`);
+      `${till.count} counted · ${till.asOf ? `read at ${tillTime(till.asOf)}` : 'time of last read unknown'}`, 'green');
     autoTable(doc, {
-      ...tableBase, startY,
+      ...tinted('green'), startY,
       head: [['Time', 'Sold by / outlet', 'Items', 'KD']],
       body: [...till.sales].sort((a, b) => a.at.localeCompare(b.at)).map(x => [
         tillTime(x.at),
@@ -446,8 +478,8 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
         x.kd == null ? '—' : formatKD(x.kd),
       ]),
       styles: { ...tableBase.styles, fontSize: 6.8, cellPadding: 1.1 },
-      headStyles: { ...tableBase.headStyles, fontSize: 6.3 },
-      columnStyles: { 0: { cellWidth: 9 }, 1: { cellWidth: 22 }, 2: { cellWidth: 'auto' }, 3: { cellWidth: 14, halign: 'right' } },
+      headStyles: { ...tableBase.headStyles, fillColor: HUE.green.fg, fontSize: 6.3 },
+      columnStyles: { 0: { cellWidth: 9 }, 1: { cellWidth: 22 }, 2: { cellWidth: 'auto' }, 3: { cellWidth: 14, halign: 'right', fontStyle: 'bold', textColor: HUE.green.fg } },
     });
     tableEnd();
   }
@@ -462,9 +494,9 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
     const skipped = dayCases.length - listed.length;
     const startY = heading('Every visit', skipped
       ? `${skipped} browsing visit${skipped === 1 ? '' : 's'} with no note counted in traffic above, not listed`
-      : undefined);
-    const rows = listed
-      .sort((a, b) => timeKey(a).localeCompare(timeKey(b)))
+      : undefined, 'slate');
+    const sorted = [...listed].sort((a, b) => timeKey(a).localeCompare(timeKey(b)));
+    const rows = sorted
       .map(c => {
         const items = getEffectiveItems(c);
         let item: string;
@@ -482,11 +514,17 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
         return [c.timeLogged || '—', `${c.staff}\n${caseLabel(c.caseType)}`, detail, c.amountKD && !typedCopy ? formatKD(c.amountKD) : '—'];
       });
     autoTable(doc, {
-      ...tableBase, startY,
+      ...tinted('slate'), startY,
       head: [['Time', 'Staff / outcome', 'Item / customer / note', 'KD']],
+      // the outcome in its colour: green sale, amber interested, rose lost, grey browsing
+      didParseCell: (d: any) => {
+        if (d.section !== 'body' || d.column.index !== 1 || !sorted[d.row.index]) return;
+        d.cell.styles.textColor = HUE[OUTCOME_HUE[sorted[d.row.index].caseType] ?? 'slate'].fg;
+        d.cell.styles.fontStyle = 'bold';
+      },
       body: rows.length ? rows : [['—', '—', 'Nothing logged', '—']],
       styles: { ...tableBase.styles, fontSize: 6.8, cellPadding: 1.1 },
-      headStyles: { ...tableBase.headStyles, fontSize: 6.3 },
+      headStyles: { ...tableBase.headStyles, fillColor: HUE.slate.fg, fontSize: 6.3 },
       columnStyles: {
         0: { cellWidth: 9 }, 1: { cellWidth: 20 },
         2: { cellWidth: 'auto' }, 3: { cellWidth: 13, halign: 'right' },
