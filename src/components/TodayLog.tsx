@@ -4,7 +4,7 @@ import { format } from 'date-fns';
 import { Edit2, Trash2, Lock, Share2, FileText, ShieldAlert, ChevronDown, ChevronUp, Layers, MapPin, UserRound, MessageCircle } from 'lucide-react';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
 import { activeChannels, channelLine } from '../utils/channels';
-import { getTodayCases, getDayClose, closeDay, getSettings, updateCase, rebuildDaySummary, getCasesByDate, getLightspeedToday, getManualSaleChecks, getReportTill, type ManualSaleCheck, type LightspeedToday } from '../db';
+import { getTodayCases, getDayClose, closeDay, getSettings, updateCase, rebuildDaySummary, getCasesByDate, getLightspeedToday, getShopToday, getManualSaleChecks, getReportTill, type ManualSaleCheck, type LightspeedToday } from '../db';
 import { useNavigate } from 'react-router-dom';
 import { caseLabel } from '../shared/caseLabels';
 import { outletName } from '../shared/outlets';
@@ -47,7 +47,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
 
   /* The till's own count for this outlet today, so the log can be read
      against what Lightspeed actually rang up. The database limits it to the
-     sales this login is allowed to see. */
+     sales this login is allowed to see, except for a salesperson (below). */
   const [tillToday, setTillToday] = useState<LightspeedToday | null>(null);
   /* Typed Manual Sales, read against the till (by case id). */
   const [saleChecks, setSaleChecks] = useState<Record<string, ManualSaleCheck>>({});
@@ -79,11 +79,17 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   useEffect(() => { load(); }, [load]);
 
   const tillOutlet = reportOutlet || null;
+  /* A salesperson sees the whole shop's till, not only the sales credited to
+     them: the day is the shop's, and the report it closes into already lists
+     everyone's. Without a shop picked there is no shop to show, so it stays
+     their own. */
+  const shopTill = role === 'sales' && !!reportOutlet;
   useEffect(() => {
     let live = true;
-    getLightspeedToday(tillOutlet).then(t => { if (live) setTillToday(t); }).catch(() => { if (live) setTillToday(null); });
+    (shopTill ? getShopToday(reportOutlet) : getLightspeedToday(tillOutlet))
+      .then(t => { if (live) setTillToday(t); }).catch(() => { if (live) setTillToday(null); });
     return () => { live = false; };
-  }, [tillOutlet, refreshLog]);
+  }, [tillOutlet, reportOutlet, shopTill, refreshLog]);
   useEffect(() => {
     let live = true;
     getManualSaleChecks().then(c => { if (live) setSaleChecks(c); });
@@ -412,7 +418,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
 
       {/* What the till rang up last. Manual Sales are the exception, not the record: Lightspeed is.
           The shared shop login is nobody's till figures, so it is not shown a misleading zero. */}
-      {tillToday && role !== 'staff' && <LatestSaleCard till={tillToday} overseer={role === 'admin' || role === 'manager'} />}
+      {tillToday && role !== 'staff' && <LatestSaleCard till={tillToday} overseer={role === 'admin' || role === 'manager'} shopOutlet={shopTill ? reportOutlet : null} />}
 
       {/* Case list */}
       {sortedCases.length === 0 ? (

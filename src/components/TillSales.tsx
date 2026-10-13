@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ChevronRight, Undo2 } from 'lucide-react';
-import { getTillSales, type LightspeedToday, type ManualSaleCheck, type TillSale } from '../db';
+import { getShopTillSales, getTillSales, type LightspeedToday, type ManualSaleCheck, type TillSale } from '../db';
 import { formatKD } from '../utils/formatKD';
 import { outletName } from '../shared/outlets';
 import { activeChannels } from '../utils/channels';
@@ -34,8 +34,11 @@ export function productLine(items: TillSale['items']): { text: string; more: num
  *
  * Owner and manager also get, under it, the Online and WhatsApp orders the shop tiles leave
  * out. Choosing a shop never shows them, so say where they went.
+ *
+ * `shopOutlet` is set for a salesperson: the list is the whole shop's, as the day report has it,
+ * so it carries no customer or payment details for sales that were not theirs.
  */
-export function LatestSaleCard({ till, overseer }: { till: LightspeedToday; overseer: boolean }) {
+export function LatestSaleCard({ till, overseer, shopOutlet = null }: { till: LightspeedToday; overseer: boolean; shopOutlet?: string | null }) {
   const [sales, setSales] = useState<TillSale[] | null>(null);
   const [open, setOpen] = useState(false);
   const scope = till.scope;
@@ -43,9 +46,10 @@ export function LatestSaleCard({ till, overseer }: { till: LightspeedToday; over
   useEffect(() => {
     if (till.sales === 0) { setSales([]); return; }
     let live = true;
-    getTillSales(scope).then(s => live && setSales(s)).catch(() => live && setSales([]));
+    (shopOutlet ? getShopTillSales(shopOutlet) : getTillSales(scope))
+      .then(s => live && setSales(s)).catch(() => live && setSales([]));
     return () => { live = false; };
-  }, [scope, till.sales, till.as_of]);
+  }, [scope, shopOutlet, till.sales, till.as_of]);
 
   const others = overseer ? activeChannels(till.channels) : [];
   const notCounted = others.length > 0 && (
@@ -102,7 +106,7 @@ export function LatestSaleCard({ till, overseer }: { till: LightspeedToday; over
               <p className="text-slate-500 text-xs mt-0.5">
                 {[s.soldBy ? `Sold by ${s.soldBy}` : null, s.scope ? shopName(s.scope) : null].filter(Boolean).join(' · ')}
               </p>
-              <p className="text-slate-500 text-xs">Customer: <span className="text-slate-800">{s.customer ?? 'not on file'}</span></p>
+              {!shopOutlet && <p className="text-slate-500 text-xs">Customer: <span className="text-slate-800">{s.customer ?? 'not on file'}</span></p>}
               {s.items.length > 0 && (
                 <ul className="mt-1.5 space-y-0.5 border-t border-slate-100 pt-1.5 text-xs">
                   {s.items.map((i, k) => (

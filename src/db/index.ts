@@ -921,6 +921,18 @@ export async function getLightspeedToday(outlet?: string | null): Promise<Lights
   return (data ?? { sales: 0, revenue: 0, scope: null, as_of: null }) as LightspeedToday;
 }
 
+/**
+ * The whole shop's day so far, for a salesperson standing in it. lightspeed_today reads the sales
+ * table, which shows a seller only the sales credited to them; this is the count the day report
+ * prints, so the screen and the report agree before the day is closed.
+ */
+export async function getShopToday(outlet: string): Promise<LightspeedToday | null> {
+  const day = todayKuwait();
+  const s = await getStoreSales(outlet, day, day);
+  if (!s) return null;
+  return { sales: s.sales, revenue: s.revenue ?? 0, scope: resolveOutlet(outlet), as_of: s.asOf, channels: [] };
+}
+
 /** One sale as the till rang it up, for the card and the list behind "Latest sale". */
 export interface TillSale {
   id: string; at: string; receipt: string | null; kd: number; scope: string | null; isReturn: boolean;
@@ -980,6 +992,19 @@ export async function getTillSales(scope: string | null, date: string = todayKuw
     payments: ((r.payments as { name?: string; amount?: number }[] | null) ?? []).map(p => p.name ? `${p.name}${p.amount != null ? ` ${formatKD(Number(p.amount))}` : ''}` : '').filter(Boolean),
     note: (r.note as string | null) || null,
     items: items.get(r.id as string) ?? [],
+  }));
+}
+
+/**
+ * The shop's sales behind getShopToday, read the way the day report reads them: whoever rang them
+ * up, and without the customer or how they paid.
+ */
+export async function getShopTillSales(outlet: string, date: string = todayKuwait()): Promise<TillSale[]> {
+  const list = await getDaySaleList(outlet, date);
+  return list.map(s => ({
+    id: s.id, at: s.at, receipt: s.receipt, kd: s.kd ?? 0, scope: s.scope, isReturn: s.isReturn, soldBy: s.soldBy,
+    customer: null, payments: [], note: null,
+    items: s.items.map(i => ({ name: i.name, brand: i.brand, qty: i.qty, kd: i.kd ?? 0 })),
   }));
 }
 

@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.6.0",
+    "date": "2026-10-13",
+    "title": "Your shop's sales, all day",
+    "changes": [
+      "On Today's Log, salespeople now see the whole shop's sales for the day as the till rang them up, including colleagues' sales, not only their own. It no longer waits for the day to be closed.",
+      "Tap Latest sale to see each of the shop's sales: time, receipt, items, amount and who sold it."
+    ]
+  },
+  {
     "version": "3.5.5",
     "date": "2026-10-07",
     "title": "A clearer store traffic chart",
