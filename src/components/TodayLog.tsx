@@ -162,7 +162,9 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
       try {
         const till = await getReportTill(today, reportOutlet || null).catch(() => null);
         if (!live) return;
-        setPdfUri(generatePDF(today, reportCases, reportOutlet || undefined, till));
+        const uri = await generatePDF(today, reportCases, reportOutlet || undefined, till);
+        if (!live) return;
+        setPdfUri(uri);
         setPdfError(null);
       } catch (err) {
         if (!live) return;
@@ -177,7 +179,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
   async function buildPdfNow() {
     try {
       const till = await getReportTill(today, reportOutlet || null).catch(() => null);
-      setPdfUri(generatePDF(today, reportCases, reportOutlet || undefined, till));
+      setPdfUri(await generatePDF(today, reportCases, reportOutlet || undefined, till));
       setPdfError(null);
     } catch (err) {
       setPdfError(err instanceof Error ? err.message : 'Could not build the PDF');
@@ -215,7 +217,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
         return;
       }
       const till = await getReportTill(reportDate, reportOutlet || null).catch(() => null);
-      const uri = generatePDF(reportDate, scoped, reportOutlet || undefined, till);
+      const uri = await generatePDF(reportDate, scoped, reportOutlet || undefined, till);
       if (mode === 'download') {
         downloadReport(reportDate, uri, reportOutlet || undefined);
         showToast('PDF downloaded.', 'success');
@@ -264,7 +266,7 @@ export function TodayLog({ panelMode = false }: { panelMode?: boolean }) {
       const freshFiltered = reportOutlet ? fresh.filter(c => sameOutlet(c.outlet, reportOutlet)) : fresh;
       if (freshFiltered.length > 0) {
         const till = await getReportTill(today, reportOutlet || null).catch(() => null);
-        setPdfUri(generatePDF(today, freshFiltered, reportOutlet || undefined, till));
+        setPdfUri(await generatePDF(today, freshFiltered, reportOutlet || undefined, till));
       }
     }
   }

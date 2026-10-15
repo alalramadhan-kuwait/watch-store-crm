@@ -142,8 +142,11 @@ export function Team() {
   useEffect(() => { void load(); }, [load]);
 
   // Who is on the floor changes while this is open; the week's totals do not
-  // need to, so only attendance is subscribed to.
-  useLive('team-today', [{ table: 'attendance_records' }], () => { void load(); });
+  // need to, so only attendance is subscribed to — and only this week's, which
+  // is all the page shows.
+  useLive('team-today', [
+    { table: 'attendance_records', filter: `clock_in=gte.${satOfWeek(today)}T00:00:00+03:00` },
+  ], () => { void load(); });
 
   const ordered = useMemo(() => {
     const rank: Record<string, number> = { needs_correction: 0, missing: 1, late: 2, working: 3, due_later: 4, completed: 5, on_leave: 6, off: 7, no_schedule: 8 };

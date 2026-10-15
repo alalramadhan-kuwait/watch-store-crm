@@ -253,10 +253,16 @@ export function MyPortal() {
   /* Their own day, kept current: a correction approved by HR, or a shift closed
      from another device, shows up without them reloading. Row-level security
      means only their own rows reach this. */
-  useLive('my-portal', [
+  /* Their leave is watched by their employee id, which is only known once the
+     first load is back. The channel is named after it, so that moment opens a
+     new channel instead of reusing the old one's name while it is still
+     closing — Supabase hands back a closing channel for a reused name, and the
+     page would quietly stop updating. */
+  useLive(`my-portal:${emp?.id ?? ''}`, [
     { table: 'attendance_records', filter: user ? `user_id=eq.${user.id}` : undefined },
     { table: 'employee_requests', filter: user ? `user_id=eq.${user.id}` : undefined },
-    { table: 'leave_records' },
+    // their own leave only; without an HR record there is no leave on the page
+    ...(emp?.id ? [{ table: 'leave_records', filter: `employee_id=eq.${emp.id}` }] : []),
   ], () => { void load(); }, { enabled: !!user }); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {

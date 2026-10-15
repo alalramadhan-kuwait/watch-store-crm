@@ -99,9 +99,13 @@ export function Home() {
   useEffect(() => { void load(); }, [load]);
 
   /* The floor keeps moving while this is open. Somebody clocking in or a sale
-     being logged arrives on its own now, rather than up to a minute late. */
+     being logged arrives on its own now, rather than up to a minute late.
+     Attendance is today's only, like everything else here: unfiltered, every
+     clock-in at any shop on any day reloaded the whole page. A record removed
+     in the office is stamped with its reason first, and that change is still
+     today's, so it arrives too. */
   useLive('store-today', [
-    { table: 'attendance_records' },
+    { table: 'attendance_records', filter: `clock_in=gte.${today}T00:00:00+03:00` },
     { table: 'cases', filter: `date_logged=eq.${today}` },
     { table: 'day_closes', filter: `date=eq.${today}` },
   ], () => { void load(); });

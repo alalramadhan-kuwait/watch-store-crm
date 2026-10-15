@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { format } from 'date-fns';
 import { NavBar } from './components/layout/NavBar';
@@ -8,23 +8,38 @@ import { LoginPage } from './components/auth/LoginPage';
 import { EntryWithLog } from './components/EntryWithLog';
 import { Home } from './components/Home';
 import { SalesHome } from './components/SalesHome';
-import { Team } from './components/Team';
 import { More } from './components/More';
 import { TodayLog } from './components/TodayLog';
-import { FollowUps } from './components/FollowUps';
-import { ManagerDashboard } from './components/ManagerDashboard';
-import { Reports } from './components/Reports';
-import { Settings } from './components/Settings';
-import { CRM } from './components/CRM';
 import { OutletSelector } from './components/OutletSelector';
-import { MyPortal } from './components/MyPortal';
-import { Notifications } from './components/Notifications';
 import { ToastContainer } from './components/shared/Toast';
 import { AuthProvider, useAuth, canSeePerformance } from './context/AuthContext';
 import type { DsrRole } from './context/AuthContext';
 import { isDayClosed, closeDay, getCasesByDate, updateCase } from './db';
 import { previousDay, dayIsOver } from './utils/dayClose';
 import { useAppStore } from './store';
+
+/* The pages people open on — Home, Quick Entry, Today — and the small More menu
+   come with the app. The rest arrive the first time somebody opens them: the
+   dashboard alone carries the charting library, and most visits never go near
+   it. After the first visit the service worker holds every page, so this costs
+   a moment once, not on every open. */
+const page = <K extends string>(load: () => Promise<Record<K, React.ComponentType>>, name: K) =>
+  lazy(() => load().then((m) => ({ default: m[name] })));
+const Team = page(() => import('./components/Team'), 'Team');
+const FollowUps = page(() => import('./components/FollowUps'), 'FollowUps');
+const ManagerDashboard = page(() => import('./components/ManagerDashboard'), 'ManagerDashboard');
+const Reports = page(() => import('./components/Reports'), 'Reports');
+const Settings = page(() => import('./components/Settings'), 'Settings');
+const CRM = page(() => import('./components/CRM'), 'CRM');
+const MyPortal = page(() => import('./components/MyPortal'), 'MyPortal');
+const Notifications = page(() => import('./components/Notifications'), 'Notifications');
+
+// What shows in the page area while one of those arrives: the app's own spinner.
+const PageLoading = () => (
+  <div className="flex justify-center pt-16">
+    <div className="w-6 h-6 border-2 border-brand-700 border-t-transparent rounded-full animate-spin" />
+  </div>
+);
 
 function ProtectedRoute({ children, allow }: { children: React.ReactNode; allow?: (r: DsrRole | null) => boolean }) {
   const { role } = useAuth();
@@ -112,27 +127,29 @@ function AppShell() {
         className={`min-h-screen transition-all duration-200 ${sidebarCollapsed ? 'lg:ml-14' : 'lg:ml-60'}`}
         style={{ paddingTop: 'calc(3.5rem + var(--sa-t))' }}
       >
-        <Routes>
-          {/* `/` is whichever page that role opens on, so a bookmark, a deep
-              link and the Home tab all land in the same place. Entry keeps its
-              own address, which is what the Entry tab points at for everyone —
-              there is one Quick Entry and no manager variant of it. */}
-          <Route path="/" element={canSeePerformance(role) ? <Home /> : <SalesHome />} />
-          <Route path="/entry" element={<EntryWithLog />} />
-          <Route path="/team" element={<ProtectedRoute allow={canSeePerformance}><Team /></ProtectedRoute>} />
-          <Route path="/more" element={<More />} />
-          <Route path="/today" element={<TodayLog />} />
-          <Route path="/followups" element={<FollowUps />} />
-          <Route path="/portal" element={<MyPortal />} />
-          <Route path="/notifications" element={<Notifications />} />
-          {/* Customers is for everyone on the floor now; the database decides
-              which customers each login sees, not the route. */}
-          <Route path="/crm" element={<CRM />} />
-          <Route path="/manager" element={<ProtectedRoute allow={canSeePerformance}><ManagerDashboard /></ProtectedRoute>} />
-          <Route path="/reports" element={<ProtectedRoute allow={canSeePerformance}><Reports /></ProtectedRoute>} />
-          <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
-          <Route path="*" element={<Navigate to="/" replace />} />
-        </Routes>
+        <Suspense fallback={<PageLoading />}>
+          <Routes>
+            {/* `/` is whichever page that role opens on, so a bookmark, a deep
+                link and the Home tab all land in the same place. Entry keeps its
+                own address, which is what the Entry tab points at for everyone —
+                there is one Quick Entry and no manager variant of it. */}
+            <Route path="/" element={canSeePerformance(role) ? <Home /> : <SalesHome />} />
+            <Route path="/entry" element={<EntryWithLog />} />
+            <Route path="/team" element={<ProtectedRoute allow={canSeePerformance}><Team /></ProtectedRoute>} />
+            <Route path="/more" element={<More />} />
+            <Route path="/today" element={<TodayLog />} />
+            <Route path="/followups" element={<FollowUps />} />
+            <Route path="/portal" element={<MyPortal />} />
+            <Route path="/notifications" element={<Notifications />} />
+            {/* Customers is for everyone on the floor now; the database decides
+                which customers each login sees, not the route. */}
+            <Route path="/crm" element={<CRM />} />
+            <Route path="/manager" element={<ProtectedRoute allow={canSeePerformance}><ManagerDashboard /></ProtectedRoute>} />
+            <Route path="/reports" element={<ProtectedRoute allow={canSeePerformance}><Reports /></ProtectedRoute>} />
+            <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Suspense>
       </main>
 
       <NavBar />

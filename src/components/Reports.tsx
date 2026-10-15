@@ -59,7 +59,7 @@ export function Reports() {
         return;
       }
       const till = await getReportTill(date, outlet || null).catch(() => null);
-      const pdfUri = generatePDF(date, filteredForPDF, outlet || undefined, till);
+      const pdfUri = await generatePDF(date, filteredForPDF, outlet || undefined, till);
       downloadReport(date, pdfUri, outlet || undefined);
     } catch {
       showToast('Failed to generate PDF.', 'error');
@@ -95,7 +95,7 @@ export function Reports() {
         return;
       }
       const till = await getReportTill(date, outlet || null).catch(() => null);
-      const pdfUri = generatePDF(date, filteredForPDF, outlet || undefined, till);
+      const pdfUri = await generatePDF(date, filteredForPDF, outlet || undefined, till);
       const result = await shareReport(date, pdfUri, outlet || undefined);
       if (result === 'cancelled') return; // user dismissed the share sheet
       showToast(result === 'shared' ? 'Report shared!' : 'PDF downloaded.', 'success');

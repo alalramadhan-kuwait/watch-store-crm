@@ -1,5 +1,14 @@
 [
   {
+    "version": "3.7.1",
+    "date": "2026-10-15",
+    "title": "Faster",
+    "changes": [
+      "The app opens faster, and Home and Customers fill in sooner.",
+      "Home, Team and Follow-ups no longer reload every time someone at either shop clocks in or logs a visit."
+    ]
+  },
+  {
     "version": "3.7.0",
     "date": "2026-10-15",
     "title": "See how each salesperson works",

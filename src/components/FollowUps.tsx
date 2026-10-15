@@ -89,7 +89,11 @@ export function FollowUps() {
 
   useEffect(() => { load(); }, [load]);
 
-  useLive('followups', [{ table: 'cases' }], load);
+  /* Only follow-up rows decide this list. Closing one — won, lost, no
+     response — updates the follow-up row itself (a win also writes a new Sale,
+     but marks the follow-up Won alongside it), so nothing is missed by not
+     reloading for every visit logged at either shop. */
+  useLive('followups', [{ table: 'cases', filter: 'case_type=eq.Follow-up' }], load);
 
   // A personal login sees only the customers they are chasing; a manager sees
   // the whole board. Matched on the roster name, not created_by, so follow-ups

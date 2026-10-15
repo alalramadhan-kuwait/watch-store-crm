@@ -223,21 +223,72 @@ export async function deleteBrand(id: string): Promise<void> {
   await supabase.from('brands').delete().eq('id', id);
 }
 
+// ── Shared reads ──────────────────────────────────────────────────────────────
+
+/* A few reads are asked for by nearly every screen and change a few times a
+   year: the settings row and the staff directory. Opening the Team tab used
+   to fetch the directory six times over, and every tab fetched the settings
+   again. One answer is now shared by everybody who asks within a minute,
+   and callers asking at the same moment share the one request in flight.
+
+   Only a good answer is kept. A failed read falls back to defaults or an empty
+   list, as it always has, and the next caller asks the database again rather
+   than being handed the failure for a minute. What is handed out is shared, so
+   callers treat it as read-only — none of them changes it. */
+const SHARED_READ_MS = 60_000;
+
+interface SharedRead<T> {
+  (): Promise<T>;
+  forget: () => void;
+}
+
+function sharedRead<T>(load: () => Promise<{ value: T; keep: boolean }>): SharedRead<T> {
+  let entry: { at: number; promise: Promise<T> } | null = null;
+  const read = (() => {
+    if (entry && Date.now() - entry.at < SHARED_READ_MS) return entry.promise;
+    const mine: { at: number; promise: Promise<T> } = {
+      at: Date.now(),
+      promise: load().then(
+        ({ value, keep }) => { if (!keep && entry === mine) entry = null; return value; },
+        (err) => { if (entry === mine) entry = null; throw err; },
+      ),
+    };
+    entry = mine;
+    return mine.promise;
+  }) as SharedRead<T>;
+  read.forget = () => { entry = null; };
+  return read;
+}
+
+/** Drop every shared read. Called when the person signed in changes, so one
+ *  login never sees what was fetched under another's permissions. */
+export function forgetSharedReads(): void {
+  readSettings.forget();
+  readTeamDirectory.forget();
+}
+
 // ── Settings ──────────────────────────────────────────────────────────────────
 
-export async function getSettings(): Promise<AppSettings> {
+const readSettings = sharedRead<AppSettings>(async () => {
   const { data } = await supabase.from('settings').select('*').single();
   if (!data) {
     return {
-      staffRoster: STAFF_DEFAULT,
-      lostReasons: LOST_REASONS_DEFAULT,
-      followUpActions: FOLLOWUP_ACTIONS_DEFAULT,
-      channels: CHANNELS_DEFAULT,
-      outlets: ['Avenues', 'TimeGallery'],
-      managerPin: '1234',
+      keep: false,
+      value: {
+        staffRoster: STAFF_DEFAULT,
+        lostReasons: LOST_REASONS_DEFAULT,
+        followUpActions: FOLLOWUP_ACTIONS_DEFAULT,
+        channels: CHANNELS_DEFAULT,
+        outlets: ['Avenues', 'TimeGallery'],
+        managerPin: '1234',
+      },
     };
   }
-  return settingsFromDb(data as DbSettings);
+  return { keep: true, value: settingsFromDb(data as DbSettings) };
+});
+
+export function getSettings(): Promise<AppSettings> {
+  return readSettings();
 }
 
 export async function saveSettings(updates: Partial<AppSettings>): Promise<void> {
@@ -257,6 +308,8 @@ export async function saveSettings(updates: Partial<AppSettings>): Promise<void>
   if (updates.managerPin !== undefined) dbUpdates.manager_pin = updates.managerPin;
 
   await supabase.from('settings').update(dbUpdates).eq('id', current.id);
+  // the next screen to ask reads what was just saved, not the minute-old copy
+  readSettings.forget();
 }
 
 // ── Case ID ───────────────────────────────────────────────────────────────────
@@ -727,13 +780,19 @@ export interface LeaveDay {
   type: string;
 }
 
-/** Everyone on the shop roster who has an HR record. */
-export async function getTeamDirectory(): Promise<TeamMemberHR[]> {
+/** Everyone on the shop roster who has an HR record. Shared for a minute
+ *  (see sharedRead): the attendance and leave readers below each need it to
+ *  turn names into roster names, and the home page asks for all three at once. */
+export function getTeamDirectory(): Promise<TeamMemberHR[]> {
+  return readTeamDirectory();
+}
+
+const readTeamDirectory = sharedRead<TeamMemberHR[]>(async () => {
   /* Schedules are fetched alongside the roster because a past day must be
      judged against the schedule in force on that day. The columns on the
      employee row only ever mirror today's, so on their own they would re-judge
      last month against this month's roster. */
-  const [{ data }, { data: schedRows }] = await Promise.all([
+  const [{ data, error }, { data: schedRows, error: schedError }] = await Promise.all([
     supabase
       .from('employees')
       .select('id, full_name, dsr_staff_name, location, expected_days, shift_start, shift_end')
@@ -751,7 +810,7 @@ export async function getTeamDirectory(): Promise<TeamMemberHR[]> {
     byEmployee.set(row.employee_id, list);
   }
 
-  return (data ?? []).map(r => ({
+  const value = (data ?? []).map(r => ({
     employeeId: r.id as string,
     fullName: r.full_name as string,
     rosterName: r.dsr_staff_name as string,
@@ -762,7 +821,8 @@ export async function getTeamDirectory(): Promise<TeamMemberHR[]> {
     shiftEnd: ((r as { shift_end?: string }).shift_end ?? null),
     schedules: byEmployee.get(r.id as string) ?? [],
   }));
-}
+  return { value, keep: !error && !schedError };
+});
 
 /** Kuwait-local yyyy-mm-dd for a timestamp. The shops are all in one timezone. */
 function kuwaitDay(ts: string): string {
@@ -1164,15 +1224,34 @@ export async function getCustomerList(): Promise<CustomerListRow[]> {
      thousand customers, so read the list a page at a time. Reading only the first
      request left Occasions empty while Home counted three, and made a search
      reach only a ninth of the customers. customer_list() is ordered by id so the
-     pages do not overlap. */
+     pages do not overlap.
+     The function works out the whole list for every page it is asked for, about
+     a second each, so asking for the pages one after another kept the owner
+     waiting nine seconds. The first page also says how many rows there are, and
+     the rest are asked for together and put back in page order. */
   const PAGE = 1000;
-  const all: Record<string, unknown>[] = [];
-  for (let from = 0; ; from += PAGE) {
+  type Row = Record<string, unknown>;
+  const readPage = async (from: number): Promise<Row[]> => {
     const { data, error } = await supabase.rpc('customer_list').range(from, from + PAGE - 1);
     if (error) throw new Error(error.message);
-    const page = (data ?? []) as Record<string, unknown>[];
-    all.push(...page);
-    if (page.length < PAGE) break;
+    return (data ?? []) as Row[];
+  };
+
+  const first = await supabase.rpc('customer_list', undefined, { count: 'exact' }).range(0, PAGE - 1);
+  if (first.error) throw new Error(first.error.message);
+  const all: Row[] = [...((first.data ?? []) as Row[])];
+
+  if (all.length === PAGE && first.count == null) {
+    // no count came back: read on one page at a time, as before
+    for (let from = PAGE; ; from += PAGE) {
+      const page = await readPage(from);
+      all.push(...page);
+      if (page.length < PAGE) break;
+    }
+  } else if (all.length === PAGE) {
+    const rest: number[] = [];
+    for (let from = PAGE; from < first.count!; from += PAGE) rest.push(from);
+    for (const page of await Promise.all(rest.map(readPage))) all.push(...page);
   }
   return all.map(r => ({
     id: r.id as string, name: r.name as string, contact: r.contact as string, phoneE164: (r.phone_e164 as string | null) ?? null,

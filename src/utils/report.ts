@@ -1,6 +1,6 @@
 import { caseLabel } from '../shared/caseLabels';
-import { jsPDF } from 'jspdf';
-import autoTable from 'jspdf-autotable';
+import type { jsPDF } from 'jspdf';
+import type AutoTable from 'jspdf-autotable';
 import { format } from 'date-fns';
 import type { Case } from '../types';
 import { formatKD } from './formatKD';
@@ -224,7 +224,7 @@ const clip = (s: string | undefined, n: number) =>
  * how much room the day actually needs, then again on a page cut to that
  * height. That is what makes the report end where the content ends.
  */
-function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till: ReportTill | null): number {
+function renderBody(doc: jsPDF, autoTable: typeof AutoTable, pageH: number, date: string, cases: Case[], till: ReportTill | null): number {
   const stats = buildDailyStats(cases);
   const { sales: typedSales, followups, lost, staffMap: typedStaffMap, dayCases, followUpWins, followUpWinRevenue } = stats;
   let { brandSalesMap, typeSalesMap } = stats;
@@ -611,7 +611,11 @@ function renderBody(doc: jsPDF, pageH: number, date: string, cases: Case[], till
   return curY;
 }
 
-export function generatePDF(date: string, cases: Case[], outlet?: string, till: ReportTill | null = null): string {
+/* The PDF library is the heaviest thing the app uses and most opens never
+   build a report, so it is fetched the first time one is built rather than
+   with the app. After that the browser (and the service worker's copy) has it. */
+export async function generatePDF(date: string, cases: Case[], outlet?: string, till: ReportTill | null = null): Promise<string> {
+  const [{ jsPDF: JsPDF }, { default: autoTable }] = await Promise.all([import('jspdf'), import('jspdf-autotable')]);
   const displayDate = format(new Date(date + 'T12:00:00'), 'd MMMM yyyy');
   // Store time, whatever the device is set to — this is a business record.
   const generatedAt = new Intl.DateTimeFormat('en-GB', {
@@ -619,8 +623,8 @@ export function generatePDF(date: string, cases: Case[], outlet?: string, till: 
   }).format(new Date()).replace(',', '');
 
   const build = (pageH: number) => {
-    const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: [PAGE_W, pageH] });
-    const endY = renderBody(doc, pageH, date, cases, till);
+    const doc = new JsPDF({ orientation: 'portrait', unit: 'mm', format: [PAGE_W, pageH] });
+    const endY = renderBody(doc, autoTable, pageH, date, cases, till);
     return { doc, endY };
   };
 

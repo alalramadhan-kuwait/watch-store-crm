@@ -89,9 +89,11 @@ export function SalesHome() {
   }, [user, shared, outlet, salesName]);
 
   useEffect(() => { void load(); }, [load, refreshLog]);
+  /* The only clock-ins on this page are this login's own, and the shared phone
+     shows none, so nobody else clocking in is a reason to reload it. */
   useLive('sales-home', [
     { table: 'cases', filter: `date_logged=eq.${today}` },
-    { table: 'attendance_records' },
+    ...(user && !shared ? [{ table: 'attendance_records', filter: `user_id=eq.${user.id}` }] : []),
   ], () => { void load(); });
 
   /* Mine: filed under my roster name when I am a person; at this shop when I
