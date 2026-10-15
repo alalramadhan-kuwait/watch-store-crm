@@ -1,5 +1,5 @@
 {
-  "foundation": "18eb31a89c99c4e2",
+  "foundation": "e111f3c94d3d0857",
   "files": {
     "__tests__/corrections.test.ts": "db6cc03877bd5ea6",
     "__tests__/customers.test.ts": "84c51a26235886b2",
@@ -15,7 +15,7 @@
     "attendanceStatus.ts": "da2a6223c37d8a4a",
     "caseLabels.ts": "0b071875fce1f71c",
     "customerTiers.ts": "b07eb995d5b343de",
-    "live.ts": "12a66171598a316e",
+    "live.ts": "d495363087bbd051",
     "messageRules.ts": "6971476b107e1171",
     "notifications.ts": "e94b2c5fb965e316",
     "outlets.ts": "042f801e6dafc122",

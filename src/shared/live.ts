@@ -20,6 +20,13 @@
 import { useEffect, useRef } from 'react';
 import { supabase } from '../lib/supabase';
 
+/* Every subscription gets a channel of its own. realtime-js hands back the
+   existing channel when a name is reused, so a screen whose watches changed
+   while it was open (the date filter moving on at midnight) asked for a new
+   channel, got the one it had just closed, and heard nothing more until it
+   was opened again. */
+let opened = 0;
+
 export interface Watch {
   table: string;
   /** PostgREST filter, e.g. `date_logged=eq.2026-09-17`. */
@@ -66,7 +73,7 @@ export function useLive(
       timer = setTimeout(() => { timer = null; latest.current(); }, settleMs);
     };
 
-    let channel = supabase.channel(channelName);
+    let channel = supabase.channel(`${channelName}#${++opened}`);
     for (const w of key.split('|')) {
       const [table, filter] = w.split(/:(.*)/s);
       channel = channel.on(
