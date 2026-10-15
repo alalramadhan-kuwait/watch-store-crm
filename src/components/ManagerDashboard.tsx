@@ -1,10 +1,10 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { format, startOfMonth, endOfMonth, addMonths, subMonths, eachDayOfInterval, isFriday } from 'date-fns';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from 'recharts';
-import { TrendingUp, Users, AlertCircle, DollarSign, FileText, X, ChevronLeft, ChevronRight, Clock, CalendarDays } from 'lucide-react';
+import { TrendingUp, Users, AlertCircle, DollarSign, FileText, X, ChevronLeft, ChevronRight, Clock, CalendarDays, LayoutGrid, List, MessageCircle, Phone } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { activeChannels, channelLine } from '../utils/channels';
-import { getCasesForRange, getSettings, getEffectiveItems, getTeamAttendance, getTeamLeave, getStoreSales, syncedLabel, visitorsOnDay, type StoreSales } from '../db';
+import { getCasesForRange, getSettings, getEffectiveItems, getTeamAttendance, getTeamLeave, getStoreSales, getTeamWeekContacts, syncedLabel, visitorsOnDay, type StoreSales, type WeekContacts } from '../db';
 import type { AttendanceDay, LeaveDay } from '../db';
 import { formatKD, formatKDCompact } from '../utils/formatKD';
 import { CaseTypeBadge } from './shared/Badge';
@@ -83,7 +83,7 @@ function summariseAttendance(rows: AttendanceDay[], leave: LeaveDay[], monthStar
  * Per-person KPIs for a set of cases — the same shape whether the range is one
  * day or one month, so the manager reads his team the same way in both views.
  */
-function buildTeam(cases: Case[], ls?: StoreSales | null) {
+function buildTeam(cases: Case[], ls?: StoreSales | null, contacts: WeekContacts[] = []) {
   // formula the daily PDF prints, so the manager and the report agree. It is
   // deliberately not sales ÷ every case: browsing visits are footfall, not a
   // chance that was lost.
@@ -92,15 +92,29 @@ function buildTeam(cases: Case[], ls?: StoreSales | null) {
     name: string; sales: number; kd: number; lost: number; browsing: number;
     openFU: number; overdueFU: number; outlets: Set<string>;
     brands: Record<string, number>;
+    /* What they logged, as opposed to what the till rang up: every entry,
+       the customer conversations among them, and how many of those kept a
+       phone number. */
+    entries: number; interested: number; talks: number; withNumber: number;
+    /* WhatsApp messages opened from the app, and to how many customers. */
+    whatsapp: number; messaged: number;
   };
   const staffMap: Record<string, Person> = {};
   const blank = (name: string): Person => ({
     name, sales: 0, kd: 0, lost: 0, browsing: 0, openFU: 0, overdueFU: 0,
     outlets: new Set<string>(), brands: {},
+    entries: 0, interested: 0, talks: 0, withNumber: 0, whatsapp: 0, messaged: 0,
   });
   for (const c of cases) {
     const p = (staffMap[c.staff] ??= blank(c.staff));
     if (c.outlet) p.outlets.add(c.outlet);
+    p.entries++;
+    if (c.caseType !== 'No Interaction') {
+      p.talks++;
+      // A masked contact is still a number they took; the viewer just may not read it.
+      if (c.contact || c.contactMasked || c.customerId) p.withNumber++;
+    }
+    if (c.caseType === 'Follow-up') p.interested++;
     if (c.caseType === 'Sale') {
       p.sales++;
       p.kd += c.amountKD || 0;
@@ -125,6 +139,12 @@ function buildTeam(cases: Case[], ls?: StoreSales | null) {
       const row = (staffMap[p.name] ??= blank(p.name));
       row.sales = p.count; row.kd = p.kd;
     }
+  }
+  /* Only people who did something this month: a target alone is not activity. */
+  for (const w of contacts) {
+    if (w.messages === 0) continue;
+    const row = (staffMap[w.staffName] ??= blank(w.staffName));
+    row.whatsapp = w.messages; row.messaged = w.customers;
   }
   return Object.values(staffMap)
     .map((d) => {
@@ -156,6 +176,7 @@ function MonthView() {
   const isThisMonth = format(month, 'yyyy-MM') === format(new Date(), 'yyyy-MM');
   const [cases, setCases] = useState<Case[]>([]);
   const [ls, setLs] = useState<StoreSales | null>(null);
+  const [contacts, setContacts] = useState<WeekContacts[]>([]);
   const [drillDown, setDrillDown] = useState<DrillDown | null>(null);
 
   function drillInto(title: string, filteredCases: Case[]) {
@@ -169,13 +190,16 @@ function MonthView() {
   const load = useCallback(async () => {
     // `to` is exclusive for attendance, so ask for the first of the next month
     const nextMonth = format(startOfMonth(addMonths(month, 1)), 'yyyy-MM-dd');
-    const [data, att, lv, lsMonth] = await Promise.all([
+    const [data, att, lv, lsMonth, wa] = await Promise.all([
       getCasesForRange(rangeStart, rangeEnd),
       getTeamAttendance(rangeStart, nextMonth),
       getTeamLeave(rangeStart, rangeEnd),
       getStoreSales(null, rangeStart, rangeEnd),
+      // Named for the week, but it counts any range: here, the month.
+      getTeamWeekContacts(rangeStart, rangeEnd).catch(() => [] as WeekContacts[]),
     ]);
     setLs(lsMonth);
+    setContacts(wa);
     setCases(data);
     setAttendance(att);
     setLeave(lv);
@@ -201,7 +225,7 @@ function MonthView() {
     const visitorConv = totalVisitors > 0 ? Math.round((saleCount / totalVisitors) * 100) : 0;
     const interactionRate = totalVisitors > 0 ? Math.round((interactions / totalVisitors) * 100) : 0;
 
-    const leaderboard = buildTeam(cases, useLs ? ls : null);
+    const leaderboard = buildTeam(cases, useLs ? ls : null, contacts);
     const attendanceBy = summariseAttendance(attendance, leave, rangeStart, rangeEnd);
 
     const lostReasonMap: Record<string, number> = {};
@@ -254,7 +278,7 @@ function MonthView() {
       topFollowUpProducts: Object.entries(followUpBrands).sort((a, b) => b[1] - a[1]).slice(0, 5),
       openFollowUps: followups.filter(c => c.status === 'Open').length,
     };
-  }, [cases, ls, attendance, leave, rangeStart, rangeEnd]);
+  }, [cases, ls, contacts, attendance, leave, rangeStart, rangeEnd]);
 
 
   return (
@@ -296,7 +320,7 @@ function MonthView() {
       {/* Desktop: two-column layout */}
       <div className="lg:grid lg:grid-cols-2 lg:gap-6 space-y-6 lg:space-y-0">
         <div className="lg:col-span-2">
-          <TeamCards
+          <TeamSection
             team={stats.leaderboard}
             attendanceBy={stats.attendanceBy}
             onOpen={(name) => drillInto(`${name} — All Cases`, cases.filter(c => c.staff === name))}
@@ -407,26 +431,178 @@ function MonthView() {
 }
 
 
-/** The manager's main view of his team: one card per salesperson. */
-function TeamCards({ team, onOpen, onSheet, attendanceBy, subtitle }: {
+type TeamView = 'list' | 'cards';
+const VIEW_KEY = 'dsr.team.view';
+function savedView(): TeamView {
+  try { return localStorage.getItem(VIEW_KEY) === 'cards' ? 'cards' : 'list'; } catch { return 'list'; }
+}
+
+interface TeamProps {
   team: TeamMember[];
   onOpen: (name: string) => void;
   onSheet: (name: string) => void;
   attendanceBy: Record<string, AttendanceSummary>;
   subtitle?: string;
-}) {
-  const top = team[0]?.kd ?? 0;
+}
+
+/* Entries per day worked, so someone who worked half the month is not read as half as busy. */
+const perDay = (s: TeamMember, a: AttendanceSummary | undefined) =>
+  a && a.days > 0 ? s.entries / a.days : null;
+
+/**
+ * The manager's view of the team, as a list (one row each, sortable) or as
+ * cards. The phone remembers which.
+ *
+ * Close rate is shown only once somebody has logged a lost sale this month.
+ * Sales come from the till but lost sales only from what people type, so with
+ * none typed every rate reads 100% and says nothing.
+ */
+function TeamSection(props: TeamProps) {
+  const [view, setView] = useState<TeamView>(savedView);
+  const choose = (v: TeamView) => {
+    setView(v);
+    try { localStorage.setItem(VIEW_KEY, v); } catch { /* private mode: just this visit */ }
+  };
+  const showClose = props.team.some(s => s.lost > 0);
+  const { team, subtitle } = props;
   return (
     <>
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex items-center justify-between gap-3 mb-3">
         <h3 className="font-bold text-slate-900">Team{subtitle ? <span className="font-normal text-slate-400 text-sm ml-2">{subtitle}</span> : null}</h3>
-        <span className="text-[10px] text-slate-400">Tap a card to see their cases ↗</span>
+        <div className="inline-flex rounded-xl bg-slate-100 p-0.5" role="group" aria-label="Team view">
+          {([['list', List, 'List'], ['cards', LayoutGrid, 'Cards']] as const).map(([v, Icon, label]) => (
+            <button key={v} type="button" onClick={() => choose(v)} aria-pressed={view === v}
+              className={`inline-flex items-center gap-1 px-2.5 py-1.5 rounded-[10px] text-xs font-semibold transition-colors ${view === v ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>
+              <Icon className="w-3.5 h-3.5" /> {label}
+            </button>
+          ))}
+        </div>
       </div>
       {team.length === 0 ? (
         <p className="text-slate-400 text-sm">Nobody has logged anything yet.</p>
-      ) : (
+      ) : view === 'list'
+        ? <TeamList {...props} showClose={showClose} />
+        : <TeamCards {...props} showClose={showClose} />}
+    </>
+  );
+}
+
+type SortKey = 'kd' | 'sales' | 'entries' | 'perDay' | 'interested' | 'lost' | 'browsing' | 'numbers' | 'whatsapp' | 'messaged' | 'days' | 'late' | 'close';
+
+/** One row per salesperson. Tap a column to sort by it, a name to see their entries. */
+function TeamList({ team, onOpen, onSheet, attendanceBy, showClose }: TeamProps & { showClose: boolean }) {
+  const [sort, setSort] = useState<SortKey>('kd');
+  const value = (s: TeamMember, k: SortKey): number => {
+    const a = attendanceBy[s.name];
+    switch (k) {
+      case 'perDay': return perDay(s, a) ?? -1;
+      case 'numbers': return s.talks > 0 ? s.withNumber / s.talks : -1;
+      case 'days': return a?.days ?? 0;
+      case 'late': return a?.late ?? 0;
+      case 'close': return s.sales + s.lost > 0 ? s.conv : -1;
+      default: return s[k];
+    }
+  };
+  const rows = [...team].sort((x, y) => value(y, sort) - value(x, sort) || y.kd - x.kd);
+  const cols: { key: SortKey; label: string; title: string }[] = [
+    { key: 'kd', label: 'KD', title: 'Takings from Lightspeed' },
+    { key: 'sales', label: 'Sales', title: 'Sales from Lightspeed' },
+    ...(showClose ? [{ key: 'close' as const, label: 'Close', title: 'Sales out of sales and lost sales' }] : []),
+    { key: 'entries', label: 'Entries', title: 'Everything they logged' },
+    { key: 'perDay', label: 'Per day', title: 'Entries per day worked' },
+    { key: 'interested', label: 'Interested', title: 'Interested customers logged' },
+    { key: 'lost', label: 'Lost', title: 'Lost sales logged' },
+    { key: 'browsing', label: 'Browsing', title: 'Browsing visitors logged' },
+    { key: 'numbers', label: 'Numbers', title: 'Customer conversations with a phone number' },
+    { key: 'whatsapp', label: 'WhatsApp', title: 'WhatsApp messages sent from the app' },
+    { key: 'messaged', label: 'Customers', title: 'Different customers messaged on WhatsApp' },
+    { key: 'days', label: 'Days', title: 'Days clocked in' },
+    { key: 'late', label: 'Late', title: 'Days clocked in late' },
+  ];
+  const cell = 'px-2.5 py-2.5 text-right tabular-nums whitespace-nowrap';
+  const sum = (f: (s: TeamMember) => number) => team.reduce((t, s) => t + f(s), 0);
+  const totalTalks = sum(s => s.talks);
+  return (
+    <div className="card overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-slate-100">
+            <th className="sticky left-0 z-10 bg-white text-left px-3 py-2.5 text-[11px] font-semibold text-slate-400 uppercase tracking-wide">Salesperson</th>
+            {cols.map(c => (
+              <th key={c.key} className="p-0 text-right" aria-sort={sort === c.key ? 'descending' : undefined}>
+                <button type="button" title={c.title} onClick={() => setSort(c.key)}
+                  className={`w-full px-2.5 py-2.5 text-right text-[11px] font-semibold uppercase tracking-wide whitespace-nowrap ${sort === c.key ? 'text-brand-700' : 'text-slate-400 hover:text-slate-600'}`}>
+                  {c.label}{sort === c.key ? ' ↓' : ''}
+                </button>
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map(s => {
+            const a = attendanceBy[s.name];
+            const pd = perDay(s, a);
+            return (
+              <tr key={s.name} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
+                <td className="sticky left-0 z-10 bg-white p-0">
+                  <button type="button" onClick={() => onOpen(s.name)} className="w-full text-left px-3 py-2 min-w-[120px]">
+                    <span className="block font-semibold text-slate-900 whitespace-nowrap">{s.name}</span>
+                    <span className="block text-[11px] text-slate-400 whitespace-nowrap">{s.outletList.length > 0 ? s.outletList.join(' · ') : 'No outlet'}</span>
+                  </button>
+                </td>
+                <td className={`${cell} font-bold text-brand-700`}>{formatKDCompact(s.kd)}</td>
+                <td className={cell}>{s.sales}</td>
+                {showClose && <td className={cell}>{s.sales + s.lost > 0 ? `${s.conv}%` : '—'}</td>}
+                <td className={`${cell} font-semibold text-slate-900`}>{s.entries}</td>
+                <td className={cell}>{pd === null ? '—' : pd.toFixed(1)}</td>
+                <td className={cell}>{s.interested}</td>
+                <td className={`${cell} ${s.lost > 0 ? 'text-rose-600' : 'text-slate-400'}`}>{s.lost}</td>
+                <td className={cell}>{s.browsing}</td>
+                <td className={`${cell} ${s.talks > 0 && s.withNumber === 0 ? 'text-amber-600' : ''}`}>{s.talks > 0 ? `${s.withNumber}/${s.talks}` : '—'}</td>
+                <td className={`${cell} ${s.whatsapp === 0 ? 'text-slate-400' : 'text-slate-900 font-semibold'}`}>{s.whatsapp}</td>
+                <td className={`${cell} ${s.messaged === 0 ? 'text-slate-400' : ''}`}>{s.messaged}</td>
+                <td className="p-0 text-right">
+                  <button type="button" onClick={() => onSheet(s.name)} title="Open attendance"
+                    className="w-full px-2.5 py-2.5 text-right tabular-nums text-brand-700 font-semibold underline decoration-brand-200 underline-offset-2">
+                    {a?.days ?? 0}
+                  </button>
+                </td>
+                <td className={`${cell} ${a && a.late > 0 ? 'text-amber-600 font-semibold' : 'text-slate-400'}`}>{a?.late ?? 0}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+        <tfoot>
+          <tr className="border-t border-slate-200 text-slate-500">
+            <td className="sticky left-0 z-10 bg-white px-3 py-2.5 text-[11px] font-semibold uppercase tracking-wide">Team</td>
+            <td className={`${cell} font-semibold`}>{formatKDCompact(sum(s => s.kd))}</td>
+            <td className={cell}>{sum(s => s.sales)}</td>
+            {showClose && <td className={cell} />}
+            <td className={`${cell} font-semibold`}>{sum(s => s.entries)}</td>
+            <td className={cell} />
+            <td className={cell}>{sum(s => s.interested)}</td>
+            <td className={cell}>{sum(s => s.lost)}</td>
+            <td className={cell}>{sum(s => s.browsing)}</td>
+            <td className={cell}>{totalTalks > 0 ? `${sum(s => s.withNumber)}/${totalTalks}` : '—'}</td>
+            <td className={cell}>{sum(s => s.whatsapp)}</td>
+            <td className={cell} />
+            <td className={cell} />
+            <td className={cell}>{sum(s => attendanceBy[s.name]?.late ?? 0)}</td>
+          </tr>
+        </tfoot>
+      </table>
+    </div>
+  );
+}
+
+/** One card per salesperson. */
+function TeamCards({ team, onOpen, onSheet, attendanceBy, showClose }: TeamProps & { showClose: boolean }) {
+  const top = team[0]?.kd ?? 0;
+  return (
         <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {team.map((s, i) => (
+          {team.map((s, i) => {
+            const pd = perDay(s, attendanceBy[s.name]);
+            return (
             <button key={s.name} type="button" onClick={() => onOpen(s.name)}
               className="card p-4 text-left hover:border-brand-200 hover:shadow-md transition-all focus:outline-none focus:ring-2 focus:ring-brand-200">
               <div className="flex items-start gap-2 mb-3">
@@ -448,15 +624,32 @@ function TeamCards({ team, onOpen, onSheet, attendanceBy, subtitle }: {
               </div>
 
               <div className="grid grid-cols-3 gap-2 mt-3 text-center">
-                <StaffStat label="Sales" value={String(s.sales)} />
-                <StaffStat label="Close rate" value={s.sales + s.lost === 0 ? '—' : `${s.conv}%`}
-                  tone={s.sales + s.lost === 0 ? 'muted' : s.conv >= 50 ? 'good' : s.conv >= 25 ? 'warn' : 'bad'} />
+                <StaffStat label="Sales" value={String(s.sales)}
+                  sub={showClose && s.sales + s.lost > 0 ? `${s.conv}% close` : undefined} subTone="muted" />
                 <StaffStat label="Avg sale" value={s.sales > 0 ? formatKDCompact(s.avg) : '—'} />
+                <StaffStat label="Entries" value={String(s.entries)}
+                  sub={pd === null ? undefined : `${pd.toFixed(1)} a day`} subTone="muted" />
                 <StaffStat label="Lost" value={String(s.lost)} tone={s.lost > 0 ? 'bad' : 'muted'} />
                 <StaffStat label="Browsing" value={String(s.browsing)} />
                 <StaffStat label="Open FU" value={String(s.openFU)}
                   tone={s.overdueFU > 0 ? 'bad' : s.openFU > 0 ? 'warn' : 'muted'}
                   sub={s.overdueFU > 0 ? `${s.overdueFU} overdue` : undefined} />
+              </div>
+
+              {/* How they follow customers up: WhatsApp from the app, and numbers kept */}
+              <div className="flex items-center gap-4 mt-2.5 text-[11px] text-slate-600">
+                <span className="inline-flex items-center gap-1">
+                  <MessageCircle className="w-3 h-3 text-slate-400 shrink-0" />
+                  {s.whatsapp > 0
+                    ? <><span className="font-semibold">{s.whatsapp}</span> WhatsApp to {s.messaged} customer{s.messaged === 1 ? '' : 's'}</>
+                    : <span className="text-slate-400">No WhatsApp</span>}
+                </span>
+                {s.talks > 0 && (
+                  <span className={`inline-flex items-center gap-1 ${s.withNumber === 0 ? 'text-amber-600' : ''}`}>
+                    <Phone className="w-3 h-3 shrink-0 opacity-60" />
+                    <span className="font-semibold">{s.withNumber}/{s.talks}</span> numbers
+                  </span>
+                )}
               </div>
 
               {/* Attendance for the same month, from the clock-in records */}
@@ -495,10 +688,9 @@ function TeamCards({ team, onOpen, onSheet, attendanceBy, subtitle }: {
                 );
               })()}
             </button>
-          ))}
+            );
+          })}
         </div>
-      )}
-    </>
   );
 }
 
@@ -652,8 +844,8 @@ export function AttendanceSheet({ name, month, rows, leave, onClose }: {
 }
 
 /** One KPI inside a team member's card. */
-function StaffStat({ label, value, tone = 'plain', sub }: {
-  label: string; value: string; tone?: 'plain' | 'good' | 'warn' | 'bad' | 'muted'; sub?: string;
+function StaffStat({ label, value, tone = 'plain', sub, subTone = 'bad' }: {
+  label: string; value: string; tone?: 'plain' | 'good' | 'warn' | 'bad' | 'muted'; sub?: string; subTone?: 'bad' | 'muted';
 }) {
   const toneClass = {
     plain: 'text-slate-800', good: 'text-emerald-600', warn: 'text-amber-600',
@@ -663,7 +855,7 @@ function StaffStat({ label, value, tone = 'plain', sub }: {
     <div className="bg-slate-50 rounded-xl py-2 px-1">
       <div className={`text-sm font-bold leading-none ${toneClass}`}>{value}</div>
       <div className="text-[10px] text-slate-400 mt-1 leading-tight">{label}</div>
-      {sub && <div className="text-[10px] text-rose-500 leading-tight">{sub}</div>}
+      {sub && <div className={`text-[10px] leading-tight ${subTone === 'bad' ? 'text-rose-500' : 'text-slate-500'}`}>{sub}</div>}
     </div>
   );
 }

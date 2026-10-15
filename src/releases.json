@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.7.0",
+    "date": "2026-10-15",
+    "title": "See how each salesperson works",
+    "changes": [
+      "The Team section on the Manager Dashboard now opens as a list: one row per salesperson. Tap a column title to sort by it, or a name to see their entries. Switch to Cards at the top right.",
+      "Each person now shows how many entries they logged and how many a day worked, how many of their customer conversations kept a phone number, and how many WhatsApp messages they sent from the app, to how many customers.",
+      "Close rate is hidden until someone logs a lost sale. With none logged, everyone read 100%."
+    ]
+  },
+  {
     "version": "3.6.0",
     "date": "2026-10-13",
     "title": "Your shop's sales, all day",
