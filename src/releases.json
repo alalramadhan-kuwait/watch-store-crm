@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.7.2",
+    "date": "2026-10-17",
+    "title": "Report at a glance",
+    "changes": [
+      "A shared day report now says the day's sales (KD and number of sales) and how many visitors came, right in the message, so it can be read without opening the PDF."
+    ]
+  },
+  {
     "version": "3.7.1",
     "date": "2026-10-15",
     "title": "Faster",

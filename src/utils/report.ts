@@ -224,17 +224,30 @@ const clip = (s: string | undefined, n: number) =>
  * how much room the day actually needs, then again on a page cut to that
  * height. That is what makes the report end where the content ends.
  */
+/* The day's three headline numbers, shared by the PDF's tiles and the line sent with it on
+   WhatsApp, so the message and the report can never disagree.
+ *
+ * Lightspeed is where the sale was rung up, so when it holds the day's sales they are the
+ * report's sales: the same figures the tiles and Close Day use. Sales typed into the app are
+ * then a note-to-self, not a second count. Without Lightspeed's sales (an old day, the sync
+ * down) the report falls back to the typed ones, as it always did.
+ *
+ * Visitors include the buyers: with the till, a sale typed in is not a visit of its own and
+ * each till sale is one visitor; a logged group of browsers counts as its number of people. */
+function dayHeadline(stats: ReturnType<typeof buildDailyStats>, till: ReportTill | null) {
+  const saleCount = till ? till.count : stats.sales.length;
+  const revenue = till ? till.revenue : stats.revenue;
+  const logged = stats.dayCases.reduce((s, c) =>
+    s + (c.caseType === 'No Interaction' ? (c.visitorCount ?? 1) : till && c.caseType === 'Sale' ? 0 : 1), 0);
+  return { saleCount, revenue, revenueText: revenue == null ? '—' : formatKD(revenue), visitors: till ? logged + till.count : logged };
+}
+
 function renderBody(doc: jsPDF, autoTable: typeof AutoTable, pageH: number, date: string, cases: Case[], till: ReportTill | null): number {
   const stats = buildDailyStats(cases);
-  const { sales: typedSales, followups, lost, staffMap: typedStaffMap, dayCases, followUpWins, followUpWinRevenue } = stats;
+  const { followups, lost, staffMap: typedStaffMap, dayCases, followUpWins, followUpWinRevenue } = stats;
   let { brandSalesMap, typeSalesMap } = stats;
 
-  /* Lightspeed is where the sale was rung up, so when it holds the day's sales they are the
-     report's sales: the same figures the tiles and Close Day use. Sales typed into the app are
-     then a note-to-self, not a second count. Without Lightspeed's sales (an old day, the sync
-     down) the report falls back to the typed ones, as it always did. */
-  const saleCount = till ? till.count : typedSales.length;
-  const revenueText = till ? (till.revenue == null ? '—' : formatKD(till.revenue)) : formatKD(stats.revenue);
+  const { saleCount, revenueText, visitors: totalVisitors } = dayHeadline(stats, till);
   const convTotal = saleCount + lost.length;
   const convRate = till ? (convTotal > 0 ? Math.round((saleCount / convTotal) * 100) : 0) : stats.convRate;
   const tillTime = (iso: string) =>
@@ -302,10 +315,6 @@ function renderBody(doc: jsPDF, autoTable: typeof AutoTable, pageH: number, date
   });
 
   // ── Headline figures: three across, two down ─────────────────────────────
-  // With the till, the sales typed in are not visits of their own: each till sale is one visitor.
-  const logged = dayCases.reduce((s, c) =>
-    s + (c.caseType === 'No Interaction' ? (c.visitorCount ?? 1) : till && c.caseType === 'Sale' ? 0 : 1), 0);
-  const totalVisitors = till ? logged + till.count : logged;
   const kpis: { label: string; value: string; hue: Hue }[] = [
     { label: 'Revenue (KD)', value: revenueText, hue: 'teal' },
     { label: 'Sales', value: String(saleCount), hue: 'green' },
@@ -639,7 +648,20 @@ export async function generatePDF(date: string, cases: Case[], outlet?: string, 
     drawHeader(doc, displayDate, p, outlet);
     drawFooter(doc, pageH, p, pages, generatedAt);
   }
-  return doc.output('datauristring');
+  const uri = doc.output('datauristring');
+  rememberSummary(uri, dayHeadline(buildDailyStats(cases), till));
+  return uri;
+}
+
+/* The line that goes with the PDF when it is shared, so whoever receives it sees the day's
+   sales and visitors before opening it. Kept beside the PDF it was built with (the last few
+   only), because the PDF is built ahead and shared later from several screens. */
+const summaries = new Map<string, string>();
+function rememberSummary(uri: string, h: ReturnType<typeof dayHeadline>) {
+  const sales = h.revenue == null ? `${h.saleCount} ${h.saleCount === 1 ? 'sale' : 'sales'}`
+    : `${h.revenue.toLocaleString('en-US', { maximumFractionDigits: 3 })} KD · ${h.saleCount} ${h.saleCount === 1 ? 'sale' : 'sales'}`;
+  summaries.set(uri, `Sales: ${sales}\nVisitors: ${h.visitors}`);
+  while (summaries.size > 4) summaries.delete(summaries.keys().next().value!);
 }
 
 export function downloadReport(date: string, pdfUri: string, outlet?: string) {
@@ -656,6 +678,8 @@ export async function shareReport(
 ): Promise<'shared' | 'downloaded' | 'cancelled'> {
   const fileName = pdfFileName(date, outlet);
   const title = `Daily Store Report — ${date}${outlet ? ` · ${outlet}` : ''}`;
+  const summary = summaries.get(pdfUri);
+  const text = summary ? `${title}\n${summary}` : title;
 
   if (navigator.share) {
     try {
@@ -664,7 +688,7 @@ export async function shareReport(
       const file = new File([blob], fileName, { type: 'application/pdf' });
 
       if (navigator.canShare?.({ files: [file] })) {
-        await navigator.share({ title, text: title, files: [file] });
+        await navigator.share({ title, text, files: [file] });
         return 'shared';
       }
       // this device can't attach files (e.g. desktop) — give them the PDF instead
