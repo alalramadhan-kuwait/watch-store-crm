@@ -2,9 +2,10 @@
   {
     "version": "3.7.2",
     "date": "2026-10-17",
-    "title": "Report at a glance",
+    "title": "Report at a glance, and approvals that stick",
     "changes": [
-      "A shared day report now says the day's sales (KD and number of sales) and how many visitors came, right in the message, so it can be read without opening the PDF."
+      "A shared day report now says the day's sales (KD and number of sales) and how many visitors came, right in the message, so it can be read without opening the PDF.",
+      "Fixed: approving an attendance correction from the Team screen now corrects the day itself. Before, it said Approved but the clock-out stayed missing."
     ]
   },
   {

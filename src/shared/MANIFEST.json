@@ -1,5 +1,5 @@
 {
-  "foundation": "e111f3c94d3d0857",
+  "foundation": "7e773f00df29e4c6",
   "files": {
     "__tests__/corrections.test.ts": "db6cc03877bd5ea6",
     "__tests__/customers.test.ts": "84c51a26235886b2",
@@ -12,6 +12,7 @@
     "__tests__/requests.test.ts": "8bdb6226de334c90",
     "__tests__/run.ts": "da2e89d9b64103ac",
     "__tests__/workload.test.ts": "0262c31a6170ed0a",
+    "attendanceCorrection.ts": "5796f5dec7042c00",
     "attendanceStatus.ts": "da2a6223c37d8a4a",
     "caseLabels.ts": "0b071875fce1f71c",
     "customerTiers.ts": "b07eb995d5b343de",

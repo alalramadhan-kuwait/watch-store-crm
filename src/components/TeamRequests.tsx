@@ -15,9 +15,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { Check, X, AlertTriangle, Clock, Inbox } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
 import {
-  loadRequests, decide, tabOf, stageOf, standingLine, waitedFor, fieldChanges,
+  loadRequests, decide, applyScheduleChange, tabOf, stageOf, standingLine, waitedFor, fieldChanges,
   type RequestRow, type MyStage,
 } from '../shared/requests';
+import { applyCorrection, correctionFromRequest, isApplicable } from '../shared/attendanceCorrection';
+import { supabase } from '../lib/supabase';
 
 const kuwaitDay = (d: string | null) => (!d ? '' : new Date(`${d}T12:00:00+03:00`)
   .toLocaleDateString('en-GB', { timeZone: 'Asia/Kuwait', day: '2-digit', month: 'short' }));
@@ -25,7 +27,7 @@ const kuwaitDay = (d: string | null) => (!d ? '' : new Date(`${d}T12:00:00+03:00
 type Pane = 'pending' | 'done';
 
 export function TeamRequests() {
-  const { role } = useAuth();
+  const { role, user } = useAuth();
   const mine: MyStage = stageOf(role);
   const [rows, setRows] = useState<RequestRow[] | null>(null);
   const [pane, setPane] = useState<Pane>('pending');
@@ -50,10 +52,33 @@ export function TeamRequests() {
     };
   }, [rows, mine]);
 
+  /* The final approval moves the record it is about, as the owner's Inbox does.
+     This screen used to set the status and stop, so on 7 Oct five clock-outs were
+     approved here and the days stayed open: "Approved" beside an unchanged day.
+     The record is written first; if that fails, nothing is marked approved. */
   async function act(r: RequestRow, verdict: 'Approved' | 'Rejected') {
     setBusy(r.id); setErr(null);
+    const finalStage = mine === 'owner';
+    let applied = false;
+    if (verdict === 'Approved' && finalStage && r.kind === 'Attendance correction') {
+      const c = correctionFromRequest(r);
+      if (isApplicable(c)) {
+        const problem = await applyCorrection(c, remarks[r.id]);
+        if (problem) { setErr(problem); setBusy(null); return; }
+        applied = true;
+      }
+    }
+    if (verdict === 'Approved' && finalStage && r.kind === 'Schedule change') {
+      const problem = await applyScheduleChange(r);
+      if (problem) { setErr(problem); setBusy(null); return; }
+    }
     const message = await decide(r, verdict, { stage: mine, remarks: remarks[r.id] });
     if (message) { setErr(message); setBusy(null); return; }
+    if (applied) {
+      await supabase.from('employee_requests')
+        .update({ applied_at: new Date().toISOString(), applied_by: user?.id ?? null })
+        .eq('id', r.id);
+    }
     await reload(); setBusy(null);
   }
 
