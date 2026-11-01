@@ -1,5 +1,5 @@
 {
-  "foundation": "7e773f00df29e4c6",
+  "foundation": "87753970770c9e06",
   "files": {
     "__tests__/corrections.test.ts": "db6cc03877bd5ea6",
     "__tests__/customers.test.ts": "84c51a26235886b2",
@@ -17,7 +17,7 @@
     "caseLabels.ts": "0b071875fce1f71c",
     "customerTiers.ts": "b07eb995d5b343de",
     "live.ts": "d495363087bbd051",
-    "messageRules.ts": "6971476b107e1171",
+    "messageRules.ts": "90bdb7386fd6aade",
     "notifications.ts": "e94b2c5fb965e316",
     "outlets.ts": "042f801e6dafc122",
     "phoneRules.ts": "802bd036749002ab",

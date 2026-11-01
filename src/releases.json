@@ -1,5 +1,15 @@
 [
   {
+    "version": "3.8.0",
+    "date": "2026-11-01",
+    "title": "Customers by brand",
+    "changes": [
+      "Customers has a new Brand filter: pick a brand (or type it in the search, in English or Arabic, like دنيسون) to see everyone who bought it, with what they spent on it and when. Switch to Asked about to see who asked about it on a visit.",
+      "Each customer in a brand list has a WhatsApp button with a ready \"new from the brand\" message, and \"WhatsApp them one by one\" takes you through the list. Anyone messaged in the last 7 days is skipped, so nobody gets it twice.",
+      "A customer's page now shows the brands they have bought, with pieces and KD, and the brands they asked about."
+    ]
+  },
+  {
     "version": "3.7.2",
     "date": "2026-10-17",
     "title": "Report at a glance, and approvals that stick",
