@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.8.1",
+    "date": "2026-11-01",
+    "title": "Brand search, tidier",
+    "changes": [
+      "Typing a brand in the Customers search (like دنيسون) now shows only the brand suggestion, without \"Nobody matches that\" underneath it."
+    ]
+  },
+  {
     "version": "3.8.0",
     "date": "2026-11-01",
     "title": "Customers by brand",
