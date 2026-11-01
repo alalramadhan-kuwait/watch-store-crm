@@ -19,7 +19,7 @@ export type TemplateLang = 'en' | 'ar';
 
 export type TemplateKey =
   | 'interested_followup' | 'post_sale_checkin' | 'birthday'
-  | 'anniversary' | 'back_in_stock' | 'general_followup';
+  | 'anniversary' | 'back_in_stock' | 'general_followup' | 'brand_news';
 
 /**
  * What stands in for the product when a message is not about one in particular,

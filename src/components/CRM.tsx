@@ -3,14 +3,15 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { format } from 'date-fns';
 import {
   Search, Star, Phone, MessageCircle, PlusCircle, ChevronRight, ChevronLeft, Pencil, Cake, Gift,
-  ShoppingBag, Users, Trash2, Plus, ShieldAlert, Clock,
+  ShoppingBag, Users, Trash2, Plus, ShieldAlert, Clock, Tag, X, Check,
 } from 'lucide-react';
 import { useAuth, canSeePerformance } from '../context/AuthContext';
 import { useAppStore } from '../store';
 import {
   getCustomerList, getCustomerProfile, updateCustomerDetails, updateCustomerPhone, assignResponsible,
-  addOccasion, removeOccasion, getRosterEmployees,
+  addOccasion, removeOccasion, getRosterEmployees, getBrandCounts, getBrandCustomers,
   type CustomerListRow, type CustomerProfile, type ProfileVisit, type ProfilePurchase, type ProfileHandoff,
+  type BrandCount, type BrandCustomer,
 } from '../db';
 import { formatKD } from '../utils/formatKD';
 import { caseLabel } from '../shared/caseLabels';
@@ -19,6 +20,8 @@ import { groupOf, GROUP_LABEL, lastSeen, type CustomerGroup } from '../shared/cu
 import { Modal } from './shared/Modal';
 import { CaseTypeBadge } from './shared/Badge';
 import { WhatsAppSheet } from './WhatsAppSheet';
+import { BrandPicker } from './BrandPicker';
+import { matchBrands, useSkeleton } from '../utils/brandMatch';
 import type { TemplateKey } from '../shared/messageRules';
 import type { CaseType } from '../types';
 
@@ -30,6 +33,11 @@ const ago = (iso: string | null) => {
   const d = Math.floor((Date.now() - new Date(iso).getTime()) / 86400000);
   return d <= 0 ? 'today' : d === 1 ? 'yesterday' : d < 30 ? `${d} days ago` : d < 365 ? `${Math.floor(d / 30)} mo ago` : `${Math.floor(d / 365)} yr ago`;
 };
+/** Within the last `days` days. */
+const within = (iso: string | null | undefined, days: number) => !!iso && Date.now() - new Date(iso).getTime() < days * 86400000;
+/** A week is how long a customer is left alone after a brand message. */
+const MESSAGE_REST_DAYS = 7;
+
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
 /**
@@ -61,12 +69,60 @@ export function CRM() {
   const [picked, setPicked] = useState<Filter | null>(params.get('tab') === 'occasions' ? 'occasions' : null);
   const openId = params.get('customer');
 
+  /* Customers by brand: the brand lives in the address, so coming back from a customer's
+     page keeps the list as it was. */
+  const brand = params.get('brand');
+  const [brands, setBrands] = useState<BrandCount[] | null>(null);
+  const [brandMode, setBrandMode] = useState<'bought' | 'asked'>('bought');
+  const [brandWhen, setBrandWhen] = useState<'any' | 'year' | 'older'>('any');
+  const [brandRows, setBrandRows] = useState<Map<string, BrandCustomer> | null>(null);
+  const [picking, setPicking] = useState(false);
+  const [waRow, setWaRow] = useState<CustomerListRow | null>(null);
+  const [sentNow, setSentNow] = useState<Set<string>>(new Set());
+  const searchSkeleton = useSkeleton(search);
+
   const load = useCallback(async () => {
     try { setRows(await getCustomerList()); }
     catch (err) { showToast(err instanceof Error ? err.message : 'Could not load customers.', 'error'); }
     finally { setLoading(false); }
   }, [showToast]);
   useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (shared) return;
+    void getBrandCounts().then(setBrands).catch(() => setBrands([]));
+  }, [shared]);
+
+  useEffect(() => {
+    if (!brand) { setBrandRows(null); return; }
+    let live = true;
+    setBrandRows(null);
+    getBrandCustomers(brand)
+      .then(list => { if (live) setBrandRows(new Map(list.map(b => [b.customerId, b]))); })
+      .catch(err => { if (live) { setBrandRows(new Map()); showToast(err instanceof Error ? err.message : 'Could not load that brand.', 'error'); } });
+    return () => { live = false; };
+  }, [brand, showToast]);
+
+  const setBrand = (b: string | null) => {
+    const next = new URLSearchParams(params);
+    if (b) next.set('brand', b); else next.delete('brand');
+    setParams(next, { replace: true });
+    setSentNow(new Set());
+    if (b) { setPicked('all'); setSearch(''); }
+  };
+
+  const inBrand = useCallback((id: string) => {
+    const b = brandRows?.get(id);
+    if (!b) return false;
+    if (brandMode === 'asked') return !!b.askedAt;
+    if (!b.lastBought) return false;
+    if (brandWhen === 'year') return within(b.lastBought, 365);
+    if (brandWhen === 'older') return !within(b.lastBought, 365);
+    return true;
+  }, [brandRows, brandMode, brandWhen]);
+
+  const messaged = useCallback((id: string) =>
+    sentNow.has(id) || within(brandRows?.get(id)?.lastWhatsApp, MESSAGE_REST_DAYS), [sentNow, brandRows]);
 
   const everyoneMine = useMemo(() => rows.length > 0 && rows.every(r => r.mine), [rows]);
   const filter: Filter = picked ?? (rows.length > 300 ? 'top' : 'all');
@@ -90,6 +146,7 @@ export function CRM() {
         /* A search looks at everybody: typing a name must not depend on which
            group the list happened to open on. */
         if (!q) {
+          if (brand && !inBrand(r.id)) return false;
           if (filter === 'top' || filter === 'win_back' || filter === 'new') { if (groups.get(r.id) !== filter) return false; }
           if (filter === 'mine' && !r.mine) return false;
           if (filter === 'followups' && r.openFollowups === 0) return false;
@@ -101,13 +158,18 @@ export function CRM() {
       })
       .sort((a, b) => {
         if (filter === 'occasions') return (a.nextOccasionDays ?? 999) - (b.nextOccasionDays ?? 999);
+        if (!search && brand && brandRows) {
+          const ba = brandRows.get(a.id), bb = brandRows.get(b.id);
+          if (brandMode === 'asked') return (bb?.askedAt ?? '').localeCompare(ba?.askedAt ?? '') || a.name.localeCompare(b.name);
+          return (bb?.kd ?? 0) - (ba?.kd ?? 0) || a.name.localeCompare(b.name);
+        }
         // The ones that matter most come first: by what they have spent, or for the new, how recently.
         if (!search && (filter === 'top' || filter === 'win_back')) return b.purchasesKD - a.purchasesKD || a.name.localeCompare(b.name);
         const la = lastSeen(a) ?? '';
         const lb = lastSeen(b) ?? '';
         return lb.localeCompare(la) || a.name.localeCompare(b.name);
       });
-  }, [rows, search, filter, groups]);
+  }, [rows, search, filter, groups, brand, brandRows, brandMode, inBrand]);
 
   const openCustomer = (id: string | null) => {
     const next = new URLSearchParams(params);
@@ -133,6 +195,15 @@ export function CRM() {
       openWith={params.get('wa') as TemplateKey | null} />;
   }
 
+  const brandActive = !!brand && !search;
+  const brandTotalKD = brandActive && brandRows && brandMode === 'bought'
+    ? filtered.reduce((t, r) => t + (brandRows.get(r.id)?.kd ?? 0), 0) : 0;
+  const reachable = brandActive ? filtered.filter(r => !!r.phoneE164) : [];
+  const messagedCount = reachable.filter(r => messaged(r.id)).length;
+  const nextUp = reachable.find(r => !messaged(r.id)) ?? null;
+  const brandSuggestions = !brand && brands && search.trim().length >= 2
+    ? matchBrands(brands, search, searchSkeleton, 3) : [];
+
   const chips: { key: Filter; label: string; show: boolean }[] = [
     { key: 'top', label: `Top ${counts.top.toLocaleString()}`, show: rows.length > 300 },
     { key: 'win_back', label: `Win back ${counts.win_back.toLocaleString()}`, show: rows.length > 300 },
@@ -149,17 +220,42 @@ export function CRM() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900">Customers</h1>
           <p className="text-slate-500 text-sm mt-0.5">
-            {search ? `${filtered.length.toLocaleString()} found in all ${rows.length.toLocaleString()}` : `${filtered.length.toLocaleString()} shown · ${rows.length.toLocaleString()} ${everyoneMine ? 'you know' : 'you may see'}`}
+            {search ? `${filtered.length.toLocaleString()} found in all ${rows.length.toLocaleString()}`
+              : brand ? `${brandRows ? filtered.length.toLocaleString() : '…'} ${brandMode === 'bought' ? 'bought' : 'asked about'} ${brand} · ${rows.length.toLocaleString()} ${everyoneMine ? 'you know' : 'you may see'}`
+              : `${filtered.length.toLocaleString()} shown · ${rows.length.toLocaleString()} ${everyoneMine ? 'you know' : 'you may see'}`}
           </p>
         </div>
       </div>
 
       <div className="relative mb-3">
         <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Name or number"
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Name, number or brand"
           className="input pl-9" inputMode="search" />
       </div>
+      {brandSuggestions.length > 0 && (
+        <div className="flex flex-col gap-1.5 mb-3">
+          {brandSuggestions.map(b => (
+            <button key={b.brand} onClick={() => setBrand(b.brand)}
+              className="flex items-center gap-2 px-3 py-2.5 rounded-xl border border-emerald-200 bg-emerald-50 text-left text-sm text-emerald-900 active:bg-emerald-100">
+              <Tag className="w-4 h-4 shrink-0" />
+              <span className="flex-1 min-w-0 truncate">Customers who bought <span className="font-semibold">{b.brand}</span></span>
+              <span className="text-xs tabular-nums shrink-0">{b.bought.toLocaleString()}</span>
+            </button>
+          ))}
+        </div>
+      )}
       <div className="flex gap-1.5 overflow-x-auto pb-3 -mx-1 px-1">
+        {brand ? (
+          <span className="shrink-0 flex items-center rounded-full bg-emerald-700 text-white text-xs font-semibold">
+            <button onClick={() => setPicking(true)} className="flex items-center gap-1 pl-3 pr-1 py-1.5"><Tag className="w-3.5 h-3.5" /> {brand}</button>
+            <button onClick={() => setBrand(null)} aria-label="Clear brand" className="pl-1 pr-2.5 py-1.5"><X className="w-3.5 h-3.5" /></button>
+          </span>
+        ) : (
+          <button onClick={() => setPicking(true)}
+            className="shrink-0 flex items-center gap-1 px-3 py-1.5 rounded-full text-xs font-semibold border bg-white text-slate-600 border-slate-200">
+            <Tag className="w-3.5 h-3.5" /> Brand
+          </button>
+        )}
         {chips.filter(c => c.show).map(c => (
           <button key={c.key} onClick={() => setFilter(c.key)}
             className={`shrink-0 px-3 py-1.5 rounded-full text-xs font-semibold border ${filter === c.key ? 'bg-slate-900 text-white border-slate-900' : 'bg-white text-slate-600 border-slate-200'}`}>
@@ -168,19 +264,60 @@ export function CRM() {
         ))}
       </div>
 
-      {loading ? (
+      {brandActive && (
+        <div className="space-y-2 mb-3">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex rounded-xl bg-slate-100 p-0.5 text-xs font-semibold">
+              {(['bought', 'asked'] as const).map(m => (
+                <button key={m} onClick={() => setBrandMode(m)}
+                  className={`px-3 py-1.5 rounded-lg ${brandMode === m ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>
+                  {m === 'bought' ? 'Bought' : 'Asked about'}
+                </button>
+              ))}
+            </div>
+            {brandMode === 'bought' && (
+              <select value={brandWhen} onChange={e => setBrandWhen(e.target.value as typeof brandWhen)} aria-label="When they bought"
+                className="text-xs font-semibold text-slate-700 bg-white border border-slate-200 rounded-lg px-2 py-1.5">
+                <option value="any">Any time</option>
+                <option value="year">Last 12 months</option>
+                <option value="older">Over a year ago</option>
+              </select>
+            )}
+          </div>
+          {brandRows && brandMode === 'bought' && filtered.length > 0 && (
+            <p className="text-xs text-emerald-900 bg-emerald-50 border border-emerald-100 rounded-xl px-3 py-2">
+              {filtered.length.toLocaleString()} customers · {formatKD(brandTotalKD)} KD on {brand}
+            </p>
+          )}
+          {brandRows && reachable.length > 0 && (
+            <div className="flex items-center gap-3 rounded-2xl bg-slate-900 px-3 py-2.5">
+              <div className="flex-1 min-w-0">
+                <p className="text-sm font-semibold text-white">WhatsApp them one by one</p>
+                <p className="text-[11px] text-slate-300">{messagedCount.toLocaleString()} of {reachable.length.toLocaleString()} messaged this week · each one is skipped for {MESSAGE_REST_DAYS} days</p>
+              </div>
+              <button onClick={() => nextUp && setWaRow(nextUp)} disabled={!nextUp}
+                className="shrink-0 flex items-center gap-1 px-3 py-2 rounded-xl bg-emerald-600 text-white text-sm font-bold disabled:opacity-40">
+                <MessageCircle className="w-4 h-4" /> {nextUp ? 'Next' : 'All done'}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
+      {loading || (brandActive && !brandRows) ? (
         <div className="space-y-2">{[0, 1, 2, 3].map(i => <div key={i} className="h-16 rounded-2xl bg-slate-100 animate-pulse" />)}</div>
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 text-slate-400">
           <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
-          <p className="font-medium">{search ? 'Nobody matches that.' : rows.length ? 'Nobody in this group.' : 'No customers here yet.'}</p>
+          <p className="font-medium">{search ? 'Nobody matches that.' : brand ? `None of your customers ${brandMode === 'bought' ? 'bought' : 'asked about'} ${brand}${brandMode === 'bought' && brandWhen !== 'any' ? ' in that time' : ''}.` : rows.length ? 'Nobody in this group.' : 'No customers here yet.'}</p>
           {!search && !rows.length && <p className="text-sm">A customer appears once you have logged a visit or a sale with their number.</p>}
           {!search && rows.length > 0 && filter !== 'all' && <button onClick={() => setFilter('all')} className="mt-2 text-sm font-semibold text-slate-700 underline">Show all customers</button>}
         </div>
       ) : (
         <div className="card divide-y divide-slate-100 overflow-hidden">
           {filtered.slice(0, 200).map(r => (
-            <button key={r.id} onClick={() => openCustomer(r.id)} className="w-full flex items-center gap-3 px-4 py-3 text-left active:bg-slate-50">
+            <div key={r.id} className="flex items-center">
+            <button onClick={() => openCustomer(r.id)} className="flex-1 min-w-0 flex items-center gap-3 px-4 py-3 text-left active:bg-slate-50">
               <div className="flex-1 min-w-0">
                 <p className="font-semibold text-slate-900 text-sm truncate flex items-center gap-1.5">
                   {r.isVip && <Star className="w-3.5 h-3.5 text-amber-500 fill-amber-400 shrink-0" />}
@@ -197,7 +334,14 @@ export function CRM() {
                       {GROUP_LABEL[groups.get(r.id)!]}
                     </span>
                   )}
-                  {r.purchases > 0 && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700">{r.purchases} {r.purchases === 1 ? 'purchase' : 'purchases'} · {formatKD(r.purchasesKD)} KD</span>}
+                  {brandActive && brandRows?.get(r.id) && (() => {
+                    const b = brandRows.get(r.id)!;
+                    return brandMode === 'bought'
+                      ? <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-teal-50 text-teal-800">{b.pieces} {brand} · {formatKD(b.kd)} KD · {ago(b.lastBought)}</span>
+                      : <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-800">Asked about {brand} {ago(b.askedAt)}</span>;
+                  })()}
+                  {brandActive && messaged(r.id) && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-100 text-green-800 flex items-center gap-0.5"><Check className="w-3 h-3" /> Messaged {ago(sentNow.has(r.id) ? new Date().toISOString() : brandRows?.get(r.id)?.lastWhatsApp ?? null)}</span>}
+                  {r.purchases > 0 && !brandActive && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-emerald-50 text-emerald-700">{r.purchases} {r.purchases === 1 ? 'purchase' : 'purchases'} · {formatKD(r.purchasesKD)} KD</span>}
                   {r.openFollowups > 0 && <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700">{r.openFollowups} open follow-up{r.openFollowups > 1 ? 's' : ''}</span>}
                   {r.nextOccasionDays != null && r.nextOccasionDays <= 30 && (
                     <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-pink-50 text-pink-700">
@@ -205,12 +349,31 @@ export function CRM() {
                     </span>
                   )}
                 </div>
+                {brandActive && brandMode === 'bought' && (brandRows?.get(r.id)?.models.length ?? 0) > 0 && (
+                  <p className="text-[11px] text-slate-400 truncate mt-1">{brandRows!.get(r.id)!.models.join(' · ')}</p>
+                )}
               </div>
               <ChevronRight className="w-4 h-4 text-slate-300 shrink-0" />
             </button>
+            {brandActive && r.phoneE164 && (
+              <button onClick={() => setWaRow(r)} aria-label={`WhatsApp ${r.name}`}
+                className="shrink-0 mr-3 w-11 h-11 rounded-xl bg-emerald-600 text-white flex items-center justify-center active:bg-emerald-700">
+                <MessageCircle className="w-5 h-5" />
+              </button>
+            )}
+            </div>
           ))}
           {filtered.length > 200 && <p className="px-4 py-3 text-xs text-slate-400 text-center">Showing the first 200. Search to narrow it down.</p>}
         </div>
+      )}
+
+      {picking && <BrandPicker brands={brands} value={brand} onClose={() => setPicking(false)} onPick={b => { setPicking(false); setBrand(b); }} />}
+      {waRow && brand && (
+        <WhatsAppSheet
+          target={{ customerId: waRow.id, name: waRow.name !== waRow.contact ? waRow.name : null, phone: waRow.phoneE164 }}
+          product={brand} defaultTemplate="brand_news"
+          onClose={() => setWaRow(null)}
+          onOpened={() => { const id = waRow.id; setSentNow(prev => new Set(prev).add(id)); }} />
       )}
     </div>
   );
@@ -254,6 +417,34 @@ function CustomerPage({ id, onBack, onChanged, canAssign, openWith }: { id: stri
       ...p.purchases.map(pu => ({ kind: 'purchase' as const, at: pu.at, p: pu })),
       ...p.handoffs.map(h => ({ kind: 'handoff' as const, at: h.at, h })),
     ].sort((a, b) => b.at.localeCompare(a.at));
+  }, [p]);
+
+  /* What they have bought, brand by brand, and the brands they asked about on a visit. */
+  const brandSummary = useMemo(() => {
+    const bought = new Map<string, { brand: string; pieces: number; kd: number; last: string }>();
+    const asked = new Map<string, string>();
+    if (p) {
+      for (const pu of p.purchases) {
+        if (pu.is_return) continue;
+        for (const it of pu.items ?? []) {
+          const b = it.brand?.trim();
+          if (!b) continue;
+          const e = bought.get(b) ?? { brand: b, pieces: 0, kd: 0, last: pu.at };
+          e.pieces += Number(it.qty ?? 0); e.kd += Number(it.total ?? 0);
+          if (pu.at > e.last) e.last = pu.at;
+          bought.set(b, e);
+        }
+      }
+      for (const v of p.visits) {
+        const b = v.brand?.trim();
+        if (!b || (v.case_type !== 'Follow-up' && v.case_type !== 'Lost Sale') || /^others?$/i.test(b)) continue;
+        if (!asked.has(b) || v.at > asked.get(b)!) asked.set(b, v.at);
+      }
+    }
+    return {
+      bought: [...bought.values()].sort((a, b) => b.kd - a.kd),
+      asked: [...asked].map(([brand, at]) => ({ brand, at })).sort((a, b) => b.at.localeCompare(a.at)),
+    };
   }, [p]);
 
   if (p === undefined) return <div className="p-4 space-y-3">{[0, 1, 2].map(i => <div key={i} className="h-24 rounded-2xl bg-slate-100 animate-pulse" />)}</div>;
@@ -322,6 +513,45 @@ function CustomerPage({ id, onBack, onChanged, canAssign, openWith }: { id: stri
           <p className="text-[11px] text-slate-400 mt-2 text-center">Purchases shown are the ones credited to you.</p>
         )}
       </div>
+
+      {/* ── brands ── */}
+      {(brandSummary.bought.length > 0 || brandSummary.asked.length > 0) && (
+        <div className="card p-4">
+          <h2 className="font-bold text-slate-900 mb-2">Brands</h2>
+          {brandSummary.bought.length > 0 && (
+            <div className="divide-y divide-slate-100">
+              {brandSummary.bought.map(b => (
+                <div key={b.brand} className="flex items-center gap-3 py-2">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-semibold text-slate-900 truncate">{b.brand}</p>
+                    <p className="text-xs text-slate-500">{b.pieces} {b.pieces === 1 ? 'piece' : 'pieces'} · last {ago(b.last)}</p>
+                  </div>
+                  <span className="text-sm font-semibold text-teal-800 tabular-nums shrink-0">{formatKD(b.kd)} KD</span>
+                  {c.phone_e164 && (
+                    <button onClick={() => setWa({ template: 'brand_news', product: b.brand })} aria-label={`WhatsApp about ${b.brand}`}
+                      className="shrink-0 w-9 h-9 rounded-xl border border-emerald-200 text-emerald-700 flex items-center justify-center">
+                      <MessageCircle className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+          {brandSummary.asked.length > 0 && (
+            <div className={brandSummary.bought.length ? 'pt-2 mt-1 border-t border-slate-100' : ''}>
+              <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">Asked about</p>
+              <div className="flex flex-wrap gap-1.5">
+                {brandSummary.asked.map(a => (
+                  <span key={a.brand} className="text-xs font-semibold px-2 py-1 rounded-full bg-amber-50 text-amber-800">{a.brand} · {ago(a.at)}</span>
+                ))}
+              </div>
+            </div>
+          )}
+          {role === 'sales' && brandSummary.bought.length > 0 && (
+            <p className="text-[11px] text-slate-400 mt-2">From the purchases credited to you.</p>
+          )}
+        </div>
+      )}
 
       {/* ── details ── */}
       <div className="card p-4 space-y-2 text-sm">

@@ -1301,6 +1301,52 @@ export async function getCustomerProfile(id: string): Promise<CustomerProfile | 
   };
 }
 
+// ── Customers by brand ───────────────────────────────────────────────────────
+// What each customer bought (Lightspeed sale lines) or asked about (a follow-up or lost sale
+// logged with a brand), worked out by the database under the caller's own rules, as
+// customer_list() is: a salesperson reaches only their own customers.
+
+export interface BrandCount { brand: string; bought: number; asked: number; kd: number; skeleton: string }
+
+export async function getBrandCounts(): Promise<BrandCount[]> {
+  const { data, error } = await supabase.rpc('customer_brand_counts');
+  if (error) throw new Error(error.message);
+  return ((data ?? []) as Record<string, unknown>[]).map(r => ({
+    brand: r.brand as string, bought: Number(r.bought ?? 0), asked: Number(r.asked ?? 0),
+    kd: Number(r.kd ?? 0), skeleton: (r.skeleton as string) ?? '',
+  }));
+}
+
+export interface BrandCustomer {
+  customerId: string; pieces: number; kd: number; lastBought: string | null; models: string[];
+  askedAt: string | null; lastWhatsApp: string | null;
+}
+
+/** The customers for one brand, read a page at a time (a big brand passes the 1,000-row page). */
+export async function getBrandCustomers(brand: string): Promise<BrandCustomer[]> {
+  const PAGE = 1000;
+  const all: Record<string, unknown>[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await supabase.rpc('brand_customers', { p_brand: brand }).range(from, from + PAGE - 1);
+    if (error) throw new Error(error.message);
+    const page = (data ?? []) as Record<string, unknown>[];
+    all.push(...page);
+    if (page.length < PAGE) break;
+  }
+  return all.map(r => ({
+    customerId: r.customer_id as string, pieces: Number(r.pieces ?? 0), kd: Number(r.kd ?? 0),
+    lastBought: (r.last_bought as string | null) ?? null, models: (r.models as string[] | null) ?? [],
+    askedAt: (r.asked_at as string | null) ?? null, lastWhatsApp: (r.last_whatsapp as string | null) ?? null,
+  }));
+}
+
+/** A name reduced to its consonant sounds, the database's own rule, so دنيسون finds Dennison. */
+export async function nameSkeleton(text: string): Promise<string> {
+  const { data, error } = await supabase.rpc('name_skeleton', { p_text: text });
+  if (error) throw new Error(error.message);
+  return (data as string | null) ?? '';
+}
+
 export interface CustomerDetailsPatch {
   displayName?: string; email?: string; birthday?: string | null; anniversary?: string | null;
   personalNotes?: string; isVip?: boolean; preferredBrands?: string[]; instagram?: string;
