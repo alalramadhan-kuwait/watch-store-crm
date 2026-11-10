@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import {
-  tabOf, counts, stageOf, standingLine, waitedFor, fieldChanges, reminderState, whenShort,
+  tabOf, counts, stageOf, standingLine, waitedFor, fieldChanges, reminderState, whenShort, requesterWords,
   REMIND_COOLDOWN_HOURS, type RequestRow,
 } from '../requestRules';
 
@@ -187,6 +187,16 @@ t('a reminder time reads as today, yesterday, then a date', () => {
   assert.equal(whenShort('2026-09-18T09:15:00+03:00', now), 'today 09:15');
   assert.equal(whenShort('2026-09-17T17:40:00+03:00', now), 'yesterday 17:40');
   assert.equal(whenShort('2026-09-12T08:00:00+03:00', now), '12 Sep');
+});
+
+t('the reason is what the employee wrote, not the times the app wrote', () => {
+  assert.equal(requesterWords({ reason: '2026-11-09 — out 17:25', details: '2026-11-09 — out 17:25: Left 1 hour  early not feeling well' }),
+    'Left 1 hour early not feeling well');
+  assert.equal(requesterWords({ reason: 'Forgot to clock out', details: 'Forgot to clock out: out 22:03' }), 'Forgot to clock out');
+  assert.equal(requesterWords({ reason: '2026-10-17 — out 19:05', details: '2026-10-17 — out 19:05: .' }), null);
+  assert.equal(requesterWords({ reason: 'Sick - 2026-11-10 to 2026-11-10', details: 'Sick - 2026-11-10 to 2026-11-10' }), null);
+  assert.equal(requesterWords({ reason: 'Sick - 2026-10-11 to 2026-10-11 - Food poisoning ', details: null }), 'Food poisoning');
+  assert.equal(requesterWords({ reason: 'New phone number', details: null }), 'New phone number');
 });
 
 console.log(`${n} request checks passed`);

@@ -16,7 +16,7 @@ t('pending leave is not deducted from the balance', () => {
     { approval_status: 'Approved', leave_type: 'Annual', leave_end: '2026-12-20', days: 7 },
     { approval_status: 'Pending',  leave_type: 'Annual', leave_end: '2026-11-01', days: 4 },
   ] as never, 30, now);
-  assert.deepEqual(b, { entitlement: 30, taken: 5, booked: 7, remaining: 18 });
+  assert.deepEqual(b, { year: 2026, entitlement: 30, taken: 5, booked: 7, remaining: 18, overdrawn: 0, sick: 0, wfh: 0, pending: 1 });
 });
 
 t('sick leave is not a holiday', () => {
@@ -39,6 +39,34 @@ t('a balance never goes below zero', () => {
   ] as never, 30, now);
   assert.equal(b.remaining, 0);
   assert.equal(b.taken, 40);
+  assert.equal(b.overdrawn, 10);
+});
+
+t('sick and work-from-home days are counted for this year only', () => {
+  const b = leaveBalance([
+    { approval_status: 'Approved', leave_type: 'Sick', leave_start: '2026-09-01', leave_end: '2026-09-01', days: 1 },
+    { approval_status: 'Approved', leave_type: 'Sick', leave_start: '2026-10-28', leave_end: '2026-10-28', days: 1 },
+    { approval_status: 'Cancelled', leave_type: 'Sick', leave_start: '2026-09-15', leave_end: '2026-09-15', days: 1 },
+    { approval_status: 'Approved', leave_type: 'Sick', leave_start: '2025-12-30', leave_end: '2025-12-30', days: 1 },
+    { approval_status: 'Approved', leave_type: 'WFH', leave_start: '2026-08-19', leave_end: '2026-08-19', days: 1 },
+  ] as never, 30, now);
+  assert.equal(b.sick, 2);
+  assert.equal(b.wfh, 1);
+  assert.equal(b.remaining, 30);
+});
+
+t('leave with no type is annual leave', () => {
+  const b = leaveBalance([
+    { approval_status: 'Approved', leave_type: null, leave_start: '2026-06-14', leave_end: '2026-06-25', days: 9 },
+  ] as never, 30, now);
+  assert.equal(b.taken, 9);
+});
+
+t('leave from last year does not use this year\'s entitlement', () => {
+  const b = leaveBalance([
+    { approval_status: 'Approved', leave_type: 'Annual', leave_start: '2025-12-20', leave_end: '2025-12-28', days: 6 },
+  ] as never, 30, now);
+  assert.equal(b.remaining, 30);
 });
 
 t('distance to the Time Gallery geofence is metres, not degrees', () => {

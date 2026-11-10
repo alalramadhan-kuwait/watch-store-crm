@@ -20,7 +20,9 @@ export interface Geofence {
 }
 
 export interface PortalLeaveLike {
-  leave_type: string | null;
+  leave_type?: string | null;
+  /** The year a leave belongs to is the year it starts in; without it, the year it ends in. */
+  leave_start?: string;
   leave_end: string;
   days: number | null;
   approval_status: string;
@@ -75,18 +77,36 @@ export function fencesNear(fences: Geofence[], at: Position): NearFence[] {
 }
 
 export interface LeaveBalance {
+  /** The calendar year (Kuwait) the figures are for. */
+  year: number;
   entitlement: number;
+  /** Approved annual leave this year that has already happened. */
   taken: number;
+  /** Approved annual leave this year still to come. */
   booked: number;
+  /** What is left of the entitlement, never below zero. */
   remaining: number;
+  /** Annual days approved beyond the entitlement (0 when within it). */
+  overdrawn: number;
+  /** Approved sick days this year. */
+  sick: number;
+  /** Approved work-from-home days this year. */
+  wfh: number;
+  /** Requests of any type still waiting for a decision, whatever their year. */
+  pending: number;
 }
 
+/** A leave with no type was entered before types existed: it is annual leave. */
+export const leaveTypeOf = (l: { leave_type?: string | null }): string => l.leave_type || 'Annual';
+
 /**
- * Where their annual leave stands.
+ * Where someone's leave stands this year — the one calculation behind the Leave
+ * page, My Portal in both apps, and the dashboards.
  *
  * Approved days in the past are taken; approved days still to come are booked.
  * Pending requests are neither — nobody has agreed to them yet. Only annual
- * leave counts against the entitlement; sick leave is not a holiday.
+ * leave counts against the entitlement; sick leave is not a holiday and
+ * working from home is not leave. A leave counts in the year it starts.
  */
 export function leaveBalance(
   leaves: PortalLeaveLike[],
@@ -94,13 +114,26 @@ export function leaveBalance(
   at: Date = new Date(),
 ): LeaveBalance {
   const today = todayKuwait(at);
-  const annual = leaves.filter(
-    (l) => l.approval_status === 'Approved' && (l.leave_type ?? 'Annual') === 'Annual',
+  const year = Number(today.slice(0, 4));
+  const thisYear = leaves.filter(
+    (l) => l.approval_status === 'Approved' && Number((l.leave_start ?? l.leave_end).slice(0, 4)) === year,
   );
-  const taken = annual.filter((l) => l.leave_end < today).reduce((t, l) => t + Number(l.days ?? 0), 0);
-  const booked = annual.filter((l) => l.leave_end >= today).reduce((t, l) => t + Number(l.days ?? 0), 0);
+  const sum = (rows: PortalLeaveLike[]) => rows.reduce((t, l) => t + Number(l.days ?? 0), 0);
+  const annual = thisYear.filter((l) => leaveTypeOf(l) === 'Annual');
+  const taken = sum(annual.filter((l) => l.leave_end < today));
+  const booked = sum(annual.filter((l) => l.leave_end >= today));
   const total = Number(entitlement ?? 0);
-  return { entitlement: total, taken, booked, remaining: Math.max(0, total - taken - booked) };
+  return {
+    year,
+    entitlement: total,
+    taken,
+    booked,
+    remaining: Math.max(0, total - taken - booked),
+    overdrawn: Math.max(0, taken + booked - total),
+    sick: sum(thisYear.filter((l) => leaveTypeOf(l) === 'Sick')),
+    wfh: sum(thisYear.filter((l) => leaveTypeOf(l) === 'WFH')),
+    pending: leaves.filter((l) => l.approval_status === 'Pending').length,
+  };
 }
 
 

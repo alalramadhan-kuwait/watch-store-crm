@@ -306,6 +306,9 @@ export function CRM() {
 
       {loading || (brandActive && !brandRows) ? (
         <div className="space-y-2">{[0, 1, 2, 3].map(i => <div key={i} className="h-16 rounded-2xl bg-slate-100 animate-pulse" />)}</div>
+      ) : filtered.length === 0 && search && brandSuggestions.length > 0 ? (
+        /* The word is a brand, not a name: the suggestion above is the answer. */
+        null
       ) : filtered.length === 0 ? (
         <div className="text-center py-16 text-slate-400">
           <Users className="w-12 h-12 mx-auto mb-3 opacity-30" />
