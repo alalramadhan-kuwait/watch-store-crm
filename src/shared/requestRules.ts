@@ -210,6 +210,40 @@ export function fieldChanges(r: RequestRow): FieldChange[] {
   return [];
 }
 
+/* ---------------------------------------------------- in their own words */
+
+/** Text the app wrote itself: a date and the asked-for times, "in 09:10", "out 17:25". */
+const MACHINE = /^(\d{4}-\d{2}-\d{2}\s*—|(in|out)\s+\d{1,2}:\d{2})/i;
+/** A leave row reads "Sick - 2026-10-11 to 2026-10-11", then " - their note" when they wrote one. */
+const LEAVE_LINE = /^[A-Za-z ]+ - \d{4}-\d{2}-\d{2} to \d{4}-\d{2}-\d{2}(?:\s*-\s*([\s\S]*))?$/;
+
+/**
+ * What the employee actually wrote, or null when they wrote nothing.
+ *
+ * A correction is stored as "2026-11-09 — out 17:25: Left 1 hour early", and
+ * the Inbox used to show the part before the colon as the reason — the date and
+ * times it had just shown in the table — and never the employee's words. Older
+ * corrections are the other way round ("Forgot to clock out: out 22:03"), and
+ * a lone "." is what people type to get past a required box: that is nothing.
+ */
+export function requesterWords(r: Pick<RequestRow, 'reason' | 'details'>): string | null {
+  const clean = (s: string | null | undefined) => {
+    const t = s?.replace(/\s+/g, ' ').trim();
+    return t && !/^[.\-–—_\s]*$/.test(t) ? t : null;
+  };
+  const reason = r.reason?.trim() ?? '';
+  const details = r.details?.trim() ?? '';
+  const leave = (details || reason).match(LEAVE_LINE);
+  if (leave) return clean(leave[1]);
+  if (reason && details.startsWith(reason) && details[reason.length] === ':') {
+    const rest = details.slice(reason.length + 1).trim();
+    if (MACHINE.test(reason)) return clean(rest);
+    return MACHINE.test(rest) ? clean(reason) : clean(details);
+  }
+  if (MACHINE.test(reason) && !details) return null;
+  return clean(reason || details);
+}
+
 /* --------------------------------------------------------------- reminders */
 
 /** How long a nudge has to settle before another one is worth sending. */
