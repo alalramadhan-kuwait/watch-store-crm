@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.8.2",
+    "date": "2026-11-10",
+    "title": "Leave balance, same everywhere",
+    "changes": [
+      "My Portal's annual leave left and sick days are now worked out the same way as in the back office, so both apps show the same numbers."
+    ]
+  },
+  {
     "version": "3.8.1",
     "date": "2026-11-01",
     "title": "Brand search, tidier",

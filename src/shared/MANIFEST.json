@@ -1,5 +1,5 @@
 {
-  "foundation": "87753970770c9e06",
+  "foundation": "27f710b718b7224e",
   "files": {
     "__tests__/corrections.test.ts": "db6cc03877bd5ea6",
     "__tests__/customers.test.ts": "84c51a26235886b2",
@@ -7,7 +7,7 @@
     "__tests__/labels.test.ts": "39009423d91b5c61",
     "__tests__/message.test.ts": "85d021611b46a047",
     "__tests__/phone.test.ts": "6131d16272ef8af7",
-    "__tests__/portal.test.ts": "5ccc69f87361aeb6",
+    "__tests__/portal.test.ts": "a33e047d80429176",
     "__tests__/punctuality.test.ts": "e43c98f47a4ab55c",
     "__tests__/requests.test.ts": "8bdb6226de334c90",
     "__tests__/run.ts": "da2e89d9b64103ac",
@@ -22,7 +22,7 @@
     "outlets.ts": "042f801e6dafc122",
     "phoneRules.ts": "802bd036749002ab",
     "portal.ts": "76c28cabd5f11ebb",
-    "portalRules.ts": "5633090e4d89f6ef",
+    "portalRules.ts": "0d6c278ceee0dbd8",
     "punctuality.ts": "487e1a18325ad115",
     "requestRules.ts": "490e4be384ad0e82",
     "requests.ts": "cb927563a356bbd0",

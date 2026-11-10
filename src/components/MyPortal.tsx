@@ -15,7 +15,7 @@ import { dayHours, totalHours, type DayHours } from '../shared/workedHours';
 import {
   fencesNear, clockIn as portalClockIn, clockOut as portalClockOut,
   applyForLeave, reviseLeave, cancelLeave as portalCancelLeave,
-  planCorrection, requestCorrection, submitRequest as portalSubmitRequest,
+  planCorrection, requestCorrection, submitRequest as portalSubmitRequest, leaveBalance,
 } from '../shared/portal';
 import { useLive } from '../shared/live';
 
@@ -452,12 +452,9 @@ export function MyPortal() {
 
   // ── summaries ─────────────────────────────────────────────────────────────
   const leaveSummary = useMemo(() => {
-    const year = new Date().getFullYear();
-    const inYear = (l: LeaveRec) => new Date(l.leave_start).getFullYear() === year;
-    const annualTaken = leaves.filter(l => l.leave_type === 'Annual' && l.approval_status === 'Approved' && inYear(l)).reduce((s, l) => s + Number(l.days), 0);
-    const sickTaken = leaves.filter(l => l.leave_type === 'Sick' && l.approval_status === 'Approved' && inYear(l)).reduce((s, l) => s + Number(l.days), 0);
-    const entitlement = Number(emp?.annual_leave_entitlement ?? 30);
-    return { annualTaken, sickTaken, entitlement, remaining: entitlement - annualTaken };
+    // the one leave calculation both apps and the Leave page share (shared/portalRules)
+    const b = leaveBalance(leaves, emp?.annual_leave_entitlement ?? null);
+    return { annualTaken: b.taken + b.booked, sickTaken: b.sick, pending: b.pending, entitlement: b.entitlement, remaining: b.remaining };
   }, [leaves, emp]);
 
   const monthStats = useMemo(() => {
