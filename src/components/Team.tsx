@@ -15,8 +15,8 @@ import { weekProgress, targetState } from '../shared/weeklyTarget';
 import { useAuth, canSeePerformance } from '../context/AuthContext';
 import { TeamRequests } from './TeamRequests';
 import type { AttendanceDay, LeaveDay } from '../db';
+import { todayKuwait } from '../shared/kuwaitTime';
 
-const todayKuwait = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
 const hhmm = (iso: string | null) => (!iso ? '—' : new Date(iso)
   .toLocaleTimeString('en-KW', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kuwait' }));
 const hm = (hours: number) => `${Math.floor(hours)}h ${String(Math.round((hours % 1) * 60)).padStart(2, '0')}m`;

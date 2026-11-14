@@ -7,6 +7,7 @@ import { shiftHours } from '../shared/workedHours';
 import { scheduleFromRow, type Schedule, type ScheduleRow } from '../shared/schedule';
 import { todayKuwait } from '../shared/portalRules';
 import { sellingOutlets, resolveOutlet } from '../shared/outlets';
+import { kuwaitDateOf as kuwaitDay } from '../shared/kuwaitTime';
 
 // ── DB row types ──────────────────────────────────────────────────────────────
 
@@ -825,9 +826,6 @@ const readTeamDirectory = sharedRead<TeamMemberHR[]>(async () => {
 });
 
 /** Kuwait-local yyyy-mm-dd for a timestamp. The shops are all in one timezone. */
-function kuwaitDay(ts: string): string {
-  return new Date(ts).toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
-}
 
 /** Attendance for one month, keyed by roster name. `to` is exclusive. */
 export async function getTeamAttendance(from: string, to: string): Promise<AttendanceDay[]> {

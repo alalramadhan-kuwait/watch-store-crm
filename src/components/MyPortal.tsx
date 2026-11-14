@@ -9,7 +9,7 @@ import {
 import { supabase } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useAppStore } from '../store';
-import { lateClassOf, isEarlyLeave, workingDaysBetween, kuwaitMinutes } from '../utils/attendance';
+import { isEarlyLeave, workingDaysBetween, kuwaitMinutes } from '../utils/attendance';
 import { locationBlockedMessage, locationAlreadyDenied, CORRECTION_FALLBACK } from '../utils/locationHelp';
 import { dayHours, totalHours, type DayHours } from '../shared/workedHours';
 import {
@@ -18,6 +18,7 @@ import {
   planCorrection, requestCorrection, submitRequest as portalSubmitRequest, leaveBalance,
 } from '../shared/portal';
 import { useLive } from '../shared/live';
+import { todayKuwait, kuwaitISO, kuwaitTimeOf as kuwaitHM, kuwaitDateOf as kwDate } from '../shared/kuwaitTime';
 
 /**
  * The salesperson's own page: attendance, leave and HR record.
@@ -42,8 +43,6 @@ interface Geofence { id: string; name: string; lat: number; lng: number; radius_
 
 const STANDARD_DAY_HOURS = 8;
 const fmtTime = (iso: string) => new Date(iso).toLocaleTimeString('en-KW', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kuwait' });
-const todayKuwait = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
-const kwDate = (iso: string) => new Date(iso).toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
 
 /** A month of records folded into one entry per Kuwait day, hours and all. The
  *  rule is in src/shared/workedHours.ts, so this agrees with the back office. */
@@ -61,10 +60,7 @@ const groupByDay = (records: Array<{ clock_in: string; clock_out: string | null 
 
 /** A Kuwait wall-clock time on a given day, as an instant. Kuwait is UTC+3 all
  *  year — no daylight saving — so the offset can be written down. */
-const kuwaitISO = (date: string, time: string) => new Date(`${date}T${time}:00+03:00`).toISOString();
 /** The HH:MM an instant reads as in Kuwait, for prefilling a time input. */
-const kuwaitHM = (iso: string) => new Intl.DateTimeFormat('en-GB',
-  { timeZone: 'Asia/Kuwait', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date(iso));
 const hm = (hours: number) => { const m = Math.max(0, Math.round(hours * 60)); return `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, '0')}m`; };
 const fmtDur = (aIso: string, bIso: string | null, now: number) => {
   const mins = Math.max(0, Math.floor(((bIso ? new Date(bIso).getTime() : now) - new Date(aIso).getTime()) / 60000));
@@ -308,7 +304,7 @@ export function MyPortal() {
         position: { latitude, longitude, accuracy },
         // Lateness is about when the day started. A second shift that begins in
         // the evening is not "late" — only the first clock-in is judged.
-        isLate: todayRecs.length === 0 && lateClassOf(now.toISOString(), workStart) !== 'On time',
+        isLate: todayRecs.length === 0 && (punctOf(todayKuwait(), [{ clock_in: now.toISOString(), clock_out: null }]).hoursLate ?? 0) > 0,
       });
       // Reload either way: a refusal usually means a shift is already open
       // (another phone or tab), and the page should show it rather than a stale button.
@@ -457,6 +453,14 @@ export function MyPortal() {
     return { annualTaken: b.taken + b.booked, sickTaken: b.sick, pending: b.pending, entitlement: b.entitlement, remaining: b.remaining };
   }, [leaves, emp]);
 
+  /** One day, judged by the shared rule against their own shift (the shop default when they have none). */
+  function punctOf(date: string, recs: Array<{ clock_in: string; clock_out: string | null; justified?: boolean | null }>) {
+    return dayPunctuality(
+      { date, schedules, records: recs.map((r) => ({ clockIn: r.clock_in, clockOut: r.clock_out, justified: r.justified })) },
+      { defaultStart: workStart, graceMinutes: 60 },
+    );
+  }
+
   const monthStats = useMemo(() => {
     // Group first: a split shift is one day worked, and the hours add up.
     // Counting per record would call a morning-plus-evening day two days, and
@@ -495,19 +499,26 @@ export function MyPortal() {
     return { days, late, onTime: Math.max(0, judged - late), judged, noShift, lateHours, missingHours };
   }, [monthRecs, workStart, schedules]);
 
+  /* The history panel is judged the same way as the month above: by the shared
+     rule, against this person's own shift. It used to count the late flag saved
+     at clock-in, which was set against the office's start for everybody. */
+  const histJudged = useMemo(() => {
+    const byDate = new Map<string, AttRec[]>();
+    for (const r of histRecs) { const d = kwDate(r.clock_in); byDate.set(d, [...(byDate.get(d) ?? []), r]); }
+    return new Map([...byDate.entries()].map(([d, rs]) => [d, punctOf(d, rs)]));
+  }, [histRecs, workStart, schedules]);
+  const histFirstIds = useMemo(() => {
+    const first = new Map<string, AttRec>();
+    for (const r of histRecs) { const d = kwDate(r.clock_in); const seen = first.get(d); if (!seen || r.clock_in < seen.clock_in) first.set(d, r); }
+    return new Set([...first.values()].map((r) => r.id));
+  }, [histRecs]);
   const histStats = useMemo(() => {
     const byDay = groupByDay(histRecs);
-    const firstOfDay = new Map<string, AttRec>();
-    for (const r of histRecs) {
-      const d = kwDate(r.clock_in);
-      const seen = firstOfDay.get(d);
-      if (!seen || r.clock_in < seen.clock_in) firstOfDay.set(d, r);
-    }
     const days = byDay.size;
     const hours = totalHours([...byDay.values()]);
-    const late = [...firstOfDay.values()].filter(r => r.is_late && !r.justified).length;
+    const late = [...histJudged.values()].filter((d) => (d.hoursLate ?? 0) > 0).length;
     return { days, hours, late, onTime: Math.max(0, days - late) };
-  }, [histRecs]);
+  }, [histRecs, histJudged]);
 
   const allRequests = useMemo(() => [
     ...leaves.map(l => ({
@@ -568,7 +579,7 @@ export function MyPortal() {
     todayRecs.map((r) => ({ clockIn: r.clock_in, clockOut: r.clock_out })), new Date(nowMs),
   ).hours ?? 0) * 3_600_000;
   // Only the first clock-in of the day carries the lateness.
-  const lateClass = firstRec ? lateClassOf(firstRec.clock_in, workStart) : null;
+  const lateClass = firstRec ? punctOf(todayKuwait(), todayRecs).lateClass : null;
   const lateLabel = lateClass && lateClass !== 'On time' && !firstRec?.justified ? lateClass : null;
   const portalReady = !!emp && emp.portal_enabled !== false;
   const onPaidLeaveToday = !!todayLeave && todayLeave.leave_type !== 'WFH';
@@ -986,12 +997,10 @@ export function MyPortal() {
             ) : (
               <ul className="divide-y divide-slate-100">
                 {histRecs.map(r => {
-                  // is_late was decided at clock-in; the class is recomputed from the
-                  // work-start time as it stands now. If that has since changed they can
-                  // disagree, and an amber dot reading "On time" helps nobody.
-                  const cls = lateClassOf(r.clock_in, workStart);
+                  // only the clock-in that opened the day can be late, judged against their own shift
+                  const verdict = histFirstIds.has(r.id) ? histJudged.get(kwDate(r.clock_in)) : undefined;
                   const st = r.justified ? { t: 'Justified', dot: 'bg-emerald-500', c: 'text-emerald-600' }
-                    : r.is_late ? { t: cls === 'On time' ? 'Late' : cls, dot: 'bg-amber-500', c: 'text-amber-600' }
+                    : verdict && (verdict.hoursLate ?? 0) > 0 ? { t: verdict.lateClass ?? 'Late', dot: 'bg-amber-500', c: 'text-amber-600' }
                     : { t: 'On time', dot: 'bg-emerald-500', c: 'text-emerald-600' };
                   return (
                     <li key={r.id} className="py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1">

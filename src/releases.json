@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.8.3",
+    "date": "2026-11-14",
+    "title": "Late or on time, judged by your own shift",
+    "changes": [
+      "My Portal's attendance history and today's status now judge lateness against your own shift, the same way the monthly summary already did. A day that started on time for your shift no longer shows as late."
+    ]
+  },
+  {
     "version": "3.8.2",
     "date": "2026-11-10",
     "title": "Leave balance, same everywhere",
