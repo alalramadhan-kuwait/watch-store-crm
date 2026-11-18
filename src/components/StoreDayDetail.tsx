@@ -4,8 +4,8 @@ import { loadStoreDay, type StoreDayData } from '../db/storeToday';
 import { storeDay, standings, STANDING_WORD, type TeamStanding } from '../utils/storeDay';
 import { sameOutlet } from '../utils/outlet';
 import { rangeDayLabel } from '../utils/dateLabel';
+import { todayKuwait } from '../shared/kuwaitTime';
 
-const todayKuwait = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
 const ymdAdd = (ymd: string, n: number) => {
   const d = new Date(`${ymd}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);

@@ -21,8 +21,8 @@ import { WeekBar } from './WeekTarget';
 import { PushCard } from './PushCard';
 import { weekProgress, targetState } from '../shared/weeklyTarget';
 import type { Case } from '../types';
+import { todayKuwait } from '../shared/kuwaitTime';
 
-const todayKuwait = () => new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kuwait' });
 const hhmm = (iso: string) => new Date(iso)
   .toLocaleTimeString('en-KW', { hour: '2-digit', minute: '2-digit', hour12: true, timeZone: 'Asia/Kuwait' });
 const hm = (ms: number) => `${Math.floor(ms / 3600000)}h ${String(Math.floor((ms % 3600000) / 60000)).padStart(2, '0')}m`;
