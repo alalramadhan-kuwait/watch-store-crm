@@ -29,7 +29,7 @@ export const kuwaitTimeOf = (iso: string): string => shifted(iso)?.toISOString()
 /* ------------------------------------------------------------------- leave */
 
 /** The kinds of leave somebody can ask for. */
-export const LEAVE_TYPES = ['Annual', 'Sick', 'WFH'] as const;
+export const LEAVE_TYPES = ['Annual', 'Sick', 'WFH', 'Work trip'] as const;
 export type LeaveType = (typeof LEAVE_TYPES)[number];
 
 /**

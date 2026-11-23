@@ -33,6 +33,6 @@ t('leave days skip Fridays and count both ends', () => {
   assert.equal(workingDaysBetween('', '2026-11-10'), 0);
 });
 
-t('three kinds of leave', () => { assert.deepEqual([...LEAVE_TYPES], ['Annual', 'Sick', 'WFH']); });
+t('four kinds of leave', () => { assert.deepEqual([...LEAVE_TYPES], ['Annual', 'Sick', 'WFH', 'Work trip']); });
 
 console.log(`${n} Kuwait time checks passed`);
