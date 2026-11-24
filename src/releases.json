@@ -1,5 +1,13 @@
 [
   {
+    "version": "3.8.4",
+    "date": "2026-11-24",
+    "title": "An honest message when requests do not load",
+    "changes": [
+      "My requests and Team requests now say when the requests could not be loaded, with a Retry button, instead of showing an empty list."
+    ]
+  },
+  {
     "version": "3.8.3",
     "date": "2026-11-14",
     "title": "Late or on time, judged by your own shift",

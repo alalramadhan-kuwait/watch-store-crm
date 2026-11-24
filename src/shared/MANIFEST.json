@@ -1,5 +1,5 @@
 {
-  "foundation": "f13c55c1a9134769",
+  "foundation": "c646bfabc94977d9",
   "files": {
     "__tests__/corrections.test.ts": "db6cc03877bd5ea6",
     "__tests__/customers.test.ts": "84c51a26235886b2",
@@ -11,7 +11,8 @@
     "__tests__/portal.test.ts": "a33e047d80429176",
     "__tests__/punctuality.test.ts": "e43c98f47a4ab55c",
     "__tests__/requests.test.ts": "47ca82dfa56574af",
-    "__tests__/run.ts": "2abacec65277ada0",
+    "__tests__/run.ts": "176c96aa376ace03",
+    "__tests__/tillSales.test.ts": "fa60f2c9a553dd79",
     "__tests__/workload.test.ts": "0262c31a6170ed0a",
     "attendanceCorrection.ts": "5796f5dec7042c00",
     "attendanceStatus.ts": "da2a6223c37d8a4a",
@@ -27,9 +28,10 @@
     "portalRules.ts": "0d6c278ceee0dbd8",
     "punctuality.ts": "487e1a18325ad115",
     "requestRules.ts": "c327ac817a8c50c2",
-    "requests.ts": "cb927563a356bbd0",
+    "requests.ts": "0ddd200f7c2e3296",
     "schedule.ts": "0ad746ffc806a36d",
     "storeDay.ts": "3d6c851090aedaa4",
+    "tillSales.ts": "fe817eab2ce421d5",
     "weeklyTarget.ts": "88353e47e7b4da65",
     "workedHours.ts": "cfdaa605b953189c",
     "workload.ts": "1ba6c19212b6f504"

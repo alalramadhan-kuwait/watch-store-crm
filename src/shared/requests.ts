@@ -78,6 +78,12 @@ export interface LoadOptions {
   limit?: number;
 }
 
+export interface LoadedRequests {
+  rows: RequestRow[];
+  /** Why the read failed, or null. When set, `rows` is empty and means unknown. */
+  error: string | null;
+}
+
 /**
  * Read requests.
  *
@@ -85,16 +91,19 @@ export interface LoadOptions {
  * manager sees only the outlets they are scoped to, an employee sees their own.
  * No app passes a location filter, because an app that could pass one could
  * pass the wrong one.
+ *
+ * A failed read comes back as an error, never as an empty list: on 23 Nov a
+ * failing database turned this into "Nothing is waiting on you".
  */
-export async function loadRequests(opts: LoadOptions = {}): Promise<RequestRow[]> {
+export async function loadRequests(opts: LoadOptions = {}): Promise<LoadedRequests> {
   let q = supabase.from('v_requests').select('*');
   if (opts.employeeUserId) q = q.eq('employee_user_id', opts.employeeUserId);
   if (opts.openOnly) q = q.neq('stage_owner', 'nobody');
   q = q.order('submitted_at', { ascending: opts.newestFirst === false });
   if (opts.limit) q = q.limit(opts.limit);
   const { data, error } = await q;
-  if (error) return [];
-  return (data ?? []) as unknown as RequestRow[];
+  if (error) return { rows: [], error: error.message || 'The requests could not be read.' };
+  return { rows: (data ?? []) as unknown as RequestRow[], error: null };
 }
 
 /* ---------------------------------------------------------------- reminders */

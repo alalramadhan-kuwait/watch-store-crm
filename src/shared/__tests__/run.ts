@@ -16,3 +16,4 @@ import './labels.test';
 import './message.test';
 import './customers.test';
 import './kuwaitTime.test';
+import './tillSales.test';
