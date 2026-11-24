@@ -170,3 +170,56 @@ export function eventDates(from: string, to: string): string {
   if (from.slice(0, 7) === to.slice(0, 7)) return `${dd(from)}–${dd(to)} ${mon(to)}`;
   return `${dd(from)} ${mon(from)} – ${dd(to)} ${mon(to)}`;
 }
+
+/** "2026-11" → "2026-10"; "2026-01" → "2025-12". */
+export const prevMonthOf = (month: string): string => {
+  const [y, m] = month.split('-').map(Number);
+  return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`;
+};
+
+export interface DaySales {
+  date: string;
+  /** Regular channels only, as the target is. */
+  sales: number;
+  count: number;
+}
+
+/** One day's regular till sales: what "yesterday" shows. Events are left out. */
+export function daySales(rows: TillRow[], date: string, registry: Outlet[] = OUTLETS): DaySales {
+  const regular = new Set<string>(sellingOutlets(registry).map((o) => o.code));
+  const mine = rows.filter((r) => r.sale_date.slice(0, 10) === date && r.channel_code !== null && regular.has(r.channel_code));
+  return { date, sales: mine.reduce((t, r) => t + n(r.revenue), 0), count: mine.reduce((t, r) => t + n(r.sale_count), 0) };
+}
+
+export interface SameDays {
+  /** The month compared with, e.g. "2026-10". */
+  month: string;
+  from: string;
+  to: string;
+  /** Regular channels together over those days. */
+  sales: number;
+  byChannel: Partial<Record<OutletCode, number>>;
+  /** How many till rows fell in the range: 0 means no figures, not a month of nothing. */
+  rows: number;
+}
+
+/**
+ * The same days of the month before: 1–23 Oct when November's tills run to the
+ * 23rd. A shorter month is cut at its own end (1–28 Feb for a month at the 30th).
+ * Regular channels only, as the target is.
+ */
+export function sameDaysBefore(rows: TillRow[], month: string, tillDays: number, registry: Outlet[] = OUTLETS): SameDays {
+  const prev = prevMonthOf(month);
+  const last = Math.min(tillDays, daysInMonthOf(prev));
+  const from = `${prev}-01`;
+  const to = `${prev}-${String(last).padStart(2, '0')}`;
+  const codes = sellingOutlets(registry).map((o) => o.code);
+  const regular = new Set<string>(codes);
+  const mine = rows.filter((r) => {
+    const d = r.sale_date.slice(0, 10);
+    return d >= from && d <= to && r.channel_code !== null && regular.has(r.channel_code);
+  });
+  const byChannel: Partial<Record<OutletCode, number>> = {};
+  for (const c of codes) byChannel[c] = mine.filter((r) => r.channel_code === c).reduce((t, r) => t + n(r.revenue), 0);
+  return { month: prev, from, to, sales: mine.reduce((t, r) => t + n(r.revenue), 0), byChannel, rows: mine.length };
+}

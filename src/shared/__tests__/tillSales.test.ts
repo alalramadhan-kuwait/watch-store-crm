@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { monthSales, eventDates, daysInMonthOf, type TillRow } from '../tillSales';
+import { monthSales, eventDates, daysInMonthOf, daySales, sameDaysBefore, prevMonthOf, type TillRow } from '../tillSales';
 
 let n = 0; const t = (_: string, f: () => void) => { f(); n++; };
 
@@ -92,6 +92,40 @@ t('month lengths and event date spans read the calendar', () => {
   assert.equal(daysInMonthOf('2028-02'), 29);
   assert.equal(eventDates('2026-11-12', '2026-11-12'), '12 Nov');
   assert.equal(eventDates('2026-10-28', '2026-11-02'), '28 Oct – 2 Nov');
+});
+
+/* October 2026, the same days and the rest: 1–23 Oct came to 68,139.5 across
+   the four channels; the 31st is outside the comparison. */
+const oct: TillRow[] = [
+  row('avenues', '2026-10-01', 38859.8, 200),
+  row('time_gallery', '2026-10-12', 3491, 30),
+  row('online', '2026-10-23', 19263.7, 100),
+  row('whatsapp', '2026-10-20', 6525, 30),
+  row('online', '2026-10-24', 9322, 22),
+  row(null, '2026-10-10', 999, 1, 'Pop-up'),
+];
+
+t('yesterday is the regular channels on that day, without the event', () => {
+  const y = daySales([...nov, row(null, '2026-11-23', 500, 2, 'Expo')], '2026-11-23');
+  assert.equal(y.sales, 2006);
+  assert.equal(y.count, 12);
+  assert.equal(daySales(nov, '2026-11-24').count, 0);
+});
+
+t('the same days last month stop at the same till day', () => {
+  const s = sameDaysBefore([...nov, ...oct], '2026-11', 23);
+  assert.equal(s.month, '2026-10');
+  assert.equal(s.from, '2026-10-01');
+  assert.equal(s.to, '2026-10-23');
+  close(s.sales, 68139.5);
+  close(s.byChannel.online ?? null, 19263.7);
+  assert.equal(Math.round(((61039.3 - s.sales) / s.sales) * 100), -10);
+  assert.equal(sameDaysBefore(nov, '2026-11', 23).rows, 0);
+});
+
+t('a shorter month before is cut at its own end, and January looks back to December', () => {
+  assert.equal(sameDaysBefore([], '2026-03', 30).to, '2026-02-28');
+  assert.equal(prevMonthOf('2027-01'), '2026-12');
 });
 
 console.log(`tillSales: ${n} checks passed`);

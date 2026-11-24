@@ -1,5 +1,5 @@
 {
-  "foundation": "da8b0267c94aa679",
+  "foundation": "c646bfabc94977d9",
   "files": {
     "__tests__/corrections.test.ts": "db6cc03877bd5ea6",
     "__tests__/customers.test.ts": "84c51a26235886b2",
@@ -12,7 +12,7 @@
     "__tests__/punctuality.test.ts": "e43c98f47a4ab55c",
     "__tests__/requests.test.ts": "47ca82dfa56574af",
     "__tests__/run.ts": "176c96aa376ace03",
-    "__tests__/tillSales.test.ts": "931a68d0408d3be4",
+    "__tests__/tillSales.test.ts": "fa60f2c9a553dd79",
     "__tests__/workload.test.ts": "0262c31a6170ed0a",
     "attendanceCorrection.ts": "5796f5dec7042c00",
     "attendanceStatus.ts": "da2a6223c37d8a4a",
@@ -31,7 +31,7 @@
     "requests.ts": "0ddd200f7c2e3296",
     "schedule.ts": "0ad746ffc806a36d",
     "storeDay.ts": "3d6c851090aedaa4",
-    "tillSales.ts": "9820adbaa7f26cae",
+    "tillSales.ts": "fe817eab2ce421d5",
     "weeklyTarget.ts": "88353e47e7b4da65",
     "workedHours.ts": "cfdaa605b953189c",
     "workload.ts": "1ba6c19212b6f504"

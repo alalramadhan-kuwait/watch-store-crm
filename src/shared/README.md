@@ -18,7 +18,7 @@ one schedule reading, one store open/close rule.
 | `portalRules.ts` | The portal rules that need nothing plugged in. |
 | `customerTiers.ts` | Which customers are worth the day's attention — top, win back, new? |
 | `weeklyTarget.ts` | Is a salesperson keeping up with this week's target? (Saturday–Friday) |
-| `tillSales.ts` | The month's till sales against the monthly target: regular channels only, events on their own line. |
+| `tillSales.ts` | The month's till sales against the monthly target: regular channels only, events on their own line; one day's sales and the same days of last month. |
 | `live.ts` | Keeping a current-day screen up to date without polling. |
 
 `portal.ts` and `live.ts` are the two files here that talk to the network. It imports the
