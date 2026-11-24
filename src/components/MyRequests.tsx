@@ -35,12 +35,16 @@ export default function MyRequests({ userId }: { userId: string | null }) {
   const [rows, setRows] = useState<RequestRow[] | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
+  const [loadErr, setLoadErr] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
 
   const load = useCallback(async () => {
     if (!userId) { setRows([]); return; }
-    setRows(await loadRequests({ employeeUserId: userId }));
+    const { rows: mine, error } = await loadRequests({ employeeUserId: userId });
+    /* A failed read is not "you have not asked for anything": say so. */
+    setLoadErr(error);
+    setRows((r) => (error ? r ?? [] : mine));
   }, [userId]);
   useEffect(() => { void load(); }, [load]);
 
@@ -71,7 +75,15 @@ export default function MyRequests({ userId }: { userId: string | null }) {
         <p className="m-3 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">{err}</p>
       )}
 
-      {rows.length === 0 ? (
+      {loadErr && (
+        <div role="alert" className="m-3 flex flex-wrap items-center justify-between gap-2 text-sm text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+          <span>Your requests could not be loaded: {loadErr}</span>
+          <button type="button" onClick={() => { void load(); }}
+            className="min-h-[40px] rounded-lg border border-rose-300 bg-white px-3 font-semibold text-rose-700">Retry</button>
+        </div>
+      )}
+
+      {rows.length === 0 && loadErr ? null : rows.length === 0 ? (
         <p className="px-4 py-8 text-center text-sm text-slate-400">You have not asked for anything yet.</p>
       ) : (
         <ul className="divide-y divide-slate-100">

@@ -18,6 +18,7 @@ one schedule reading, one store open/close rule.
 | `portalRules.ts` | The portal rules that need nothing plugged in. |
 | `customerTiers.ts` | Which customers are worth the day's attention — top, win back, new? |
 | `weeklyTarget.ts` | Is a salesperson keeping up with this week's target? (Saturday–Friday) |
+| `tillSales.ts` | The month's till sales against the monthly target: regular channels only, events on their own line. |
 | `live.ts` | Keeping a current-day screen up to date without polling. |
 
 `portal.ts` and `live.ts` are the two files here that talk to the network. It imports the
@@ -60,6 +61,11 @@ next to one that cannot: `portalRules.ts` holds the portal's rules and
   attendance, no geofence and no opening time.
 - **Never compare outlet text with `===`.** Four systems spell these four
   outlets four different ways.
+- **Event sales are not in the monthly target.** The target is the four
+  regular channels' targets added up; a register with no channel (the Expo
+  stand) is its own line, with no target, until the owner says otherwise.
+- **A failed read is unknown, never empty.** `loadRequests` returns its error;
+  a screen that shows "nothing waiting" from a failed read is lying.
 - **Realtime is for today only.** A subscription on a historical report is
   traffic nobody benefits from. And a table delivers nothing at all unless it is
   in the `supabase_realtime` publication — two screens subscribed for months

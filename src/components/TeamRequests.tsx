@@ -35,7 +35,14 @@ export function TeamRequests() {
   const [err, setErr] = useState<string | null>(null);
   const [remarks, setRemarks] = useState<Record<string, string>>({});
 
-  async function reload() { setRows(await loadRequests()); }
+  const [loadErr, setLoadErr] = useState<string | null>(null);
+
+  /* A failed read is not "Nothing waiting": say so, keep whatever was showing. */
+  async function reload() {
+    const { rows: all, error } = await loadRequests();
+    setLoadErr(error);
+    setRows((r) => (error ? r ?? [] : all));
+  }
   useEffect(() => { reload(); }, []);
 
   /* Two panes here rather than the owner's three. He does not need "waiting on
@@ -113,9 +120,17 @@ export function TeamRequests() {
         <p className="m-3 text-sm text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">{err}</p>
       )}
 
+      {loadErr && (
+        <div role="alert" className="m-3 flex flex-wrap items-center justify-between gap-2 text-sm text-rose-700 bg-rose-50 border border-rose-100 rounded-xl px-3 py-2">
+          <span>Requests could not be loaded, so this list is not complete: {loadErr}</span>
+          <button type="button" onClick={() => { void reload(); }}
+            className="min-h-[44px] rounded-xl border border-rose-200 bg-white px-3 font-semibold text-rose-700 active:bg-rose-100">Retry</button>
+        </div>
+      )}
+
       {rows === null ? (
         <p className="px-4 py-8 text-center text-sm text-slate-400">Loading…</p>
-      ) : shown.length === 0 ? (
+      ) : shown.length === 0 && loadErr ? null : shown.length === 0 ? (
         <p className="px-4 py-8 text-center text-sm text-slate-400">
           {pane === 'pending' ? 'Nothing waiting.' : 'Nothing settled yet.'}
         </p>
